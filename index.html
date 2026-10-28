@@ -21,6 +21,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
 
 :root, [data-theme="dark"] {
+    color-scheme: dark;
     --bg: #0c0a08;
     --card: #16120d;
     --card-2: #1d1811;
@@ -36,6 +37,7 @@
     --shadow: rgba(0,0,0,0.5);
 }
 [data-theme="light"] {
+    color-scheme: light;
     --bg: #faf8f5;
     --card: #ffffff;
     --card-2: #f4f0e8;
@@ -292,38 +294,97 @@ button { font-family: inherit; cursor: pointer; }
 
 footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--edge); font-size: 11px; color: var(--faint); line-height: 1.6; }
 
+/* ---------- views ---------- */
+.hero { padding: 26px 2px 22px; text-align: center; }
+.hero h2 { font-size: 27px; font-weight: 800; letter-spacing: -0.7px; margin-bottom: 8px; }
+.hero p { font-size: 14px; color: var(--muted); line-height: 1.55; max-width: 330px; margin: 0 auto 22px; }
+.hero-field { display: block; max-width: 300px; margin: 0 auto; }
+.hero-field .k { display: block; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); margin-bottom: 9px; }
+.hero-inp {
+    text-align: center; font-size: 34px !important; font-weight: 700;
+    letter-spacing: 5px; text-indent: 5px; min-height: 66px; padding: 10px;
+    text-transform: uppercase;
+}
+.hero-inp::placeholder { letter-spacing: 5px; opacity: 0.28; }
+.hero-hint { display: block; font-size: 11px; color: var(--faint); margin-top: 9px; }
+.hero-hint.bad { color: var(--bad); }
+
+.card { background: var(--card); border: 1px solid var(--edge); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+.opt { text-transform: none; letter-spacing: 0; color: var(--faint); font-weight: 400; }
+.btn.big { width: 100%; min-height: 54px; font-size: 16px; }
+
+.results-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.back {
+    width: 42px; height: 42px; flex-shrink: 0; border-radius: 11px;
+    border: 1px solid var(--edge); background: var(--card); color: var(--text);
+    font-size: 19px; line-height: 1;
+}
+.back:active { transform: translateY(1px); }
+.trip-summary { font-size: 13px; font-weight: 700; line-height: 1.4; min-width: 0; }
+.trip-summary span { display: block; font-size: 11px; font-weight: 400; color: var(--muted); margin-top: 2px; }
+
+.filters { background: var(--card); border: 1px solid var(--edge); border-radius: 12px; padding: 13px 14px; margin-bottom: 14px; }
+.filters .pills { margin-bottom: 0; margin-top: 10px; }
+
 /* ---------- search form ---------- */
 .search { background: var(--card); border: 1px solid var(--edge); border-radius: 14px; padding: 16px; margin-bottom: 18px; }
 .search h2 { font-size: 13px; font-weight: 700; letter-spacing: 0.3px; margin-bottom: 14px; }
-.search-grid { display: grid; grid-template-columns: 90px 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.search-grid { display: grid; grid-template-columns: 96px 1fr 1fr; gap: 12px; margin-bottom: 18px; }
+.search-grid.two { grid-template-columns: 1fr 1fr; }
 .search-grid label, .person-row label { display: block; }
 .search-grid .k { display: block; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); margin-bottom: 5px; }
 .inp {
-    width: 100%; background: var(--card-2); color: var(--text);
-    border: 1px solid var(--edge); border-radius: 8px; padding: 9px 10px;
-    font-family: 'JetBrains Mono', monospace; font-size: 14px; font-variant-numeric: tabular-nums;
+    width: 100%; min-height: 44px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--edge); border-radius: 10px; padding: 10px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    /* 16px keeps iOS from zooming the page when a field takes focus. */
+    font-size: 16px; font-variant-numeric: tabular-nums;
+    -webkit-appearance: none; appearance: none;
 }
 .inp::placeholder { color: var(--faint); }
-.inp:focus { outline: none; border-color: var(--accent); }
+.inp:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+}
 .inp.name { font-family: 'Inter', sans-serif; }
+/* Date and time fields need room for the native segments, AM/PM included. */
+.inp[type="date"], .inp[type="time"] {
+    min-width: 0; padding-right: 8px;
+    font-size: 16px; letter-spacing: -0.2px;
+}
+.inp[type="date"]::-webkit-calendar-picker-indicator,
+.inp[type="time"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.5) sepia(1) saturate(4) hue-rotate(5deg);
+    opacity: 0.9; cursor: pointer;
+}
+.inp[type="time"]::-webkit-datetime-edit-ampm-field { padding: 0 2px; font-weight: 700; }
 .person-row { display: grid; grid-template-columns: 28px 1fr 104px 30px; gap: 8px; align-items: center; margin-bottom: 8px; }
 .person-row .avatar { font-size: 10px; }
 .row-x { background: none; border: none; color: var(--faint); font-size: 18px; line-height: 1; padding: 4px; }
 .row-x:hover { color: var(--bad); }
 .search-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
 .btn {
-    border-radius: 9px; padding: 11px 16px; font-size: 13px; font-weight: 700;
-    border: 1px solid var(--edge); background: var(--card-2); color: var(--text);
-    transition: all 0.15s;
+    border-radius: 10px; min-height: 44px; padding: 12px 18px;
+    font-size: 14px; font-weight: 700;
+    border: 1px solid var(--edge); background: var(--card); color: var(--text);
+    box-shadow: 0 1px 0 var(--edge);
+    transition: transform 0.12s, border-color 0.15s, box-shadow 0.15s;
 }
 .btn:hover { border-color: var(--accent); }
-.btn.primary { background: var(--accent); color: #0c0a08; border-color: var(--accent); }
-.btn.primary:disabled { opacity: 0.5; cursor: default; }
-.btn.ghost { background: none; }
-.band-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 2px; }
-.band-row .k { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
-.band-row .inp { width: 108px; }
-.band-row .sep { font-size: 12px; color: var(--muted); }
+/* Movement only on the actual press, so the resting state never reads as sunken. */
+.btn:active { transform: translateY(1px); box-shadow: none; }
+.btn.primary {
+    background: var(--accent); color: #0c0a08; border-color: var(--accent);
+    box-shadow: 0 1px 0 rgba(0,0,0,0.25);
+}
+.btn.primary:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
+.btn.ghost { background: transparent; box-shadow: none; }
+.band-row { margin: 0 0 2px; }
+.band-row .k { display: block; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
+.band-inputs { display: flex; align-items: center; gap: 8px; }
+.band-inputs .inp { flex: 1 1 0; min-width: 0; }
+.band-row .sep { font-size: 12px; color: var(--muted); flex: 0 0 auto; }
+.band-inputs .pill { flex: 0 0 auto; }
 .band-free { font-size: 11px; color: var(--good); margin-top: 6px; }
 
 .budget-line { font-size: 11px; color: var(--faint); margin-top: 12px; line-height: 1.5; }
@@ -333,7 +394,10 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--edge);
 @media (max-width: 480px) {
     .search-grid { grid-template-columns: 1fr 1fr; }
     .search-grid label:first-child { grid-column: 1 / -1; }
-    .person-row { grid-template-columns: 24px 1fr 92px 26px; }
+    .search-grid.two { grid-template-columns: 1fr 1fr; }
+    .search-grid.two label:first-child { grid-column: auto; }
+    .person-row { grid-template-columns: 26px 1fr 96px 30px; }
+    .btn { flex: 1 1 auto; }
     .board-head, .row { grid-template-columns: 1fr 76px 58px 62px; font-size: 13px; }
     .verdict-big { font-size: 32px; }
     .container { padding: 14px 14px 40px; }
@@ -376,33 +440,43 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--edge);
     <div class="notice bad hidden" id="noticeIncomplete"></div>
     <div class="notice bad hidden" id="noticeError"></div>
 
-    <div class="search" id="search">
-        <h2>Who's flying, and where to?</h2>
-        <div class="search-grid">
-            <label><span class="k">To</span><input class="inp" id="qDest" placeholder="PIT" maxlength="3" autocapitalize="characters"></label>
-            <label><span class="k">Depart</span><input class="inp" id="qDepart" type="date"></label>
-            <label><span class="k">Return</span><input class="inp" id="qReturn" type="date"></label>
+    <div id="search">
+        <div class="hero">
+            <h2>Everyone lands together</h2>
+            <p>Three or more people, three or more cities, one destination.</p>
+            <label class="hero-field">
+                <span class="k">Where are you all going?</span>
+                <input class="inp hero-inp" id="qDest" placeholder="SJD" maxlength="3"
+                       autocapitalize="characters" autocomplete="off" enterkeyhint="next">
+                <span class="hero-hint" id="destHint">3-letter airport code</span>
+            </label>
         </div>
-        <div class="band-row">
-            <span class="k" id="bandLabel">Land between</span>
-            <input class="inp" id="qFrom" type="time">
-            <span class="sep">and</span>
-            <input class="inp" id="qTo" type="time">
-            <button class="pill" id="bandClear">any time</button>
-        </div>
-        <div class="band-free hidden" id="bandFree"></div>
 
-        <div id="people"></div>
-        <div class="field-note">Airport codes only (SFO, ORD). Several per person is fine — "SFO,OAK,SJC" still counts as one search. Names are optional.</div>
-        <div class="search-actions">
-            <button class="btn ghost" id="addPerson">+ Add person</button>
-            <button class="btn ghost" id="tryExample">See an example</button>
-            <button class="btn primary" id="goSearch">Find flights</button>
+        <div class="card">
+            <div class="search-grid two">
+                <label><span class="k">Depart</span><input class="inp" id="qDepart" type="date"></label>
+                <label><span class="k">Return <span class="opt">optional</span></span><input class="inp" id="qReturn" type="date"></label>
+            </div>
+
+            <div class="k" style="margin-bottom:8px">Who's flying</div>
+            <div id="people"></div>
+            <div class="field-note">Airport codes only. Several per person is fine — "SFO,OAK,SJC" still counts as one search. Names optional.</div>
+            <div class="search-actions">
+                <button class="btn ghost" id="addPerson">+ Add person</button>
+                <button class="btn ghost" id="tryExample">See an example</button>
+            </div>
         </div>
+
+        <button class="btn primary big" id="goSearch">Find flights</button>
         <div class="budget-line" id="budgetLine"></div>
     </div>
 
     <div id="results" class="hidden">
+        <div class="results-bar">
+            <button class="back" id="backBtn" aria-label="Change trip">&larr;</button>
+            <div class="trip-summary" id="tripSummary"></div>
+        </div>
+
         <div class="trip-bar">
             <div class="leg-tabs">
                 <button data-leg="outbound" class="active">Landing together</button>
@@ -411,6 +485,21 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--edge);
         </div>
 
         <div class="verdict" id="verdict"></div>
+
+        <div class="filters">
+            <div class="band-row">
+                <span class="k" id="bandLabel">Land between</span>
+                <div class="band-inputs">
+                    <input class="inp" id="qFrom" type="time">
+                    <span class="sep">and</span>
+                    <input class="inp" id="qTo" type="time">
+                    <button class="pill" id="bandClear">any time</button>
+                </div>
+            </div>
+            <div class="pills" id="stopPills"></div>
+            <div class="band-free hidden" id="bandFree"></div>
+        </div>
+
         <div class="pills" id="recommendPills"></div>
 
         <div class="board">
@@ -453,7 +542,7 @@ var APP = {
 var PALETTE = ['#ffb000', '#4ade80', '#38bdf8', '#c084fc', '#fb923c', '#f472b6', '#2dd4bf', '#facc15'];
 
 var DATA = null, SET = null, BUDGET = null;
-var state = { leg: 'outbound', threshold: null, recommend: 'tightest',
+var state = { view: 'home', leg: 'outbound', threshold: null, recommend: 'tightest',
               query: null, busy: false, error: null };
 var cache = null;
 
@@ -516,6 +605,7 @@ function blankQuery() {
          * out, and LEAVE together on the way home. They are different times of
          * day, so sharing one band between the legs would be wrong. */
         band: { outbound: { from: '', to: '' }, return: { from: '', to: '' } },
+        maxStops: null,
         travelers: [newPerson(0), newPerson(1), newPerson(2)]
     };
 }
@@ -560,7 +650,8 @@ function compute() {
     var field = state.leg === 'outbound' ? 'arrive' : 'depart';
 
     var band = bandMinutes();
-    var prep = FWF.prepare(legData, ids, field, band);
+    var maxStops = state.query.maxStops;
+    var prep = FWF.prepare(legData, ids, field, { band: band, maxStops: maxStops });
     var costFn = FWF.makeCostFn(travelers, {
         assumedCheckedBagFee: APP.assumedCheckedBagFee,
         assumedCarryOnFee: APP.assumedCarryOnFee,
@@ -568,13 +659,14 @@ function compute() {
     });
 
     var out = {
-        travelers: travelers, ids: ids, prep: prep, costFn: costFn, band: band,
+        travelers: travelers, ids: ids, prep: prep, costFn: costFn,
+        band: band, maxStops: maxStops,
         tight: null, ladder: null, target: null, subset: null, anyTimeCost: null
     };
 
     /* What the band costs is only meaningful against the same search with no
      * band, so compute that too. It is free -- same options, no extra request. */
-    if (band) {
+    if (band || maxStops != null) {
         var open = FWF.prepare(legData, ids, field);
         if (open.complete) {
             var openBest = FWF.minCostAtWindow(open, FWF.INF, costFn);
@@ -583,7 +675,7 @@ function compute() {
     }
 
     if (!prep.complete) {
-        out.subset = band ? FWF.bestSubset(prep, SET.target, costFn) : null;
+        out.subset = (band || maxStops != null) ? FWF.bestSubset(prep, SET.target, costFn) : null;
         return out;
     }
 
@@ -635,20 +727,50 @@ function recommendedThreshold(c) {
 
 function render() {
     cache = compute();
+    var showResults = state.view === 'results' && !!cache;
+
+    el('search').classList.toggle('hidden', showResults);
+    el('results').classList.toggle('hidden', !showResults);
+
     renderNotices();
-    renderLegTabs();
     renderBudget();
     renderFooter();
     el('profileBtn').innerHTML = SET.meId ? esc(initials(meName())) : '&#9881;';
     el('goSearch').textContent = state.busy ? 'Searching…' : 'Find flights';
     el('goSearch').disabled = state.busy;
 
-    if (!cache) { el('results').classList.add('hidden'); return; }
-    el('results').classList.remove('hidden');
+    if (!showResults) return;
+
+    renderLegTabs();
+    renderTripSummary();
+    renderStopPills();
     renderVerdict();
     renderPills();
     renderBoard();
     renderPlan();
+}
+
+function renderTripSummary() {
+    var q = state.query;
+    var n = q.travelers.length;
+    var dates = q.depart + (q.ret ? ' → ' + q.ret : ' · one way');
+    el('tripSummary').innerHTML = esc(parseCodes(q.dest)[0] || '???')
+        + ' · ' + n + ' ' + (n === 1 ? 'person' : 'people')
+        + '<span>' + esc(dates) + ' · tap back to change</span>';
+}
+
+function renderStopPills() {
+    var opts = [
+        { v: 0, label: 'Nonstop only' },
+        { v: 1, label: 'Up to 1 stop' },
+        { v: null, label: 'Any' }
+    ];
+    el('stopPills').innerHTML = '<span class="pills-label">Stops</span>'
+        + opts.map(function (o) {
+            var on = state.query.maxStops === o.v;
+            return '<button class="pill' + (on ? ' active' : '') + '" data-stops="'
+                + (o.v === null ? '' : o.v) + '">' + o.label + '</button>';
+        }).join('');
 }
 
 function meName() {
@@ -661,10 +783,11 @@ function travelerName(id) {
     return t ? t.name : id;
 }
 
-/* "No flights at all" and "flights, but none in your window" are different
- * problems with different fixes, so they must not share a message. */
-function bandBlocked() {
-    if (!cache || !cache.band || !cache.prep) return [];
+/* "No flights at all" and "flights, but your filters removed them all" are
+ * different problems with different fixes, so they must not share a message.
+ * Anyone with dropped options is in the second category, whichever filter did it. */
+function filteredOut() {
+    if (!cache || !cache.prep) return [];
     return cache.prep.missing.filter(function (id) {
         return (cache.prep.dropped || {})[id] > 0;
     });
@@ -673,6 +796,15 @@ function bandBlocked() {
 function bandText() {
     var b = currentBand();
     return b.from + '–' + b.to;
+}
+
+/* Names the filters actually in force, so the message says what to loosen. */
+function activeFilterText() {
+    var bits = [];
+    if (cache.band) bits.push(legVerb() + ' between ' + bandText());
+    if (cache.maxStops === 0) bits.push('are nonstop');
+    else if (cache.maxStops != null) bits.push('have at most ' + cache.maxStops + ' stop');
+    return bits.join(' and ');
 }
 
 function legVerb() { return state.leg === 'outbound' ? 'land' : 'leave'; }
@@ -697,6 +829,14 @@ function fillBand() {
     var b = currentBand();
     el('qFrom').value = b.from || '';
     el('qTo').value = b.to || '';
+}
+
+function goHome() {
+    state.query = readForm();
+    state.view = 'home';
+    state.error = null;
+    render();
+    window.scrollTo(0, 0);
 }
 
 function renderBudget() {
@@ -747,16 +887,19 @@ function renderNotices() {
 
     var inc = el('noticeIncomplete');
     if (cache && cache.prep && !cache.prep.complete) {
-        var blocked = bandBlocked();
+        var blocked = filteredOut();
         var noData = cache.prep.missing.filter(function (id) { return blocked.indexOf(id) === -1; });
 
         var parts = [];
         if (blocked.length) {
-            parts.push('<b>Not everyone can ' + legVerb() + ' in that window.</b> '
-                + esc(blocked.map(travelerName).join(', '))
-                + (blocked.length === 1 ? ' has' : ' have')
-                + ' flights on this date, but none that ' + legVerb()
-                + ' between ' + esc(bandText()) + '. Widen the window or clear it.');
+            var all = blocked.length === cache.ids.length;
+            parts.push('<b>' + (all
+                    ? 'Your filters rule everyone out.'
+                    : esc(blocked.map(travelerName).join(', ')) + ' can\'t meet your filters.')
+                + '</b> '
+                + (all ? 'Nobody has' : (blocked.length === 1 ? 'They have' : 'They have'))
+                + ' flights on this date, but none that ' + activeFilterText()
+                + '. Loosen a filter above.');
         }
         if (noData.length) {
             parts.push('<b>No flights found</b> for ' + esc(noData.map(travelerName).join(', '))
@@ -779,13 +922,12 @@ function renderVerdict() {
             v.innerHTML = '<div class="verdict-label">Best achievable in your window</div>'
                 + '<div class="verdict-big mono">' + s.included.length + '<span class="unit">of '
                 + cache.ids.length + '</span></div>'
-                + '<span class="chip bad">Not everyone can make ' + esc(bandText()) + '</span>'
+                + '<span class="chip bad">Not everyone fits your filters</span>'
                 + '<div class="verdict-note">' + esc(s.included.map(travelerName).join(', '))
                 + ' can ' + legVerb() + ' within ' + FWF.fmtGap(s.summary.spread)
                 + ' for <strong>' + money(s.cost) + '</strong>. '
                 + esc(s.excluded.map(travelerName).join(', '))
-                + (s.excluded.length === 1 ? ' cannot' : ' cannot')
-                + ' make that window at all.</div>';
+                + ' cannot, on these filters.</div>';
         } else {
             v.innerHTML = '<div class="verdict-note">No plan to show for this leg.</div>';
         }
@@ -803,12 +945,16 @@ function renderVerdict() {
         + (meets ? 'Meets your ' + SET.target + '-minute target' : 'Misses your ' + SET.target + '-minute target')
         + '</span>';
 
-    if (cache.band) {
+    if (cache.band || cache.maxStops != null) {
         var dropped = cache.ids.reduce(function (n, id) {
             return n + ((cache.prep.dropped || {})[id] || 0);
         }, 0);
+        var limits = [];
+        if (cache.band) limits.push(legVerb() + ' between <strong>' + esc(bandText()) + '</strong>');
+        if (cache.maxStops === 0) limits.push('are <strong>nonstop</strong>');
+        else if (cache.maxStops != null) limits.push('have <strong>at most ' + cache.maxStops + ' stop</strong>');
         html += '<div class="verdict-note" style="margin-top:10px">Restricted to flights that '
-            + legVerb() + ' between <strong>' + esc(bandText()) + '</strong>'
+            + limits.join(' and ')
             + (dropped ? ', which set aside ' + dropped + ' other option' + (dropped === 1 ? '' : 's') : '')
             + '.</div>';
     }
@@ -920,11 +1066,18 @@ function renderBoard() {
 }
 
 function bookingUrl(option) {
-    /* Built at click time from route + date. booking_token is deliberately not
-     * used here: its lifetime is undocumented and these Google-side tokens go
-     * stale, so a token from a week-old snapshot cannot be trusted. */
+    /* Built at click time from route, date and carrier. booking_token is not used:
+     * live responses returned none at all (0 of 76 on a real search), and its
+     * lifetime is undocumented even when present, so a token from a cached search
+     * could not be trusted anyway.
+     *
+     * Naming the carrier narrows the destination page to a handful of flights
+     * instead of the whole day, which is as close to "go straight to this flight"
+     * as this data allows. It lands on a search, not a checkout. */
+    var carrier = (option.airlines || [])[0];
     var q = 'Flights from ' + option.from + ' to ' + option.to
-        + ' on ' + String(option.depart).slice(0, 10);
+        + ' on ' + String(option.depart).slice(0, 10)
+        + (carrier ? ' ' + carrier : '');
     return 'https://www.google.com/travel/flights?q=' + encodeURIComponent(q);
 }
 
@@ -1127,8 +1280,9 @@ function renderPeople() {
             + (i + 1) + '</div>'
             + '<input class="inp name" data-f="name" placeholder="Flight ' + (i + 1) + '" '
             + 'value="' + esc(p.name) + '" maxlength="18">'
-            + '<input class="inp" data-f="origins" placeholder="SFO" value="' + esc(p.origins) + '" '
-            + 'autocapitalize="characters">'
+            + '<input class="inp" data-f="origins" placeholder="'
+            + ['SFO', 'JFK', 'ORD', 'ATL', 'DEN', 'SEA', 'BOS', 'AUS'][i % 8]
+            + '" value="' + esc(p.origins) + '" autocapitalize="characters" autocomplete="off">'
             + (state.query.travelers.length > 2
                 ? '<button class="row-x" data-remove="' + esc(p.id) + '" aria-label="Remove">&times;</button>'
                 : '<span></span>')
@@ -1167,6 +1321,7 @@ function readForm() {
         depart: el('qDepart').value,
         ret: el('qReturn').value,
         band: band,
+        maxStops: state.query ? state.query.maxStops : null,
         travelers: people
     };
 }
@@ -1216,7 +1371,19 @@ function doSearch() {
     var invalid = validateQuery(q);
     state.query = q;
 
-    if (invalid) { state.error = invalid; DATA = null; render(); return; }
+    if (invalid) {
+        state.error = invalid;
+        state.view = 'home';
+        DATA = null;
+        var bad = parseCodes(q.dest).length !== 1;
+        el('destHint').className = 'hero-hint' + (bad ? ' bad' : '');
+        el('destHint').textContent = bad ? 'Needs a 3-letter airport code' : '3-letter airport code';
+        render();
+        if (bad) el('qDest').focus();
+        return;
+    }
+    el('destHint').className = 'hero-hint';
+    el('destHint').textContent = '3-letter airport code';
     if (!API_BASE) {
         state.error = 'No search endpoint is configured. Deploy the Worker in worker/ and set '
             + 'API_BASE at the top of index.html.';
@@ -1247,7 +1414,9 @@ function doSearch() {
         DATA = res.body;
         state.threshold = null;
         state.leg = 'outbound';
+        state.view = 'results';
         render();
+        window.scrollTo(0, 0);
     }).catch(function (err) {
         state.busy = false;
         state.error = 'Could not reach the search service: ' + err.message;
@@ -1273,7 +1442,8 @@ function loadExample() {
             DATA = { generated_at: sample.generated_at, currency: sample.currency, sample: true,
                      trips: { query: trip }, errors: [] };
             state.error = null; state.threshold = null; state.leg = 'outbound';
-            renderPeople(); fillForm(); render();
+            state.view = 'results';
+            renderPeople(); fillForm(); render(); window.scrollTo(0, 0);
         })
         .catch(function (e) { state.error = 'Could not load the example: ' + e.message; render(); });
 }
@@ -1346,7 +1516,9 @@ function closeSheet() {
 /* -------------------------------------------------------------- events */
 
 document.addEventListener('click', function (ev) {
-    var t = ev.target.closest ? ev.target.closest('[data-threshold],[data-rec],[data-leg],[data-set],[data-bag]') : null;
+    var t = ev.target.closest
+        ? ev.target.closest('[data-threshold],[data-rec],[data-leg],[data-set],[data-bag],[data-stops]')
+        : null;
 
     if (ev.target.id === 'profileBtn') { openSheet(); return; }
     if (ev.target.id === 'sheetClose' || ev.target.id === 'sheetBackdrop') { closeSheet(); return; }
@@ -1357,7 +1529,15 @@ document.addEventListener('click', function (ev) {
     }
     if (!t) return;
 
-    if (t.hasAttribute('data-threshold')) {
+    if (t.hasAttribute('data-stops')) {
+        /* Another free filter: it narrows options already fetched. */
+        var raw = t.getAttribute('data-stops');
+        state.query = readForm();
+        state.query.maxStops = raw === '' ? null : +raw;
+        state.threshold = null;
+        writeHash(state.query);
+        render();
+    } else if (t.hasAttribute('data-threshold')) {
         var v = t.getAttribute('data-threshold');
         state.threshold = v === 'subset' ? 'subset' : (v === 'Infinity' ? FWF.INF : +v);
         render();
@@ -1396,6 +1576,22 @@ document.addEventListener('click', function (ev) {
         openSheet();
         render();
     }
+});
+
+el('backBtn').addEventListener('click', goHome);
+
+/* Typing a code and pressing Enter should move on, the way the intrinsics box
+ * does, rather than submitting a half-filled form. */
+el('qDest').addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter') return;
+    ev.preventDefault();
+    if (parseCodes(el('qDest').value).length === 1 && !el('qDepart').value) el('qDepart').focus();
+    else doSearch();
+});
+el('qDest').addEventListener('input', function () {
+    el('destHint').className = 'hero-hint';
+    el('destHint').textContent = parseCodes(el('qDest').value).length === 1
+        ? 'Looks good' : '3-letter airport code';
 });
 
 el('addPerson').addEventListener('click', function () {

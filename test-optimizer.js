@@ -322,7 +322,7 @@ console.log('\n10. Band filtering inside prepare');
 
   var band = { from: F.parseTimeOfDay('10:00'), to: F.parseTimeOfDay('12:00') };
 
-  var two = F.prepare(byTraveler, ['a', 'b'], 'arrive', band);
+  var two = F.prepare(byTraveler, ['a', 'b'], 'arrive', { band: band });
   check('band keeps only in-band options',
     two.options.a.length === 1 && two.options.b.length === 1);
   check('band reports how many were dropped',
@@ -336,7 +336,7 @@ console.log('\n10. Band filtering inside prepare');
   check('unconstrained is cheaper and is what the band is measured against',
     F.minCostAtWindow(F.prepare(byTraveler, ['a', 'b'], 'arrive'), 1440, fareOnly).cost === 220);
 
-  var three = F.prepare(byTraveler, ['a', 'b', 'c'], 'arrive', band);
+  var three = F.prepare(byTraveler, ['a', 'b', 'c'], 'arrive', { band: band });
   check('a traveller with nothing in band makes the group incomplete',
     three.complete === false && three.missing.join() === 'c');
   check('an incomplete banded group yields no plan',
@@ -354,7 +354,7 @@ console.log('\n11. Band composes with the existing algorithms unchanged');
   for (var n = 0; n < 40; n++) {
     var fx = makeFixture(rand, 3, 6);
     var band = { from: 600, to: 900 };
-    var banded = F.prepare(fx.byTraveler, fx.ids, 'arrive', band);
+    var banded = F.prepare(fx.byTraveler, fx.ids, 'arrive', { band: band });
     if (!banded.complete) continue;
 
     // Everything the banded set offers must itself be inside the band.
@@ -374,6 +374,68 @@ console.log('\n11. Band composes with the existing algorithms unchanged');
   }
   check('no out-of-band option ever survives into a plan', mismatches === 0,
     mismatches + ' leaks');
+})();
+
+console.log('\n12. Stops and duration');
+(function () {
+  var mk = function (price, arrive, stops, dur) {
+    return { price: price, depart: '2027-02-12 06:00', arrive: '2027-02-12 ' + arrive,
+             stops: stops, duration_minutes: dur };
+  };
+  var byTraveler = {
+    a: [mk(400, '15:00', 0, 330), mk(380, '15:10', 2, 1860), mk(390, '15:05', 1, 600)],
+    b: [mk(300, '15:20', 1, 400), mk(290, '15:30', 3, 1500)]
+  };
+  var ids = ['a', 'b'];
+
+  var open = F.prepare(byTraveler, ids, 'arrive');
+  check('no filter keeps everything', open.options.a.length === 3 && open.options.b.length === 2);
+
+  var nonstop = F.prepare(byTraveler, ids, 'arrive', { maxStops: 0 });
+  check('maxStops 0 keeps only nonstops', nonstop.options.a.length === 1);
+  check('a traveller with no nonstop becomes missing',
+    nonstop.complete === false && nonstop.missing.join() === 'b');
+
+  var oneStop = F.prepare(byTraveler, ids, 'arrive', { maxStops: 1 });
+  check('maxStops 1 keeps nonstop and 1-stop',
+    oneStop.options.a.length === 2 && oneStop.options.b.length === 1);
+  check('maxStops 1 reports what it dropped',
+    oneStop.dropped.a === 1 && oneStop.dropped.b === 1);
+
+  var short = F.prepare(byTraveler, ids, 'arrive', { maxDuration: 700 });
+  check('maxDuration drops the long haul',
+    short.options.a.length === 2 && short.options.b.length === 1);
+
+  var both = F.prepare(byTraveler, ids, 'arrive', { maxStops: 1, maxDuration: 500 });
+  check('filters compose', both.options.a.length === 1 && both.options.a[0].stops === 0);
+
+  check('unknown duration is not filtered out as if it were huge',
+    F.prepare({ z: [{ price: 1, arrive: '2027-02-12 10:00', depart: '2027-02-12 08:00', stops: 0 }] },
+      ['z'], 'arrive', { maxDuration: 60 }).options.z.length === 1);
+})();
+
+console.log('\n13. Tie-breaking prefers the better trip at the same price');
+(function () {
+  check('fewer stops wins',
+    F.betterOnTie({ stops: 0, duration_minutes: 600 }, { stops: 2, duration_minutes: 300 }) === true);
+  check('at equal stops, shorter wins',
+    F.betterOnTie({ stops: 1, duration_minutes: 300 }, { stops: 1, duration_minutes: 600 }) === true);
+  check('not better when it is worse',
+    F.betterOnTie({ stops: 2, duration_minutes: 300 }, { stops: 0, duration_minutes: 600 }) === false);
+  check('missing stop counts sort last',
+    F.betterOnTie({ stops: 1, duration_minutes: 300 }, { duration_minutes: 100 }) === true);
+
+  // Same fare, wildly different trips. Before the tie-break this was arbitrary.
+  var byTraveler = {
+    a: [{ price: 500, arrive: '2027-02-12 15:00', depart: '2027-02-12 09:00', stops: 2, duration_minutes: 1860 },
+        { price: 500, arrive: '2027-02-12 15:05', depart: '2027-02-12 09:00', stops: 0, duration_minutes: 330 }],
+    b: [{ price: 200, arrive: '2027-02-12 15:10', depart: '2027-02-12 10:00', stops: 0, duration_minutes: 300 }]
+  };
+  var prep = F.prepare(byTraveler, ['a', 'b'], 'arrive');
+  var plan = F.minCostAtWindow(prep, 60, fareOnly);
+  check('same cost, so the nonstop is taken', plan.picks.a.option.stops === 0,
+    'picked ' + plan.picks.a.option.stops + ' stops');
+  check('and the total is unchanged, so "cheapest" is still true', plan.cost === 700);
 })();
 
 console.log('\n' + (fail === 0 ? 'ALL ' + pass + ' CHECKS PASSED' : pass + ' passed, ' + fail + ' FAILED'));

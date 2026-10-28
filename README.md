@@ -80,7 +80,7 @@ plausible-looking wrong answer would be invisible in the UI, so it has to be run
 against brute force outside a browser.
 
 ```
-node test-optimizer.js             # 59 checks
+node test-optimizer.js             # 73 checks
 cd worker && node test-worker.js   # 41 checks
 ```
 
@@ -121,6 +121,18 @@ cheapest at any time        $1,763
 
 On a real four-person Cabo search the window cost five times more than the clustering did —
 which is the opposite of what you would guess, and the kind of thing the tool exists to say.
+
+**Stops and trip length.** The optimiser originally minimised price alone, which meant it
+would happily pick a 31-hour two-stop itinerary to save $70. Two fixes:
+
+- A **stops filter** (nonstop / up to 1 / any) and an optional duration cap, applied as hard
+  constraints. Like the band, these filter options already fetched, so they are free.
+- A **tie-break**: at equal price, fewer stops wins, then shorter time in the air. This keeps
+  "cheapest" literally true while never leaving a nonstop on the table for a two-stop at the
+  same fare.
+
+Filters report who they exclude. On a real Cabo search, "nonstop only" correctly answers
+*3 of 4* and names Kraków as the holdout, rather than pretending the group is covered.
 
 **Subset handling** is what makes this usable above three people. One person holding a
 single bad option forces the window open for everyone, and "tightest possible: 4h 20m"
@@ -175,7 +187,7 @@ which turns an impossible constraint into a real decision.
 
 | file | what it is |
 |---|---|
-| `index.html` | the whole front end — styles, markup, rendering |
+| `index.html` | the whole front end — two screens, styles, markup, rendering |
 | `optimizer.js` | window/cost maths and time bands, runs in browser and node |
 | `test-optimizer.js` | brute-force verification, `node test-optimizer.js` |
 | `worker/worker.js` | SerpApi proxy: key, cache, budget cap, rate limit |

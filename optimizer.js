@@ -111,10 +111,14 @@
    * leaves the destination together and can share a ride out). Either way the
    * clustered times are all at the shared destination airport, so comparing them
    * without timezone conversion is exact. */
-  function prepare(byTraveler, travelerIds, timeField, band) {
+  function prepare(byTraveler, travelerIds, timeField, opts) {
     var field = timeField || 'arrive';
+    var o = opts || {};
+    var band = o.band || null;
     var from = band && band.from != null ? band.from : null;
     var to = band && band.to != null ? band.to : null;
+    var maxStops = o.maxStops == null ? null : o.maxStops;
+    var maxDuration = o.maxDuration == null ? null : o.maxDuration;
     var ids = travelerIds.slice();
     var options = {};
     var missing = [];
@@ -132,7 +136,15 @@
 
       var all = list.length;
       if (from != null && to != null) {
-        list = list.filter(function (o) { return inBand(o.clusterMin, from, to); });
+        list = list.filter(function (x) { return inBand(x.clusterMin, from, to); });
+      }
+      if (maxStops != null) {
+        list = list.filter(function (x) { return (x.stops || 0) <= maxStops; });
+      }
+      if (maxDuration != null) {
+        list = list.filter(function (x) {
+          return x.duration_minutes == null || x.duration_minutes <= maxDuration;
+        });
       }
       list.sort(function (a, b) { return a.clusterMin - b.clusterMin; });
       options[id] = list;
@@ -142,6 +154,7 @@
 
     return { ids: ids, options: options, missing: missing, dropped: dropped,
              band: (from != null && to != null) ? { from: from, to: to } : null,
+             maxStops: maxStops, maxDuration: maxDuration,
              timeField: field, complete: missing.length === 0 };
   }
 
@@ -183,6 +196,17 @@
 
   /* ------------------------------------- (b) min cost at a window width */
 
+  /* Strictly better on a tie: same money, fewer stops, then shorter in the air.
+   * Without this the choice between a nonstop and a two-stop at the same fare is
+   * arbitrary, which is how a 31-hour itinerary ends up in a "best" plan. */
+  function betterOnTie(a, b) {
+    var as = a.stops == null ? 99 : a.stops, bs = b.stops == null ? 99 : b.stops;
+    if (as !== bs) return as < bs;
+    var ad = a.duration_minutes == null ? INF : a.duration_minutes;
+    var bd = b.duration_minutes == null ? INF : b.duration_minutes;
+    return ad < bd;
+  }
+
   function cheapestInWindow(list, start, end, costFn, travelerId) {
     var best = null, bestCost = INF;
     for (var i = 0; i < list.length; i++) {
@@ -190,7 +214,9 @@
       if (o.clusterMin < start) continue;
       if (o.clusterMin > end) break; // sorted by the clustered time
       var c = costFn(o, travelerId);
-      if (c < bestCost) { bestCost = c; best = o; }
+      if (c < bestCost || (c === bestCost && best && betterOnTie(o, best))) {
+        bestCost = c; best = o;
+      }
     }
     return best ? { option: best, cost: bestCost } : null;
   }
@@ -360,6 +386,7 @@
     timeOfDay: timeOfDay,
     parseTimeOfDay: parseTimeOfDay,
     inBand: inBand,
+    betterOnTie: betterOnTie,
     fmtClock: fmtClock,
     fmtGap: fmtGap,
     allInCost: allInCost,
