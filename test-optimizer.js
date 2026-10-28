@@ -284,5 +284,97 @@ console.log('\n8. Ranking honours tightest-then-cheapest');
     F.minCostAtWindow(prep, INF, fareOnly).cost === 200);
 })();
 
+console.log('\n9. Arrival-time band');
+check('parseTimeOfDay 11:00 -> 660', F.parseTimeOfDay('11:00') === 660);
+check('parseTimeOfDay 9:30 -> 570', F.parseTimeOfDay('9:30') === 570);
+check('parseTimeOfDay 23:59 -> 1439', F.parseTimeOfDay('23:59') === 1439);
+check('parseTimeOfDay 00:00 -> 0', F.parseTimeOfDay('00:00') === 0);
+check('parseTimeOfDay rejects 24:00', F.parseTimeOfDay('24:00') === null);
+check('parseTimeOfDay rejects 11:60', F.parseTimeOfDay('11:60') === null);
+check('parseTimeOfDay rejects junk', F.parseTimeOfDay('elevenish') === null);
+check('parseTimeOfDay rejects empty', F.parseTimeOfDay('') === null);
+
+check('timeOfDay strips the date', F.timeOfDay(F.toMinutes('2027-02-12 11:00')) === 660);
+check('timeOfDay works past midnight', F.timeOfDay(F.toMinutes('2027-02-13 00:30')) === 30);
+
+var at = function (s) { return F.toMinutes('2027-02-12 ' + s); };
+check('inBand inside a normal range', F.inBand(at('11:00'), 600, 720) === true);
+check('inBand on the lower edge is inclusive', F.inBand(at('10:00'), 600, 720) === true);
+check('inBand on the upper edge is inclusive', F.inBand(at('12:00'), 600, 720) === true);
+check('inBand outside a normal range', F.inBand(at('13:00'), 600, 720) === false);
+check('inBand wraps past midnight (23:00 in 22:00-02:00)',
+  F.inBand(at('23:00'), 1320, 120) === true);
+check('inBand wraps past midnight (01:00 in 22:00-02:00)',
+  F.inBand(at('01:00'), 1320, 120) === true);
+check('inBand wrapped range excludes the middle of the day',
+  F.inBand(at('12:00'), 1320, 120) === false);
+check('inBand with no bounds accepts everything', F.inBand(at('03:00'), null, null) === true);
+
+console.log('\n10. Band filtering inside prepare');
+(function () {
+  var byTraveler = {
+    a: [{ price: 300, arrive: '2027-02-12 10:45', depart: '2027-02-12 06:00' },   // in band
+        { price: 100, arrive: '2027-02-12 19:30', depart: '2027-02-12 14:00' }],  // out
+    b: [{ price: 320, arrive: '2027-02-12 11:10', depart: '2027-02-12 07:00' },   // in band
+        { price: 120, arrive: '2027-02-12 22:15', depart: '2027-02-12 17:00' }],  // out
+    c: [{ price: 90,  arrive: '2027-02-12 02:30', depart: '2027-02-11 21:00' }]   // never in band
+  };
+
+  var band = { from: F.parseTimeOfDay('10:00'), to: F.parseTimeOfDay('12:00') };
+
+  var two = F.prepare(byTraveler, ['a', 'b'], 'arrive', band);
+  check('band keeps only in-band options',
+    two.options.a.length === 1 && two.options.b.length === 1);
+  check('band reports how many were dropped',
+    two.dropped.a === 1 && two.dropped.b === 1, JSON.stringify(two.dropped));
+  check('band is echoed back on the prepared set',
+    two.band.from === 600 && two.band.to === 720);
+  check('in-band group is still complete', two.complete === true);
+  check('cost reflects the in-band options, not the cheap out-of-band ones',
+    F.minCostAtWindow(two, 60, fareOnly).cost === 620,
+    'got ' + JSON.stringify(F.minCostAtWindow(two, 60, fareOnly) && F.minCostAtWindow(two, 60, fareOnly).cost));
+  check('unconstrained is cheaper and is what the band is measured against',
+    F.minCostAtWindow(F.prepare(byTraveler, ['a', 'b'], 'arrive'), 1440, fareOnly).cost === 220);
+
+  var three = F.prepare(byTraveler, ['a', 'b', 'c'], 'arrive', band);
+  check('a traveller with nothing in band makes the group incomplete',
+    three.complete === false && three.missing.join() === 'c');
+  check('an incomplete banded group yields no plan',
+    F.tightestWindow(three) === null && F.minCostAtWindow(three, 60, fareOnly) === null);
+
+  var subset = F.bestSubset(three, 60, fareOnly);
+  check('subset still answers for the band, naming who cannot make it',
+    subset.included.length === 2 && subset.excluded.length === 1 && subset.excluded[0].id === 'c');
+})();
+
+console.log('\n11. Band composes with the existing algorithms unchanged');
+(function () {
+  var rand = rng(4242);
+  var mismatches = 0;
+  for (var n = 0; n < 40; n++) {
+    var fx = makeFixture(rand, 3, 6);
+    var band = { from: 600, to: 900 };
+    var banded = F.prepare(fx.byTraveler, fx.ids, 'arrive', band);
+    if (!banded.complete) continue;
+
+    // Everything the banded set offers must itself be inside the band.
+    fx.ids.forEach(function (id) {
+      banded.options[id].forEach(function (o) {
+        if (!F.inBand(o.clusterMin, 600, 900)) mismatches++;
+      });
+    });
+
+    // And the chosen plan must be too.
+    var plan = F.minCostAtWindow(banded, 120, fareOnly);
+    if (plan) {
+      fx.ids.forEach(function (id) {
+        if (!F.inBand(plan.picks[id].option.clusterMin, 600, 900)) mismatches++;
+      });
+    }
+  }
+  check('no out-of-band option ever survives into a plan', mismatches === 0,
+    mismatches + ' leaks');
+})();
+
 console.log('\n' + (fail === 0 ? 'ALL ' + pass + ' CHECKS PASSED' : pass + ' passed, ' + fail + ' FAILED'));
 process.exit(fail === 0 ? 0 : 1);

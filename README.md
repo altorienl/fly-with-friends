@@ -80,8 +80,8 @@ plausible-looking wrong answer would be invisible in the UI, so it has to be run
 against brute force outside a browser.
 
 ```
-node test-optimizer.js        # 31 checks
-cd worker && node test-worker.js   # 19 checks
+node test-optimizer.js             # 59 checks
+cd worker && node test-worker.js   # 41 checks
 ```
 
 `test-optimizer.js` includes 1,600 comparisons against exhaustive enumeration on small
@@ -99,6 +99,28 @@ Two exact algorithms:
 
 Cost is non-increasing as the window loosens, by construction. If the ladder ever shows a
 rise, the window logic is broken.
+
+**Arrival-time band.** "Tightest window somewhere in the day" is not the same as "we land
+at 11am", and the second is usually what a group actually needs — villa check-in, a booked
+shuttle, not landing at 2am. So each leg takes an optional time-of-day band: arrivals on the
+way out, departures on the way home. Bands wrap past midnight, so `22:00`–`02:00` is
+expressible.
+
+The band filters options the app has already fetched, so **changing it never costs a
+search**. That matters: it is the one control a group fiddles with repeatedly, and on a
+250/month budget it had to be free.
+
+It also splits the cost into two numbers that add up, which is the part worth having:
+
+```
+cheapest at any time        $1,763
+  + cost of your window     +$459   (cheapest within 12:00-14:00)
+  + cost of landing together  +$98   (clustered to 30 minutes)
+  = the plan                $2,320
+```
+
+On a real four-person Cabo search the window cost five times more than the clustering did —
+which is the opposite of what you would guess, and the kind of thing the tool exists to say.
 
 **Subset handling** is what makes this usable above three people. One person holding a
 single bad option forces the window open for everyone, and "tightest possible: 4h 20m"
@@ -141,14 +163,20 @@ which turns an impossible constraint into a real decision.
   one person checks a bag and another does not will be slightly off.
 - **Incomplete data is refused, not averaged.** If a traveler has no options for a leg, the
   app says so instead of showing a group total. A total covering 3 of 4 people is a wrong
-  number, not a partial one.
+  number, not a partial one. "No flights at all" and "flights, but none inside your time
+  band" are reported as different problems, because they have different fixes.
+- **Some origins genuinely have no answer.** Ukrainian airspace has been closed to civil
+  aviation since February 2022 with no reopening date, so a search from KBP returns nothing
+  and the app reports that traveler as uncovered. The real-world workaround is an overland
+  departure from Kraków, Warsaw or Rzeszów — which the app will price, but cannot know to
+  suggest.
 
 ## Files
 
 | file | what it is |
 |---|---|
 | `index.html` | the whole front end — styles, markup, rendering |
-| `optimizer.js` | window/cost maths, runs in browser and node |
+| `optimizer.js` | window/cost maths and time bands, runs in browser and node |
 | `test-optimizer.js` | brute-force verification, `node test-optimizer.js` |
 | `worker/worker.js` | SerpApi proxy: key, cache, budget cap, rate limit |
 | `worker/wrangler.toml` | Worker config; needs your KV namespace id |

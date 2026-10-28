@@ -320,6 +320,12 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--edge);
 .btn.primary { background: var(--accent); color: #0c0a08; border-color: var(--accent); }
 .btn.primary:disabled { opacity: 0.5; cursor: default; }
 .btn.ghost { background: none; }
+.band-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 2px; }
+.band-row .k { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
+.band-row .inp { width: 108px; }
+.band-row .sep { font-size: 12px; color: var(--muted); }
+.band-free { font-size: 11px; color: var(--good); margin-top: 6px; }
+
 .budget-line { font-size: 11px; color: var(--faint); margin-top: 12px; line-height: 1.5; }
 .budget-line b { color: var(--muted); }
 .field-note { font-size: 11px; color: var(--faint); margin-top: 8px; line-height: 1.5; }
@@ -377,6 +383,15 @@ footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--edge);
             <label><span class="k">Depart</span><input class="inp" id="qDepart" type="date"></label>
             <label><span class="k">Return</span><input class="inp" id="qReturn" type="date"></label>
         </div>
+        <div class="band-row">
+            <span class="k" id="bandLabel">Land between</span>
+            <input class="inp" id="qFrom" type="time">
+            <span class="sep">and</span>
+            <input class="inp" id="qTo" type="time">
+            <button class="pill" id="bandClear">any time</button>
+        </div>
+        <div class="band-free hidden" id="bandFree"></div>
+
         <div id="people"></div>
         <div class="field-note">Airport codes only (SFO, ORD). Several per person is fine — "SFO,OAK,SJC" still counts as one search. Names are optional.</div>
         <div class="search-actions">
@@ -495,7 +510,26 @@ function el(id) { return document.getElementById(id); }
 /* The query is whatever is in the form: no fixed roster, no config file. Blank
  * names become Flight 1, Flight 2, ... so a group can skip naming entirely. */
 function blankQuery() {
-    return { dest: '', depart: '', ret: '', travelers: [newPerson(0), newPerson(1), newPerson(2)] };
+    return {
+        dest: '', depart: '', ret: '',
+        /* One band per leg: you want to LAND together at a civil hour on the way
+         * out, and LEAVE together on the way home. They are different times of
+         * day, so sharing one band between the legs would be wrong. */
+        band: { outbound: { from: '', to: '' }, return: { from: '', to: '' } },
+        travelers: [newPerson(0), newPerson(1), newPerson(2)]
+    };
+}
+
+function currentBand() {
+    var b = (state.query && state.query.band) || {};
+    return b[state.leg] || { from: '', to: '' };
+}
+
+/* Null unless both ends parse -- a half-filled band must not silently filter. */
+function bandMinutes() {
+    var b = currentBand();
+    var from = FWF.parseTimeOfDay(b.from), to = FWF.parseTimeOfDay(b.to);
+    return (from != null && to != null) ? { from: from, to: to } : null;
 }
 function newPerson(i) { return { id: 'p' + i + '-' + Math.random().toString(36).slice(2, 6), name: '', origins: '' }; }
 function parseCodes(raw) {
@@ -525,7 +559,8 @@ function compute() {
     var ids = travelers.map(function (t) { return t.id; });
     var field = state.leg === 'outbound' ? 'arrive' : 'depart';
 
-    var prep = FWF.prepare(legData, ids, field);
+    var band = bandMinutes();
+    var prep = FWF.prepare(legData, ids, field, band);
     var costFn = FWF.makeCostFn(travelers, {
         assumedCheckedBagFee: APP.assumedCheckedBagFee,
         assumedCarryOnFee: APP.assumedCarryOnFee,
@@ -533,10 +568,24 @@ function compute() {
     });
 
     var out = {
-        travelers: travelers, ids: ids, prep: prep, costFn: costFn,
-        tight: null, ladder: null, target: null, subset: null
+        travelers: travelers, ids: ids, prep: prep, costFn: costFn, band: band,
+        tight: null, ladder: null, target: null, subset: null, anyTimeCost: null
     };
-    if (!prep.complete) return out;
+
+    /* What the band costs is only meaningful against the same search with no
+     * band, so compute that too. It is free -- same options, no extra request. */
+    if (band) {
+        var open = FWF.prepare(legData, ids, field);
+        if (open.complete) {
+            var openBest = FWF.minCostAtWindow(open, FWF.INF, costFn);
+            if (openBest) out.anyTimeCost = openBest.cost;
+        }
+    }
+
+    if (!prep.complete) {
+        out.subset = band ? FWF.bestSubset(prep, SET.target, costFn) : null;
+        return out;
+    }
 
     out.tight = FWF.tightestWindow(prep);
     var thresholds = FWF.DEFAULT_THRESHOLDS.concat([SET.target]).filter(function (v, i, a) {
@@ -607,10 +656,47 @@ function meName() {
     return t ? t.name : '';
 }
 
+function travelerName(id) {
+    var t = (cache.travelers || []).filter(function (x) { return x.id === id; })[0];
+    return t ? t.name : id;
+}
+
+/* "No flights at all" and "flights, but none in your window" are different
+ * problems with different fixes, so they must not share a message. */
+function bandBlocked() {
+    if (!cache || !cache.band || !cache.prep) return [];
+    return cache.prep.missing.filter(function (id) {
+        return (cache.prep.dropped || {})[id] > 0;
+    });
+}
+
+function bandText() {
+    var b = currentBand();
+    return b.from + '–' + b.to;
+}
+
+function legVerb() { return state.leg === 'outbound' ? 'land' : 'leave'; }
+
 function renderLegTabs() {
     var tab = document.querySelector('[data-leg="return"]');
     if (tab) tab.classList.toggle('hidden', !hasReturn());
     if (!hasReturn() && state.leg === 'return') state.leg = 'outbound';
+
+    el('bandLabel').textContent = state.leg === 'outbound' ? 'Land between' : 'Leave between';
+
+    var free = el('bandFree');
+    if (DATA && !DATA.sample) {
+        free.className = 'band-free';
+        free.textContent = 'Changing this window is free — it filters flights already fetched, '
+            + 'so it never costs a search.';
+    } else { free.className = 'band-free hidden'; }
+}
+
+/* Band inputs are per leg, so they get re-filled whenever the leg changes. */
+function fillBand() {
+    var b = currentBand();
+    el('qFrom').value = b.from || '';
+    el('qTo').value = b.to || '';
 }
 
 function renderBudget() {
@@ -661,21 +747,50 @@ function renderNotices() {
 
     var inc = el('noticeIncomplete');
     if (cache && cache.prep && !cache.prep.complete) {
-        var names = cache.prep.missing.map(function (id) {
-            var t = cache.travelers.filter(function (x) { return x.id === id; })[0];
-            return t ? t.name : id;
-        });
+        var blocked = bandBlocked();
+        var noData = cache.prep.missing.filter(function (id) { return blocked.indexOf(id) === -1; });
+
+        var parts = [];
+        if (blocked.length) {
+            parts.push('<b>Not everyone can ' + legVerb() + ' in that window.</b> '
+                + esc(blocked.map(travelerName).join(', '))
+                + (blocked.length === 1 ? ' has' : ' have')
+                + ' flights on this date, but none that ' + legVerb()
+                + ' between ' + esc(bandText()) + '. Widen the window or clear it.');
+        }
+        if (noData.length) {
+            parts.push('<b>No flights found</b> for ' + esc(noData.map(travelerName).join(', '))
+                + ' on this leg at all.');
+        }
+        parts.push('A total covering ' + (cache.ids.length - cache.prep.missing.length)
+            + ' of ' + cache.ids.length + ' people would be a wrong number, not a partial one.');
+
         inc.className = 'notice bad';
-        inc.innerHTML = '<b>Incomplete data.</b> No flights found for '
-            + esc(names.join(', ')) + ' on this leg, so there is no group plan to show. '
-            + 'A total covering ' + (cache.ids.length - names.length) + ' of ' + cache.ids.length
-            + ' people would be a wrong number, not a partial one.';
+        inc.innerHTML = parts.join('<br><br>');
     } else { inc.className = 'notice bad hidden'; }
 }
 
 function renderVerdict() {
     var v = el('verdict');
-    if (!cache.prep.complete) { v.innerHTML = '<div class="verdict-note">Waiting on complete data for this leg.</div>'; return; }
+
+    if (!cache.prep.complete) {
+        var s = cache.subset;
+        if (s && s.included.length) {
+            v.innerHTML = '<div class="verdict-label">Best achievable in your window</div>'
+                + '<div class="verdict-big mono">' + s.included.length + '<span class="unit">of '
+                + cache.ids.length + '</span></div>'
+                + '<span class="chip bad">Not everyone can make ' + esc(bandText()) + '</span>'
+                + '<div class="verdict-note">' + esc(s.included.map(travelerName).join(', '))
+                + ' can ' + legVerb() + ' within ' + FWF.fmtGap(s.summary.spread)
+                + ' for <strong>' + money(s.cost) + '</strong>. '
+                + esc(s.excluded.map(travelerName).join(', '))
+                + (s.excluded.length === 1 ? ' cannot' : ' cannot')
+                + ' make that window at all.</div>';
+        } else {
+            v.innerHTML = '<div class="verdict-note">No plan to show for this leg.</div>';
+        }
+        return;
+    }
 
     var verb = state.leg === 'outbound' ? 'land' : 'leave';
     var noun = state.leg === 'outbound' ? 'landing' : 'departure';
@@ -687,6 +802,16 @@ function renderVerdict() {
         + '<span class="chip ' + (meets ? 'good' : 'bad') + '">'
         + (meets ? 'Meets your ' + SET.target + '-minute target' : 'Misses your ' + SET.target + '-minute target')
         + '</span>';
+
+    if (cache.band) {
+        var dropped = cache.ids.reduce(function (n, id) {
+            return n + ((cache.prep.dropped || {})[id] || 0);
+        }, 0);
+        html += '<div class="verdict-note" style="margin-top:10px">Restricted to flights that '
+            + legVerb() + ' between <strong>' + esc(bandText()) + '</strong>'
+            + (dropped ? ', which set aside ' + dropped + ' other option' + (dropped === 1 ? '' : 's') : '')
+            + '.</div>';
+    }
 
     if (cache.target) {
         var baseline = cache.ladder.baseline;
@@ -703,6 +828,12 @@ function renderVerdict() {
             + '<div class="vs-item"><div class="k">Scattered</div><div class="v mono">' + money(baseline) + '</div></div>'
             + '<div class="vs-item"><div class="k">Cost of together</div><div class="v mono" style="color:var(--accent)">'
             + (premium > 0 ? '+' + money(premium) : money(0)) + '</div></div>'
+            + (cache.anyTimeCost != null
+                ? '<div class="vs-item"><div class="k">Cost of your window</div><div class="v mono" style="color:var(--accent)">'
+                  + (baseline - cache.anyTimeCost > 0
+                      ? '+' + money(baseline - cache.anyTimeCost) : money(0))
+                  + '</div></div>'
+                : '')
             + '</div>';
     } else if (cache.subset) {
         var s = cache.subset;
@@ -738,7 +869,7 @@ function renderPills() {
 
 function renderBoard() {
     var rows = el('boardRows');
-    if (!cache.prep.complete) { rows.innerHTML = ''; return; }
+    if (!cache.prep.complete || !cache.ladder) { rows.innerHTML = ''; return; }
 
     var rec = recommendedThreshold(cache);
     if (state.threshold === null) state.threshold = rec;
@@ -799,11 +930,15 @@ function bookingUrl(option) {
 
 function renderPlan() {
     var host = el('plan');
-    if (!cache.prep.complete) { host.innerHTML = ''; return; }
+    if (!cache.prep.complete) {
+        if (cache.subset && cache.subset.included.length) { state.threshold = 'subset'; }
+        else { host.innerHTML = ''; return; }
+    }
 
-    var row = state.threshold === 'subset' ? null : cache.ladder.rows.filter(function (r) {
-        return r.feasible && r.threshold === state.threshold;
-    })[0];
+    var row = (state.threshold === 'subset' || !cache.ladder) ? null
+        : cache.ladder.rows.filter(function (r) {
+            return r.feasible && r.threshold === state.threshold;
+        })[0];
 
     var picks, included, excluded = [], spread, cost;
     if (row) {
@@ -1005,6 +1140,7 @@ function fillForm() {
     el('qDest').value = state.query.dest || '';
     el('qDepart').value = state.query.depart || '';
     el('qReturn').value = state.query.ret || '';
+    fillBand();
 }
 
 function readForm() {
@@ -1016,10 +1152,21 @@ function readForm() {
             origins: row.querySelector('[data-f="origins"]').value
         });
     });
+    /* Only the visible leg's band is in the DOM; the other leg's is preserved. */
+    var band = {
+        outbound: { from: '', to: '' },
+        return: { from: '', to: '' }
+    };
+    var existing = (state.query && state.query.band) || {};
+    band.outbound = existing.outbound || band.outbound;
+    band.return = existing.return || band.return;
+    band[state.leg] = { from: el('qFrom').value, to: el('qTo').value };
+
     return {
         dest: el('qDest').value.trim().toUpperCase(),
         depart: el('qDepart').value,
         ret: el('qReturn').value,
+        band: band,
         travelers: people
     };
 }
@@ -1219,8 +1366,10 @@ document.addEventListener('click', function (ev) {
         state.threshold = null;
         render();
     } else if (t.hasAttribute('data-leg')) {
+        state.query = readForm();
         state.leg = t.getAttribute('data-leg');
         state.threshold = null;
+        fillBand();
         Array.prototype.forEach.call(document.querySelectorAll('.leg-tabs button'), function (b) {
             b.classList.toggle('active', b.getAttribute('data-leg') === state.leg);
         });
@@ -1278,6 +1427,22 @@ el('search').addEventListener('keydown', function (ev) {
 /* Changing the return date flips the leg tabs and the per-search cost. */
 el('qReturn').addEventListener('change', function () {
     state.query = readForm(); renderLegTabs(); renderBudget();
+});
+
+/* The band filters options already in hand, so it re-renders without fetching.
+ * This is the one control a group will fiddle with repeatedly, and it has to be
+ * free or the 250/month budget would evaporate. */
+function applyBand() {
+    state.query = readForm();
+    state.threshold = null;
+    writeHash(state.query);
+    render();
+}
+el('qFrom').addEventListener('change', applyBand);
+el('qTo').addEventListener('change', applyBand);
+el('bandClear').addEventListener('click', function () {
+    el('qFrom').value = ''; el('qTo').value = '';
+    applyBand();
 });
 
 if (window.matchMedia) {

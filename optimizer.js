@@ -33,6 +33,26 @@
     return h12 + ':' + pad + suffix;
   }
 
+  /* Minutes past local midnight at the clustered airport. Safe because every
+   * clustered time is at the one shared destination. */
+  function timeOfDay(minutes) { return ((minutes % 1440) + 1440) % 1440; }
+
+  function parseTimeOfDay(hhmm) {
+    var m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '').trim());
+    if (!m) return null;
+    var h = +m[1], mi = +m[2];
+    if (h > 23 || mi > 59) return null;
+    return h * 60 + mi;
+  }
+
+  /* Inclusive band, wrapping past midnight when from > to (e.g. 22:00-02:00) so
+   * "don't land in the small hours" is expressible. */
+  function inBand(minutes, from, to) {
+    var t = timeOfDay(minutes);
+    if (from == null || to == null) return true;
+    return from <= to ? (t >= from && t <= to) : (t >= from || t <= to);
+  }
+
   function fmtGap(minutes) {
     if (minutes == null) return '--';
     var abs = Math.abs(Math.round(minutes));
@@ -91,11 +111,14 @@
    * leaves the destination together and can share a ride out). Either way the
    * clustered times are all at the shared destination airport, so comparing them
    * without timezone conversion is exact. */
-  function prepare(byTraveler, travelerIds, timeField) {
+  function prepare(byTraveler, travelerIds, timeField, band) {
     var field = timeField || 'arrive';
+    var from = band && band.from != null ? band.from : null;
+    var to = band && band.to != null ? band.to : null;
     var ids = travelerIds.slice();
     var options = {};
     var missing = [];
+    var dropped = {};
 
     ids.forEach(function (id) {
       var list = (byTraveler[id] || []).map(function (o) {
@@ -106,12 +129,19 @@
         copy.departMin = toMinutes(o.depart);
         return copy;
       }).filter(function (o) { return o.clusterMin != null; });
+
+      var all = list.length;
+      if (from != null && to != null) {
+        list = list.filter(function (o) { return inBand(o.clusterMin, from, to); });
+      }
       list.sort(function (a, b) { return a.clusterMin - b.clusterMin; });
       options[id] = list;
+      dropped[id] = all - list.length;
       if (!list.length) missing.push(id);
     });
 
-    return { ids: ids, options: options, missing: missing,
+    return { ids: ids, options: options, missing: missing, dropped: dropped,
+             band: (from != null && to != null) ? { from: from, to: to } : null,
              timeField: field, complete: missing.length === 0 };
   }
 
@@ -327,6 +357,9 @@
     INF: INF,
     DEFAULT_THRESHOLDS: DEFAULT_THRESHOLDS,
     toMinutes: toMinutes,
+    timeOfDay: timeOfDay,
+    parseTimeOfDay: parseTimeOfDay,
+    inBand: inBand,
     fmtClock: fmtClock,
     fmtGap: fmtGap,
     allInCost: allInCost,
