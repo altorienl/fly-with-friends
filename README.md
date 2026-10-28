@@ -136,6 +136,22 @@ Four of those airports have **no commercial service** — Kyiv, Lviv and Odesa s
 instead (Kraków, Warsaw, Rzeszów, Chișinău), rather than an empty result or a search that
 burns a credit proving it.
 
+**What each person pays.** A group total answers nobody's actual question, which is "what
+does this cost *me* for these dates". Every party gets a row with their outbound, their
+return, their bags and their seat count — and a per-seat figure where a card covers more
+than one person.
+
+**No partial figure is ever presented as the cost.** If a filter pushes someone out of the
+window they still buy a ticket, so they are priced at their own cheapest and the trip total
+covers everybody. The window is reported separately from the money: *"includes everyone,
+but not everyone is inside the window"*. Showing a total that silently drops a traveller was
+the single most misleading thing this app did.
+
+**The optimum, not a round number.** 30 minutes is a guide, not a test. The default is the
+knee of the cost curve — tight enough without paying for the last few minutes — and the
+headline states the window the chosen plan actually achieves with the theoretical floor
+beside it, rather than passing or failing against a threshold.
+
 **The trip, not the leg.** The optimiser solves each leg separately, but nobody buys a
 leg — they buy a trip. The round-trip total sits above everything, with the out and back
 figures under it, and each leg keeps its own chosen row so both can be priced at once.
@@ -204,6 +220,13 @@ which turns an impossible constraint into a real decision.
   - An airline-keyed fee table was considered and rejected: airline bag policy changes
     (Southwest dropped free checked bags in 2025), so hardcoding it would make the rankings
     confidently wrong rather than honestly uncertain.
+- **Booking links are a search, not a checkout.** `booking_token` came back empty on every
+  one of 76 real itineraries and its lifetime is undocumented even when present, so the
+  primary link is a Google Flights search filtered to the route, date and carrier. A second
+  link goes to the airline's own booking page — deliberately *not* a prefilled deep link,
+  since those formats are undocumented, change without notice, and several carriers block
+  anything that looks automated. A link that lands on an empty search is worse than one that
+  works, so the label says where it goes.
 - **`booking_token` is not used for booking.** Its lifetime is undocumented and these
   Google-side tokens go stale, so one captured in a weekly snapshot cannot be trusted. Book
   links are built from route and date at click time instead. The token is stored as

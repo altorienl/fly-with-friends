@@ -331,12 +331,26 @@ section { animation: stepIn .2s var(--ease); }
 .badge.me { border-color: var(--brand); color: var(--accent); }
 .badge.out { border-color: var(--bad); color: var(--bad); }
 .book { display: inline-block; margin-top: 4px; padding: 10px 0; font-size: 11px; font-weight: 700; color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-dim); }
+.links { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+.book.alt { color: var(--muted); border-bottom-color: var(--edge-2); font-weight: 600; }
 .total { display: flex; justify-content: space-between; align-items: baseline; padding: 16px; border: 1px solid var(--brand); border-radius: var(--r-md); background: var(--accent-dim); margin-top: 8px; }
 .total .k { color: var(--accent); }
 .total .v { font-size: 24px; font-weight: 700; }
 .total.partial { border-color: var(--bad); background: transparent; }
 .total.partial .k { color: var(--bad); }
 .total-note { font-size: 11px; color: var(--bad); margin-top: 8px; line-height: 1.55; }
+.pp-list { margin-top: 12px; }
+.pp { display: grid; grid-template-columns: 32px 1fr auto; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--edge); }
+.pp:last-child { border-bottom: none; }
+.pp.apart .pp-v { color: var(--bad); }
+.pp-main { min-width: 0; }
+.pp-name { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pp-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.pp-v { font-size: 17px; font-weight: 700; }
+.pp-total { display: flex; justify-content: space-between; align-items: baseline; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--brand); }
+.pp-total .mono { font-size: 22px; font-weight: 700; }
+.pp-total .k { color: var(--accent); }
+.pp-note { font-size: 11px; color: var(--muted); margin-top: 12px; line-height: 1.55; }
 .share { margin-top: 16px; }
 .share-note { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.5; text-align: center; }
 .share-note.ok { color: var(--good); }
@@ -548,6 +562,7 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
             <div id="brows" role="list" aria-live="polite"></div>
         </div>
         <div id="plan"></div>
+        <div class="panel hidden" id="perPerson" aria-live="polite"></div>
     </section>
 
     <footer>
