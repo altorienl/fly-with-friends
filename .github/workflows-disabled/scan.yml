@@ -1,0 +1,49 @@
+name: Weekly Flight Scan
+
+on:
+  # The schedule is deliberately OFF. The app is now a live public tool whose
+  # searches come out of the same 250/month SerpApi quota, so a weekly scan
+  # would quietly compete with real users for roughly 56 of them. Run this by
+  # hand when you want to refresh the fixed-group data in config.json, or
+  # re-enable the cron if you go back to a private fixed roster.
+  #
+  # schedule:
+  #   - cron: '0 5 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check search budget
+        run: python .github/scripts/scan.py --dry-run
+      - name: Run flight scan
+        env:
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+        run: python .github/scripts/scan.py
+      - name: Commit flights.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add flights.json
+          git diff --cached --quiet || git commit -m "Update flights $(date -u +%Y-%m-%d)"
+          git push
+      - name: Open issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Weekly flight scan failed — ' + new Date().toISOString().slice(0, 10),
+              body: 'The weekly flight scan workflow failed.\n\n**Run:** ' + context.serverUrl + '/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId,
+            });
