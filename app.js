@@ -583,14 +583,13 @@ function render() {
     if (thGet() === null && C.ladder) thSet(recommendedIn(C));
     renderResHead();
     renderTripTotal();
-    renderTabs();
+    renderFreeNote();
     renderStopPills();
     renderCapPills();
-    renderVerdict();
     renderRecPills();
-    renderBoard();
-    renderPlan();
+    renderLegs();
     renderPerPerson();
+    renderShare();
 }
 
 function renderGear() {
@@ -678,19 +677,53 @@ function renderResHead() {
         + ' &nbsp;<span class="fresh"><span class="dot ' + cls + '"></span>' + esc(word) + '</span>';
 }
 
-function renderTabs() {
-    Array.prototype.forEach.call(document.querySelectorAll('#tabs button'), function (b) {
-        var on = b.getAttribute('data-leg') === state.leg;
-        b.classList.toggle('on', on);
-        b.setAttribute('aria-selected', on ? 'true' : 'false');
-        if (b.getAttribute('data-leg') === 'return') b.classList.toggle('hidden', !hasReturn());
-    });
-    el('bandLbl').textContent = state.leg === 'outbound' ? 'Land between' : 'Leave between';
+function renderFreeNote() {
     var f = el('freeNote');
     if (DATA && !DATA.sample) {
         f.className = 'free';
         f.textContent = 'Filtering is free — it narrows flights already fetched, never a new search.';
     } else f.className = 'free hidden';
+}
+
+/* Both legs on one page. Flipping tabs to compare your own outbound against your
+ * own return is the friction this app exists to remove, so each leg renders its
+ * own window, band, ladder and plan, stacked. */
+function bandRow(leg) {
+    var b = bandFor(leg);
+    return '<div class="filters" role="group" aria-label="Time window">'
+        + '<span class="k">' + (leg === 'outbound' ? 'Land between' : 'Leave between') + '</span>'
+        + '<div class="row2" style="margin-top:8px">'
+        + '<input class="inp" type="time" data-bleg="' + leg + '" data-bend="from" value="' + esc(b.from || '')
+        + '" aria-label="Earliest ' + (leg === 'outbound' ? 'landing' : 'departure') + ' time">'
+        + '<span class="sep">and</span>'
+        + '<input class="inp" type="time" data-bleg="' + leg + '" data-bend="to" value="' + esc(b.to || '')
+        + '" aria-label="Latest ' + (leg === 'outbound' ? 'landing' : 'departure') + ' time">'
+        + '<button class="pill" data-bclear="' + leg + '">any</button>'
+        + '</div></div>';
+}
+
+function renderLegs() {
+    var prevLeg = state.leg, prevC = C;
+
+    [['outbound', 'legOut', 'legOutH'], ['return', 'legBack', 'legBackH']].forEach(function (cfg) {
+        var leg = cfg[0], host = el(cfg[1]);
+        if (leg === 'return' && !hasReturn()) { host.className = 'leg hidden'; host.innerHTML = ''; return; }
+
+        state.leg = leg;
+        C = compute(leg);
+        if (!C) { host.className = 'leg hidden'; host.innerHTML = ''; return; }
+        if (thGet() === null && C.ladder) thSet(recommendedIn(C));
+
+        var when = leg === 'outbound' ? state.q.dep : state.q.ret;
+        host.className = 'leg';
+        host.innerHTML = '<div class="leg-head"><h2 id="' + cfg[2] + '">'
+            + (leg === 'outbound' ? 'Getting there' : 'Getting home') + '</h2>'
+            + '<span class="when">' + esc(when || '') + '</span></div>'
+            + verdictHtml() + bandRow(leg) + boardHtml() + planHtml();
+    });
+
+    state.leg = prevLeg;
+    C = prevC;
 }
 
 function renderStepStops() {
@@ -738,8 +771,8 @@ function renderRecPills() {
     }).join('');
 }
 
-function renderVerdict() {
-    var v = el('verdict');
+function verdictHtml() {
+    var v = { innerHTML: '' };
     if (!C.prep.complete) {
         var s = C.subset;
         if (s && s.included.length) {
@@ -752,7 +785,7 @@ function renderVerdict() {
                 + '</strong>. ' + esc(s.excluded.map(function (x) { return name(x.id); }).join(', '))
                 + ' cannot, on these filters.</div>';
         } else v.innerHTML = '<div class="note">No plan to show for this leg.</div>';
-        return;
+        return '<div class="panel">' + v.innerHTML + '</div>';
     }
 
     var t = C.tight, meets = t.spread <= SET.target;
@@ -800,7 +833,7 @@ function renderVerdict() {
                 return name(x.id) + ' (+' + FWF.fmtGap(x.gapMinutes) + ')';
             }).join(', ')) + '.</div>';
     }
-    v.innerHTML = html;
+    return '<div class="panel">' + html + '</div>';
 }
 
 function seatsOf(ids) {
@@ -875,9 +908,8 @@ function recommendedIn(ctx) {
     return best.threshold;
 }
 
-function renderBoard() {
-    var host = el('brows');
-    if (!C.prep.complete || !C.ladder) { host.innerHTML = ''; return; }
+function boardHtml() {
+    if (!C.prep.complete || !C.ladder) return '';
     var rec = recommendedIn(C);
     if (thGet() === null) thSet(rec);
 
@@ -918,7 +950,10 @@ function renderBoard() {
             + (r.delta > 0 ? '+' + money(r.delta) : '—') + '</span></button>';
     }).join('');
 
-    host.innerHTML = html;
+    return '<div class="board">'
+        + '<div class="bhead"><span class="k">Window</span><span class="k">Group</span>'
+        + '<span class="k">Actual</span><span class="k">vs min</span></div>'
+        + '<div role="list">' + html + '</div></div>';
 }
 
 /* Airline booking entry points. Deliberately NOT prefilled deep links: those
@@ -1017,41 +1052,62 @@ function renderPerPerson() {
 
 /* A block you can paste into the group chat. The decision happens there, not
  * here, and until now the app handed the organiser a screenful of numbers and no
- * way to move them. Stamped with the capture time on purpose: fares move, and a
- * pasted total with no date is the kind of thing a group argues with on Friday. */
-function chatBlock(picks, included, excluded, spread, cost) {
+ * way to move them. Covers both legs, because nobody books half a trip.
+ * Stamped with the capture time on purpose: fares move, and a pasted total with
+ * no date is the kind of thing a group argues with on Friday. */
+function legLines(leg, heading) {
+    var b = legBreakdown(leg);
+    if (!b) return [];
+    var prevLeg = state.leg, prevC = C;
+    state.leg = leg; C = b.ctx;
+
+    var verb = leg === 'outbound' ? 'lands' : 'leaves';
+    var lines = [heading + ' — ' + (b.plan.excluded && b.plan.excluded.length
+        ? seatsOf(b.plan.included) + ' of ' + seatsAll() + ' within ' + FWF.fmtGap(b.spread)
+        : 'everyone within ' + FWF.fmtGap(b.spread))];
+
+    b.ctx.ids.slice().sort(function (x, y) {
+        var ox = b.rows[x], oy = b.rows[y];
+        return (ox ? ox.option.clusterMin : 0) - (oy ? oy.option.clusterMin : 0);
+    }).forEach(function (id) {
+        var r = b.rows[id];
+        if (!r) return;
+        var t = b.ctx.travelers.filter(function (z) { return z.id === id; })[0];
+        var o = r.option;
+        lines.push('  • ' + t.name + ' — ' + o.from + ' to ' + o.to + ', ' + verb + ' '
+            + clock(leg === 'outbound' ? o.arriveMin : o.departMin)
+            + ', ' + money(r.cost) + (t.seats > 1 ? ' for ' + t.seats : '')
+            + ((o.airlines || []).length ? ', ' + o.airlines.join('/') : '')
+            + (o.stops === 0 ? ', nonstop' : ', ' + o.stops + ' stop')
+            + (r.inWindow ? '' : '  (not in the window)'));
+    });
+
+    state.leg = prevLeg; C = prevC;
+    return lines;
+}
+
+function chatBlock() {
+    if (!TRIP || !C) return '';
     var a = AIRPORTS.get(state.q.dest);
     var lines = [];
     lines.push((a ? a.city + ' (' + a.code + ')' : state.q.dest) + ' · '
         + state.q.dep + (state.q.ret ? ' – ' + state.q.ret : ' one way'));
     lines.push('');
+    lines = lines.concat(legLines('outbound', 'GETTING THERE'));
+    if (hasReturn()) { lines.push(''); lines = lines.concat(legLines('return', 'GETTING HOME')); }
 
-    var verb = state.leg === 'outbound' ? 'lands' : 'leaves';
-    included.slice().sort(function (x, y) {
-        return picks[x].option.clusterMin - picks[y].option.clusterMin;
-    }).forEach(function (id) {
-        var t = C.travelers.filter(function (z) { return z.id === id; })[0];
-        var o = picks[id].option;
-        var prem = premiumFor(id, picks[id]);
-        lines.push('• ' + t.name + ' — ' + o.from + ' to ' + o.to + ', ' + verb + ' '
-            + clock(state.leg === 'outbound' ? o.arriveMin : o.departMin)
-            + ', ' + money(picks[id].cost) + (t.seats > 1 ? ' for ' + t.seats : '')
-            + ((o.airlines || []).length ? ', ' + o.airlines.join('/') : '')
-            + (o.stops === 0 ? ', nonstop' : ', ' + o.stops + ' stop')
-            + (prem > 0 ? '  (+' + money(prem) + ' to be on time with everyone)' : ''));
-    });
-    (excluded || []).forEach(function (x) {
-        lines.push('• ' + name(x.id) + ' — cannot make this window ('
-            + FWF.fmtGap(x.gapMinutes) + ' outside)');
+    lines.push('');
+    lines.push('WHAT EACH PERSON PAYS');
+    C.ids.forEach(function (id) {
+        var t = C.travelers.filter(function (x) { return x.id === id; })[0];
+        var pp = TRIP.perPerson[id];
+        if (!t || !pp) return;
+        lines.push('  • ' + t.name + ' ' + money(pp.total)
+            + (t.seats > 1 ? ' (' + money(Math.round(pp.total / t.seats)) + ' each)' : ''));
     });
 
     lines.push('');
-    lines.push((excluded && excluded.length
-            ? seatsOf(included) + ' of ' + seatsAll() + ' '
-            : 'Everyone ')
-        + (state.leg === 'outbound' ? 'on the ground' : 'away')
-        + ' within ' + FWF.fmtGap(spread) + ' · ' + money(cost)
-        + (excluded && excluded.length ? ' for those ' + seatsOf(included) : ' total')
+    lines.push('Everyone, ' + (hasReturn() ? 'round trip' : 'one way') + ': ' + money(TRIP.total)
         + (SET.priceDisplay === 'fare' ? ' (fares only)' : ' including bags'));
     var gen = DATA && DATA.generated_at ? new Date(DATA.generated_at) : null;
     lines.push('Fares as of ' + (gen ? gen.toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : 'unknown')
@@ -1060,13 +1116,40 @@ function chatBlock(picks, included, excluded, spread, cost) {
     return lines.join('\n');
 }
 
-function renderPlan() {
-    var host = el('plan');
-    if (!C.prep.complete && !(C.subset && C.subset.included.length)) { host.innerHTML = ''; return; }
+function renderShare() {
+    var host = el('shareBox');
+    if (!TRIP) { host.innerHTML = ''; return; }
+    host.innerHTML = '<button class="btn primary wide" id="copyBtn">Copy the whole trip for the group chat</button>'
+        + '<div class="share-note" id="copyNote">Both legs, every person\u2019s flight and what each of them pays, '
+        + 'plus a link that opens on these exact choices.</div>';
+
+    el('copyBtn').addEventListener('click', function () {
+        var text = chatBlock();
+        var done = function (ok) {
+            el('copyNote').textContent = ok ? 'Copied. Paste it in the group chat.'
+                : 'Could not copy automatically — select the plan above instead.';
+            el('copyNote').className = 'share-note' + (ok ? ' ok' : '');
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+        } else {
+            var ta = document.createElement('textarea');
+            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            var ok = false;
+            try { ok = document.execCommand('copy'); } catch (e) {}
+            document.body.removeChild(ta);
+            done(ok);
+        }
+    });
+}
+
+function planHtml() {
+    if (!C.prep.complete && !(C.subset && C.subset.included.length)) return '';
     if (!C.prep.complete) thSet('subset');
 
     var plan = selectedPlan();
-    if (!plan) { host.innerHTML = ''; return; }
+    if (!plan) return '';
     var picks = plan.picks, included = plan.included, excluded = plan.excluded || [];
     var spread = plan.spread, cost = plan.cost, row = !plan.subset;
 
@@ -1123,32 +1206,7 @@ function renderPlan() {
             + 'The trip total at the top includes ' + (excluded.length === 1 ? 'them' : 'them all') + '.</div>';
     }
 
-    html += '<div class="share"><button class="btn wide" id="copyBtn">Copy for the group chat</button>'
-        + '<div class="share-note" id="copyNote">Pastes the plan, each person’s flight, who pays what, '
-        + 'and a link that opens on this exact row.</div></div>';
-
-    host.innerHTML = html;
-
-    el('copyBtn').addEventListener('click', function () {
-        var text = chatBlock(picks, included, excluded, spread, cost);
-        var done = function (ok) {
-            el('copyNote').textContent = ok ? 'Copied. Paste it in the group chat.'
-                : 'Could not copy automatically — long-press the plan above to select it.';
-            el('copyNote').className = 'share-note' + (ok ? ' ok' : '');
-        };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
-        } else {
-            /* Older iOS Safari without the async clipboard API. */
-            var ta = document.createElement('textarea');
-            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-            document.body.appendChild(ta); ta.select();
-            var ok = false;
-            try { ok = document.execCommand('copy'); } catch (e) {}
-            document.body.removeChild(ta);
-            done(ok);
-        }
-    });
+    return html;
 }
 
 /* Each party's share of the premium: what this plan costs them minus what they
@@ -1204,8 +1262,9 @@ function paxRow(id, pick, out, gap) {
         + 'Book this flight &rarr;</a>'
         + (airlineSite(o)
             ? '<a class="book alt" href="' + esc(airlineSite(o).url) + '" target="_blank" rel="noopener"'
-              + ' title="Goes to the airline\u2019s booking page, not this exact flight">Book direct with '
-              + esc(airlineSite(o).name) + '</a>'
+              + ' title="Goes to '
+              + esc(airlineSite(o).name) + '\u2019s booking page, not this exact flight">'
+              + esc(airlineSite(o).name) + ' \u2197</a>'
             : '')
         + '</div>'
         + '</div><div class="pax-right"><div class="pax-time mono">' + clock(show) + '</div>'
@@ -1402,7 +1461,7 @@ document.addEventListener('click', function (ev) {
         return;
     }
 
-    var t = tgt.closest && tgt.closest('[data-threshold],[data-rec],[data-leg],[data-set],[data-bag],'
+    var t = tgt.closest && tgt.closest('[data-threshold],[data-rec],[data-set],[data-bag],'
         + '[data-stops],[data-cap],[data-seats],[data-rmparty],[data-addair],[data-rmair]');
     if (!t) return;
     var card = t.closest('.party');
@@ -1435,13 +1494,12 @@ document.addEventListener('click', function (ev) {
         thReset(); writeHash(); render();
     } else if (t.hasAttribute('data-threshold')) {
         var v = t.getAttribute('data-threshold');
-        thSet(v === 'subset' ? 'subset' : (v === 'Infinity' ? FWF.INF : +v));
+        var sect = t.closest('.leg');
+        var legOf = sect && sect.id === 'legBack' ? 'return' : 'outbound';
+        state.th[legOf] = v === 'subset' ? 'subset' : (v === 'Infinity' ? FWF.INF : +v);
         render();
     } else if (t.hasAttribute('data-rec')) {
         state.recommend = t.getAttribute('data-rec'); thReset(); render();
-    } else if (t.hasAttribute('data-leg')) {
-        state.leg = t.getAttribute('data-leg');
-        fillBand(); render();
     } else if (t.hasAttribute('data-set')) {
         var key = t.getAttribute('data-set'), val = t.getAttribute('data-val');
         if (key === 'target') val = +val;
@@ -1461,9 +1519,6 @@ document.addEventListener('click', function (ev) {
 });
 
 function fillBand() {
-    var b = currentBand();
-    el('bFrom').value = b.from || '';
-    el('bTo').value = b.to || '';
     /* Step 2 asks about the outbound landing window specifically. */
     var ob = bandFor('outbound');
     if (el('sFrom')) el('sFrom').value = ob.from || '';
@@ -1491,11 +1546,26 @@ function fillForm() {
     fillBand();
 }
 
-function applyBand() {
-    state.q.band[state.leg] = { from: el('bFrom').value, to: el('bTo').value };
-    /* The band is per leg, so only this leg's choice is invalidated. */
-    thSet(null); writeHash(); render();
-}
+/* Band inputs live inside the leg sections, which are re-rendered, so they are
+ * wired by delegation rather than by id. */
+document.addEventListener('change', function (ev) {
+    var n = ev.target.closest && ev.target.closest('[data-bleg]');
+    if (!n) return;
+    var leg = n.getAttribute('data-bleg'), end = n.getAttribute('data-bend');
+    var cur = bandFor(leg);
+    state.q.band[leg] = { from: cur.from || '', to: cur.to || '' };
+    state.q.band[leg][end] = n.value;
+    state.th[leg] = null;
+    writeHash(); render();
+});
+document.addEventListener('click', function (ev) {
+    var n = ev.target.closest && ev.target.closest('[data-bclear]');
+    if (!n) return;
+    var leg = n.getAttribute('data-bclear');
+    state.q.band[leg] = { from: '', to: '' };
+    state.th[leg] = null;
+    writeHash(); render();
+});
 
 el('to2').addEventListener('click', function () {
     if (!AIRPORTS.isKnown(state.q.dest)) {
@@ -1530,11 +1600,6 @@ el('addParty').addEventListener('click', function () {
     readNames();
     state.q.parties.push(newParty(state.q.parties.length));
     renderParties();
-});
-el('bFrom').addEventListener('change', applyBand);
-el('bTo').addEventListener('change', applyBand);
-el('bClear').addEventListener('click', function () {
-    el('bFrom').value = ''; el('bTo').value = ''; applyBand();
 });
 el('dep').addEventListener('change', function () {
     state.q.dep = el('dep').value;

@@ -152,9 +152,13 @@ knee of the cost curve — tight enough without paying for the last few minutes 
 headline states the window the chosen plan actually achieves with the theoretical floor
 beside it, rather than passing or failing against a threshold.
 
+**One page, both legs.** Flipping between tabs to compare your own outbound against your own
+return is exactly the friction this exists to remove, so there are no tabs: "Getting there"
+and "Getting home" stack, each with its own window, time band, ladder and plan. The
+round-trip total sits above both, and one button copies the entire trip for the group chat.
+
 **The trip, not the leg.** The optimiser solves each leg separately, but nobody buys a
-leg — they buy a trip. The round-trip total sits above everything, with the out and back
-figures under it, and each leg keeps its own chosen row so both can be priced at once.
+leg — they buy a trip. Each leg keeps its own chosen row so both can be priced at once.
 
 **Partial totals say so.** If a filter excludes someone, the figure is no longer a group
 total and is not labelled as one: it reads "4 of 5 travelling", turns red, and names who is

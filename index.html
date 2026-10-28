@@ -232,6 +232,10 @@ section { animation: stepIn .2s var(--ease); }
 .dot.fresh-old { background: var(--bad); box-shadow: 0 0 0 3px rgba(255,138,114,.16); }
 .dot.fresh-sample { background: var(--edge-2); }
 
+.leg { display: block; margin-top: 28px; }
+.leg-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--edge); }
+.leg-head h2 { font-size: 19px; font-weight: 800; letter-spacing: -.4px; }
+.leg-head .when { font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
 .tabs { display: flex; border: 1px solid var(--edge); border-radius: var(--r-md); margin-bottom: 16px; }
 .tabs button:first-child { border-radius: calc(var(--r-md) - 1px) 0 0 calc(var(--r-md) - 1px); }
 .tabs button:last-child { border-radius: 0 calc(var(--r-md) - 1px) calc(var(--r-md) - 1px) 0; }
@@ -331,7 +335,8 @@ section { animation: stepIn .2s var(--ease); }
 .badge.me { border-color: var(--brand); color: var(--accent); }
 .badge.out { border-color: var(--bad); color: var(--bad); }
 .book { display: inline-block; margin-top: 4px; padding: 10px 0; font-size: 11px; font-weight: 700; color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-dim); }
-.links { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+.links { display: flex; gap: 14px; flex-wrap: wrap; align-items: baseline; }
+.links .book { margin-top: 6px; padding: 6px 0; }
 .book.alt { color: var(--muted); border-bottom-color: var(--edge-2); font-weight: 600; }
 .total { display: flex; justify-content: space-between; align-items: baseline; padding: 16px; border: 1px solid var(--brand); border-radius: var(--r-md); background: var(--accent-dim); margin-top: 8px; }
 .total .k { color: var(--accent); }
@@ -536,33 +541,20 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
             <button class="icon-btn" id="back4" aria-label="Change trip">&larr;</button>
             <div class="res-title"><div class="t" id="resT"></div><div class="s" id="resS"></div></div>
         </div>
-        <div class="tabs" id="tabs" role="tablist" aria-label="Which leg">
-            <button data-leg="outbound" class="on" role="tab" aria-selected="true">Landing together</button>
-            <button data-leg="return" role="tab" aria-selected="false">Leaving together</button>
-        </div>
         <div class="trip hidden" id="tripTotal" aria-live="polite"></div>
-        <div class="panel" id="verdict" aria-live="polite"></div>
+
         <div class="filters">
-            <div role="group" aria-labelledby="bandLbl">
-                <span class="k" id="bandLbl">Land between</span>
-                <div class="row2" style="margin-top:8px">
-                    <input class="inp" id="bFrom" type="time" aria-label="Earliest time">
-                    <span class="sep">and</span>
-                    <input class="inp" id="bTo" type="time" aria-label="Latest time">
-                    <button class="pill" id="bClear">any</button>
-                </div>
-            </div>
             <div class="pills" id="stopPills"></div>
             <div class="pills" id="capPills"></div>
+            <div class="pills" id="recPills"></div>
             <div class="free hidden" id="freeNote"></div>
         </div>
-        <div class="pills" id="recPills" style="margin-bottom:12px"></div>
-        <div class="board">
-            <div class="bhead"><span class="k">Window</span><span class="k">Group</span><span class="k">Actual</span><span class="k">vs min</span></div>
-            <div id="brows" role="list" aria-live="polite"></div>
-        </div>
-        <div id="plan"></div>
+
+        <section class="leg" id="legOut" aria-labelledby="legOutH"></section>
+        <section class="leg hidden" id="legBack" aria-labelledby="legBackH"></section>
+
         <div class="panel hidden" id="perPerson" aria-live="polite"></div>
+        <div class="share" id="shareBox"></div>
     </section>
 
     <footer>
