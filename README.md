@@ -136,6 +136,15 @@ Four of those airports have **no commercial service** — Kyiv, Lviv and Odesa s
 instead (Kraków, Warsaw, Rzeszów, Chișinău), rather than an empty result or a search that
 burns a credit proving it.
 
+**The trip, not the leg.** The optimiser solves each leg separately, but nobody buys a
+leg — they buy a trip. The round-trip total sits above everything, with the out and back
+figures under it, and each leg keeps its own chosen row so both can be priced at once.
+
+**Partial totals say so.** If a filter excludes someone, the figure is no longer a group
+total and is not labelled as one: it reads "4 of 5 travelling", turns red, and names who is
+missing and what their fare would have been. Counting is in people, not cards, so a couple
+sharing one card counts as two.
+
 **Who carries the premium.** One group total is not what anyone pays, and the premium for
 landing together almost never lands evenly — it falls on whoever is furthest away. Each
 party's fare in the chosen plan is compared with what they would have paid flying whenever
@@ -221,7 +230,7 @@ which turns an impossible constraint into a real decision.
 | file | what it is |
 |---|---|
 | `index.html` | markup and styles for the four-step flow |
-| `app.js` | steps, autocomplete, rendering, search |
+| `app.js` | steps, autocomplete, rendering, search, trip pricing |
 | `airports.js` | 306 airports including ones with no service, and the lookup |
 | `worker/worker.js` | SerpApi proxy: key, cache, budget cap, rate limit |
 | `optimizer.js` | window/cost maths and time bands, runs in browser and node |

@@ -24,9 +24,16 @@ var COLORS = ['#ffb300', '#4ade80', '#38bdf8', '#c084fc', '#fb923c', '#f472b6', 
 
 var DATA = null, SET = null, BUDGET = null, C = null;
 var state = {
-    step: 1, leg: 'outbound', threshold: null, recommend: 'tightest',
+    step: 1, leg: 'outbound', recommend: 'tightest',
+    /* One chosen row per leg: a round trip is two decisions, and pricing the
+     * whole trip means holding both at once. */
+    th: { outbound: null, return: null },
     q: null, busy: false, error: null
 };
+function otherLeg() { return state.leg === 'outbound' ? 'return' : 'outbound'; }
+function thGet() { return state.th[state.leg]; }
+function thSet(v) { state.th[state.leg] = v; }
+function thReset() { state.th.outbound = null; state.th.return = null; }
 
 var el = function (id) { return document.getElementById(id); };
 function esc(s) {
@@ -93,22 +100,25 @@ function travelers() {
     });
 }
 function hasReturn() { return !!(state.q && state.q.ret); }
-function currentBand() { return (state.q.band || {})[state.leg] || { from: '', to: '' }; }
-function bandMinutes() {
-    var b = currentBand();
+function bandFor(leg) { return (state.q.band || {})[leg] || { from: '', to: '' }; }
+function currentBand() { return bandFor(state.leg); }
+function bandMinutesFor(leg) {
+    var b = bandFor(leg);
     var f = FWF.parseTimeOfDay(b.from), t = FWF.parseTimeOfDay(b.to);
     return (f != null && t != null) ? { from: f, to: t } : null;
 }
+function bandMinutes() { return bandMinutesFor(state.leg); }
 
 /* ------------------------------------------------------------- compute */
 
-function compute() {
+function compute(leg) {
+    leg = leg || state.leg;
     if (!DATA || !state.q) return null;
-    var legData = ((DATA.trips || {}).query || {})[state.leg] || {};
+    var legData = ((DATA.trips || {}).query || {})[leg] || {};
     var tv = travelers();
     var ids = tv.map(function (t) { return t.id; });
-    var field = state.leg === 'outbound' ? 'arrive' : 'depart';
-    var band = bandMinutes(), maxStops = state.q.maxStops;
+    var field = leg === 'outbound' ? 'arrive' : 'depart';
+    var band = bandMinutesFor(leg), maxStops = state.q.maxStops;
 
     var costFn = FWF.makeCostFn(tv, {
         assumedCheckedBagFee: APP.bagFee, assumedCarryOnFee: APP.carryOnFee,
@@ -139,7 +149,7 @@ function compute() {
         prep = FWF.prepare(pruned, ids, field, { band: band, maxStops: maxStops });
     }
 
-    var out = { travelers: tv, ids: ids, prep: prep, costFn: costFn, band: band,
+    var out = { leg: leg, travelers: tv, ids: ids, prep: prep, costFn: costFn, band: band,
                 maxStops: maxStops, cap: cap, solo: solo,
                 tight: null, ladder: null, target: null, subset: null, anyTime: null };
 
@@ -397,7 +407,7 @@ function doSearch() {
         if (res.body.budget) BUDGET = res.body.budget;
         if (!res.ok) { state.error = res.body.error || 'Search failed.'; render(); return; }
         DATA = res.body;
-        state.threshold = null; state.leg = 'outbound';
+        thReset(); state.leg = 'outbound';
         showStep(4); render();
     }).catch(function (e) {
         state.busy = false;
@@ -422,7 +432,7 @@ function loadDemo() {
             };
             DATA = { generated_at: sample.generated_at, currency: sample.currency,
                      sample: true, trips: { query: sample.trips['pit-feb'] }, errors: [] };
-            state.error = null; state.threshold = null; state.leg = 'outbound';
+            state.error = null; thReset(); state.leg = 'outbound';
             fillForm(); renderParties(); showStep(4); render();
         })
         .catch(function (e) { state.error = 'Could not load the example: ' + e.message; render(); });
@@ -436,7 +446,8 @@ function loadDemo() {
 function hashPayload() {
     return {
         q: state.q,
-        v: { threshold: state.threshold === FWF.INF ? 'inf' : state.threshold,
+        v: { th: { outbound: state.th.outbound === FWF.INF ? 'inf' : state.th.outbound,
+                    return: state.th.return === FWF.INF ? 'inf' : state.th.return },
              leg: state.leg, recommend: state.recommend,
              target: SET.target, bags: SET.bags, priceDisplay: SET.priceDisplay }
     };
@@ -465,6 +476,35 @@ function shareUrl() {
 
 /* -------------------------------------------------------------- render */
 
+/* Both legs priced together. A one-way shows one number; a round trip shows the
+ * number people actually care about, which is what the trip costs. */
+function tripTotal() {
+    if (!DATA || !state.q) return null;
+    var out = planOf(compute('outbound'), state.th.outbound
+        || recommendedIn(compute('outbound')));
+    if (!out) return null;
+    if (!hasReturn()) return { out: out.cost, back: null, total: out.cost, partial: !!out.subset };
+    var ctx = compute('return');
+    var back = planOf(ctx, state.th['return'] || recommendedIn(ctx));
+    if (!back) return { out: out.cost, back: null, total: out.cost, partial: true };
+    return { out: out.cost, back: back.cost, total: out.cost + back.cost,
+             partial: !!(out.subset || back.subset) };
+}
+
+function renderTripTotal() {
+    var host = el('tripTotal');
+    var t = tripTotal();
+    if (!t) { host.className = 'trip hidden'; return; }
+    host.className = 'trip' + (t.partial ? ' partial' : '');
+    host.innerHTML = '<div class="trip-k">' + (t.back == null ? 'One way' : 'Round trip')
+        + (SET.priceDisplay === 'fare' ? ' · fares only' : ' · incl. bags')
+        + (t.partial ? ' · not everyone' : '') + '</div>'
+        + '<div class="trip-v mono">' + money(t.total) + '</div>'
+        + (t.back != null
+            ? '<div class="trip-split mono">' + money(t.out) + ' out · ' + money(t.back) + ' back</div>'
+            : '');
+}
+
 function render() {
     C = compute();
     renderNotices();
@@ -475,8 +515,9 @@ function render() {
     el('go').classList.toggle('busy', state.busy);
     if (state.step !== 4) return;
     if (!C) { showStep(3); return; }
-    if (state.threshold === null && C.ladder) state.threshold = recommended();
+    if (thGet() === null && C.ladder) thSet(recommendedIn(C));
     renderResHead();
+    renderTripTotal();
     renderTabs();
     renderStopPills();
     renderCapPills();
@@ -534,8 +575,9 @@ function renderNotices() {
         if (none.length) {
             bits.push('<b>No flights found</b> for ' + esc(none.map(name).join(', ')) + ' on this leg.');
         }
-        bits.push('A total covering ' + (C.ids.length - C.prep.missing.length) + ' of '
-            + C.ids.length + ' would be a wrong number, not a partial one.');
+        bits.push('A total covering ' + seatsOf(C.ids.filter(function (id) {
+                return C.prep.missing.indexOf(id) === -1; }))
+            + ' of ' + seatsAll() + ' travellers would be a wrong number, not a partial one.');
         sh.className = 'notice bad';
         sh.innerHTML = bits.join('<br><br>');
     } else sh.className = 'notice bad hidden';
@@ -585,6 +627,17 @@ function renderTabs() {
     } else f.className = 'free hidden';
 }
 
+function renderStepStops() {
+    var host = el('sStops');
+    if (!host) return;
+    var o = [{ v: 0, l: 'Nonstop' }, { v: 1, l: 'Up to 1 stop' }, { v: null, l: 'Any' }];
+    host.innerHTML = o.map(function (x) {
+        var on = state.q.maxStops === x.v;
+        return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
+            + '" data-stops="' + (x.v === null ? '' : x.v) + '">' + x.l + '</button>';
+    }).join('');
+}
+
 function renderStopPills() {
     var o = [{ v: 0, l: 'Nonstop' }, { v: 1, l: 'Up to 1 stop' }, { v: null, l: 'Any' }];
     el('stopPills').setAttribute('role', 'radiogroup');
@@ -625,11 +678,13 @@ function renderVerdict() {
         var s = C.subset;
         if (s && s.included.length) {
             v.innerHTML = '<span class="k">Best achievable</span>'
-                + '<div class="verdict-big mono">' + s.included.length + '<span class="u">of ' + C.ids.length + '</span></div>'
+                + '<div class="verdict-big mono">' + seatsOf(s.included)
+                + '<span class="u">of ' + seatsAll() + ' travelling</span></div>'
                 + '<span class="tag bad">Not everyone fits</span>'
                 + '<div class="note">' + esc(s.included.map(name).join(', ')) + ' can ' + legVerb()
                 + ' within ' + FWF.fmtGap(s.summary.spread) + ' for <strong>' + money(s.cost)
-                + '</strong>. ' + esc(s.excluded.map(name).join(', ')) + ' cannot, on these filters.</div>';
+                + '</strong>. ' + esc(s.excluded.map(function (x) { return name(x.id); }).join(', '))
+                + ' cannot, on these filters.</div>';
         } else v.innerHTML = '<div class="note">No plan to show for this leg.</div>';
         return;
     }
@@ -667,9 +722,9 @@ function renderVerdict() {
             + whoPays(selectedPlan());
     } else if (C.subset) {
         var sub = C.subset;
-        html += '<div class="note"><strong>No combination gets all ' + C.ids.length + ' within '
-            + SET.target + ' minutes.</strong> Best achievable is <strong>' + sub.included.length
-            + ' of ' + C.ids.length + '</strong> within ' + FWF.fmtGap(sub.summary.spread)
+        html += '<div class="note"><strong>No combination gets all ' + seatsAll() + ' within '
+            + SET.target + ' minutes.</strong> Best achievable is <strong>' + seatsOf(sub.included)
+            + ' of ' + seatsAll() + '</strong> within ' + FWF.fmtGap(sub.summary.spread)
             + ' for ' + money(sub.cost) + '. Outside: ' + esc(sub.excluded.map(function (x) {
                 return name(x.id) + ' (+' + FWF.fmtGap(x.gapMinutes) + ')';
             }).join(', ')) + '.</div>';
@@ -677,24 +732,33 @@ function renderVerdict() {
     v.innerHTML = html;
 }
 
+function seatsOf(ids) {
+    return (ids || []).reduce(function (n, id) {
+        var t = (C.travelers || []).filter(function (x) { return x.id === id; })[0];
+        return n + ((t && t.seats) || 1);
+    }, 0);
+}
+function seatsAll() { return seatsOf(C.ids); }
+
 /* The one plan every part of the results screen must agree on. */
-function selectedPlan() {
-    if (!C) return null;
-    if (state.threshold === 'subset' || !C.prep.complete) {
-        if (C.subset && C.subset.included.length) {
-            return { picks: C.subset.picks, included: C.subset.included,
-                     excluded: C.subset.excluded, spread: C.subset.summary.spread,
-                     cost: C.subset.cost, subset: true };
+function planOf(ctx, th) {
+    if (!ctx) return null;
+    if (th === 'subset' || !ctx.prep.complete) {
+        if (ctx.subset && ctx.subset.included.length) {
+            return { picks: ctx.subset.picks, included: ctx.subset.included,
+                     excluded: ctx.subset.excluded, spread: ctx.subset.summary.spread,
+                     cost: ctx.subset.cost, subset: true };
         }
         return null;
     }
-    var row = C.ladder && C.ladder.rows.filter(function (r) {
-        return r.feasible && r.threshold === state.threshold;
+    var row = ctx.ladder && ctx.ladder.rows.filter(function (r) {
+        return r.feasible && r.threshold === th;
     })[0];
     if (!row) return null;
-    return { picks: row.result.picks, included: C.ids.slice(), excluded: [],
+    return { picks: row.result.picks, included: ctx.ids.slice(), excluded: [],
              spread: row.result.spread, cost: row.result.cost, subset: false };
 }
+function selectedPlan() { return planOf(C, thGet()); }
 
 /* The group total is not what anyone pays. This says whose fare moved. */
 function whoPays(plan) {
@@ -719,9 +783,10 @@ function whoPays(plan) {
         + '</div>';
 }
 
-function recommended() {
-    var f = C.ladder.rows.filter(function (r) { return r.feasible; });
-    if (!C.target && C.subset) return 'subset';
+function recommendedIn(ctx) {
+    if (!ctx || !ctx.ladder) return null;
+    var f = ctx.ladder.rows.filter(function (r) { return r.feasible; });
+    if (!ctx.target && ctx.subset) return 'subset';
     if (!f.length) return null;
     if (state.recommend === 'tightest') return f[0].threshold;
     if (state.recommend === 'target') {
@@ -742,14 +807,15 @@ function recommended() {
 function renderBoard() {
     var host = el('brows');
     if (!C.prep.complete || !C.ladder) { host.innerHTML = ''; return; }
-    var rec = recommended();
-    if (state.threshold === null) state.threshold = rec;
+    var rec = recommendedIn(C);
+    if (thGet() === null) thSet(rec);
 
     var html = '';
     if (!C.target && C.subset) {
         var s = C.subset;
-        html += '<button class="brow' + (state.threshold === 'subset' ? ' on' : '') + '" data-threshold="subset">'
-            + '<span><span class="w">' + s.included.length + ' of ' + C.ids.length + ' within ' + SET.target + 'm</span>'
+        html += '<button class="brow' + (thGet() === 'subset' ? ' on' : '') + '" data-threshold="subset">'
+            + '<span><span class="w">' + seatsOf(s.included) + ' of ' + seatsAll()
+            + ' within ' + SET.target + 'm</span>'
             + (rec === 'subset' ? '<span class="rec">recommended</span>' : '') + '</span>'
             + '<span class="c mono">' + money(s.cost) + '</span>'
             + '<span class="a mono">' + FWF.fmtGap(s.summary.spread) + '</span>'
@@ -766,7 +832,7 @@ function renderBoard() {
 
     html += C.ladder.rows.filter(function (r) { return r.feasible; }).map(function (r) {
         var label = r.threshold === FWF.INF ? 'Any time' : 'Within ' + r.threshold + ' min';
-        var sel = r.threshold === state.threshold;
+        var sel = r.threshold === thGet();
         var spoken = label + ', ' + money(r.result.cost) + ' total, '
             + FWF.fmtGap(r.result.spread) + ' apart'
             + (r.delta > 0 ? ', ' + money(r.delta) + ' more than the cheapest' : ', the cheapest option');
@@ -825,8 +891,12 @@ function chatBlock(picks, included, excluded, spread, cost) {
     });
 
     lines.push('');
-    lines.push('Everyone ' + (state.leg === 'outbound' ? 'on the ground' : 'away')
-        + ' within ' + FWF.fmtGap(spread) + ' · ' + money(cost) + ' total'
+    lines.push((excluded && excluded.length
+            ? seatsOf(included) + ' of ' + seatsAll() + ' '
+            : 'Everyone ')
+        + (state.leg === 'outbound' ? 'on the ground' : 'away')
+        + ' within ' + FWF.fmtGap(spread) + ' · ' + money(cost)
+        + (excluded && excluded.length ? ' for those ' + seatsOf(included) : ' total')
         + (SET.priceDisplay === 'fare' ? ' (fares only)' : ' including bags'));
     var gen = DATA && DATA.generated_at ? new Date(DATA.generated_at) : null;
     lines.push('Fares as of ' + (gen ? gen.toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : 'unknown')
@@ -838,7 +908,7 @@ function chatBlock(picks, included, excluded, spread, cost) {
 function renderPlan() {
     var host = el('plan');
     if (!C.prep.complete && !(C.subset && C.subset.included.length)) { host.innerHTML = ''; return; }
-    if (!C.prep.complete) state.threshold = 'subset';
+    if (!C.prep.complete) thSet('subset');
 
     var plan = selectedPlan();
     if (!plan) { host.innerHTML = ''; return; }
@@ -874,9 +944,31 @@ function renderPlan() {
     }).forEach(function (id) { html += paxRow(id, picks[id], false); });
     excluded.forEach(function (x) { html += paxRow(x.id, { option: x.nearest }, true, x.gapMinutes); });
 
-    html += '<div class="total"><span class="k">Group total'
+    /* Calling this a GROUP total while somebody is excluded is exactly the
+     * "wrong number, not a partial one" failure guarded against elsewhere: the
+     * excluded party's fare is not in it, so say whose and how much. */
+    var partial = excluded.length > 0;
+    var seatsIn = included.reduce(function (n, id) {
+        return n + (C.travelers.filter(function (t) { return t.id === id; })[0] || {}).seats;
+    }, 0);
+    var seatsAll = C.travelers.reduce(function (n, t) { return n + t.seats; }, 0);
+
+    html += '<div class="total' + (partial ? ' partial' : '') + '">'
+        + '<span class="k">' + (partial ? seatsIn + ' of ' + seatsAll + ' travelling' : 'Group total')
         + (SET.priceDisplay === 'fare' ? ' · fares only' : ' · incl. bags') + '</span>'
         + '<span class="v mono">' + money(cost) + '</span></div>';
+
+    if (partial) {
+        var out = excluded.map(function (x) {
+            var t = C.travelers.filter(function (z) { return z.id === x.id; })[0];
+            var c = x.nearest ? FWF.allInCost(x.nearest, t,
+                { assumedCheckedBagFee: APP.bagFee, assumedCarryOnFee: APP.carryOnFee }) : null;
+            return name(x.id) + (c ? ' (' + money(c.total) + ')' : '');
+        });
+        html += '<div class="total-note">Not included: ' + esc(out.join(', '))
+            + '. ' + (excluded.length === 1 ? 'They cannot' : 'They cannot')
+            + ' make this window, so their fare is not in the figure above.</div>';
+    }
 
     html += '<div class="share"><button class="btn wide" id="copyBtn">Copy for the group chat</button>'
         + '<div class="share-note" id="copyNote">Pastes the plan, each person’s flight, who pays what, '
@@ -1176,19 +1268,19 @@ document.addEventListener('click', function (ev) {
     } else if (t.hasAttribute('data-cap')) {
         var rawCap = t.getAttribute('data-cap');
         state.q.maxPremium = rawCap === '' ? null : +rawCap;
-        state.threshold = null; writeHash(); render();
+        thReset(); writeHash(); render();
     } else if (t.hasAttribute('data-stops')) {
         var raw = t.getAttribute('data-stops');
         state.q.maxStops = raw === '' ? null : +raw;
-        state.threshold = null; writeHash(); render();
+        thReset(); writeHash(); render();
     } else if (t.hasAttribute('data-threshold')) {
         var v = t.getAttribute('data-threshold');
-        state.threshold = v === 'subset' ? 'subset' : (v === 'Infinity' ? FWF.INF : +v);
+        thSet(v === 'subset' ? 'subset' : (v === 'Infinity' ? FWF.INF : +v));
         render();
     } else if (t.hasAttribute('data-rec')) {
-        state.recommend = t.getAttribute('data-rec'); state.threshold = null; render();
+        state.recommend = t.getAttribute('data-rec'); thReset(); render();
     } else if (t.hasAttribute('data-leg')) {
-        state.leg = t.getAttribute('data-leg'); state.threshold = null;
+        state.leg = t.getAttribute('data-leg');
         fillBand(); render();
     } else if (t.hasAttribute('data-set')) {
         var key = t.getAttribute('data-set'), val = t.getAttribute('data-val');
@@ -1197,13 +1289,13 @@ document.addEventListener('click', function (ev) {
         else if (key === 'meId' && val === '') val = null;
         SET[key] = val; saveSet();
         if (key === 'theme') applyTheme();
-        state.threshold = null;
+        thReset();
         settingsSheet(); render();
     } else if (t.hasAttribute('data-bag')) {
         var w = t.getAttribute('data-bag');
         var b = { carry_on: SET.bags.carry_on || 0, checked: SET.bags.checked || 0 };
         b[w] = b[w] > 0 ? 0 : 1;
-        SET.bags = b; saveSet(); state.threshold = null;
+        SET.bags = b; saveSet(); thReset();
         settingsSheet(); render();
     }
 });
@@ -1212,18 +1304,37 @@ function fillBand() {
     var b = currentBand();
     el('bFrom').value = b.from || '';
     el('bTo').value = b.to || '';
+    /* Step 2 asks about the outbound landing window specifically. */
+    var ob = bandFor('outbound');
+    if (el('sFrom')) el('sFrom').value = ob.from || '';
+    if (el('sTo')) el('sTo').value = ob.to || '';
+    renderStepStops();
 }
+function todayISO() { return new Date().toISOString().slice(0, 10); }
+
+/* A date input with no value opens at `min`, so pointing the return's min at
+ * the departure date is what stops it opening months earlier. */
+function syncDateBounds() {
+    el('dep').min = todayISO();
+    el('ret').min = state.q.dep || todayISO();
+    if (state.q.ret && state.q.dep && state.q.ret < state.q.dep) {
+        state.q.ret = ''; el('ret').value = '';
+    }
+}
+
 function fillForm() {
     var a = AIRPORTS.get(state.q.dest);
     el('dest').value = a ? a.code + ' — ' + a.city : (state.q.dest || '');
     el('dep').value = state.q.dep || '';
     el('ret').value = state.q.ret || '';
+    syncDateBounds();
     fillBand();
 }
 
 function applyBand() {
     state.q.band[state.leg] = { from: el('bFrom').value, to: el('bTo').value };
-    state.threshold = null; writeHash(); render();
+    /* The band is per leg, so only this leg's choice is invalidated. */
+    thSet(null); writeHash(); render();
 }
 
 el('to2').addEventListener('click', function () {
@@ -1248,7 +1359,7 @@ el('back4').addEventListener('click', function () { showStep(3); });
 el('go').addEventListener('click', function () { if (!state.busy) doSearch(); });
 el('demo').addEventListener('click', loadDemo);
 el('newBtn').addEventListener('click', function () {
-    state.q = blankQuery(); DATA = null; state.error = null; state.threshold = null;
+    state.q = blankQuery(); DATA = null; state.error = null; thReset();
     history.replaceState(null, '', location.pathname);
     fillForm(); renderParties(); showStep(1); render();
 });
@@ -1265,7 +1376,18 @@ el('bTo').addEventListener('change', applyBand);
 el('bClear').addEventListener('click', function () {
     el('bFrom').value = ''; el('bTo').value = ''; applyBand();
 });
+el('dep').addEventListener('change', function () {
+    state.q.dep = el('dep').value;
+    syncDateBounds();
+});
 el('ret').addEventListener('change', function () { state.q.ret = el('ret').value; });
+
+function applyStepBand() {
+    state.q.band.outbound = { from: el('sFrom').value, to: el('sTo').value };
+    thReset();
+}
+if (el('sFrom')) el('sFrom').addEventListener('change', applyStepBand);
+if (el('sTo')) el('sTo').addEventListener('change', applyStepBand);
 
 if (window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function () {
@@ -1288,7 +1410,12 @@ if (shared && shared.v) {
     if (v.priceDisplay) SET.priceDisplay = v.priceDisplay;
     if (v.leg) state.leg = v.leg;
     if (v.recommend) state.recommend = v.recommend;
-    if (v.threshold != null) state.threshold = v.threshold === 'inf' ? FWF.INF : v.threshold;
+    if (v.th) {
+        state.th.outbound = v.th.outbound === 'inf' ? FWF.INF : v.th.outbound;
+        state.th.return = v.th.return === 'inf' ? FWF.INF : v.th.return;
+    } else if (v.threshold != null) {
+        state.th[v.leg || 'outbound'] = v.threshold === 'inf' ? FWF.INF : v.threshold;
+    }
 }
 
 attachAc(el('dest'), el('destAc'), function (a) {

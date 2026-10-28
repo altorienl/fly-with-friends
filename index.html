@@ -239,6 +239,17 @@ section { animation: stepIn .2s var(--ease); }
 .tabs button { flex: 1; min-height: 44px; padding: 12px; font-size: 13px; font-weight: 600; color: var(--muted); transition: background .18s var(--ease), color .18s; }
 .tabs button.on { background: var(--brand); color: var(--brand-ink); }
 
+.trip {
+    display: flex; align-items: baseline; justify-content: space-between;
+    flex-wrap: wrap; gap: 8px;
+    border: 1px solid var(--brand); background: var(--accent-dim);
+    border-radius: var(--r-md); padding: 16px 20px; margin-bottom: 16px;
+}
+.trip-k { font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+.trip-v { font-size: 30px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
+.trip-split { width: 100%; font-size: 11px; color: var(--muted); }
+.trip.partial { border-color: var(--bad); background: transparent; }
+.trip.partial .trip-k { color: var(--bad); }
 .panel { background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-lg); padding: 20px; margin-bottom: 16px; box-shadow: var(--lift); }
 .verdict-big { font-size: 40px; font-weight: 700; line-height: 1; letter-spacing: -1.4px; margin: 8px 0 4px; }
 .verdict-big .u { font-size: 16px; font-weight: 500; color: var(--muted); margin-left: 4px; letter-spacing: 0; }
@@ -258,6 +269,9 @@ section { animation: stepIn .2s var(--ease); }
 .pills .k { margin-right: 4px; }
 
 .filters { background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-md); padding: 16px; margin-bottom: 16px; box-shadow: var(--lift); }
+.row2 { display: flex; align-items: center; gap: 8px; }
+.row2 .inp { flex: 1 1 0; min-width: 0; }
+.row2 .sep { font-size: 12px; color: var(--muted); flex-shrink: 0; }
 .filters .row2 { display: flex; align-items: center; gap: 8px; }
 .filters .row2 .inp { flex: 1 1 0; min-width: 0; min-height: 44px; }
 .filters .sep { font-size: 12px; color: var(--muted); flex-shrink: 0; }
@@ -320,6 +334,9 @@ section { animation: stepIn .2s var(--ease); }
 .total { display: flex; justify-content: space-between; align-items: baseline; padding: 16px; border: 1px solid var(--brand); border-radius: var(--r-md); background: var(--accent-dim); margin-top: 8px; }
 .total .k { color: var(--accent); }
 .total .v { font-size: 24px; font-weight: 700; }
+.total.partial { border-color: var(--bad); background: transparent; }
+.total.partial .k { color: var(--bad); }
+.total-note { font-size: 11px; color: var(--bad); margin-top: 8px; line-height: 1.55; }
 .share { margin-top: 16px; }
 .share-note { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.5; text-align: center; }
 .share-note.ok { color: var(--good); }
@@ -463,6 +480,22 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
         </div>
         <div class="field"><label class="k" for="dep">Depart</label><input class="inp" id="dep" type="date"></div>
         <div class="field"><label class="k" for="ret">Return <span style="text-transform:none;letter-spacing:0">optional</span></label><input class="inp" id="ret" type="date"></div>
+
+        <div class="field" role="group" aria-labelledby="sBandLbl">
+            <span class="k" id="sBandLbl">What time should everyone land? <span style="text-transform:none;letter-spacing:0">optional</span></span>
+            <div class="row2">
+                <input class="inp" id="sFrom" type="time" aria-label="Earliest landing time">
+                <span class="sep">and</span>
+                <input class="inp" id="sTo" type="time" aria-label="Latest landing time">
+            </div>
+            <div class="party-note">Villa check-in, a booked shuttle, or just not landing at 2am. You can change this later for free.</div>
+        </div>
+
+        <div class="field">
+            <span class="k">Stops</span>
+            <div class="pills" id="sStops" role="radiogroup" aria-label="Maximum stops"></div>
+        </div>
+
         <div class="nav">
             <button class="icon-btn" id="back2" aria-label="Back">&larr;</button>
             <button class="btn primary" id="to3">Next: who</button>
@@ -493,6 +526,7 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
             <button data-leg="outbound" class="on" role="tab" aria-selected="true">Landing together</button>
             <button data-leg="return" role="tab" aria-selected="false">Leaving together</button>
         </div>
+        <div class="trip hidden" id="tripTotal" aria-live="polite"></div>
         <div class="panel" id="verdict" aria-live="polite"></div>
         <div class="filters">
             <div role="group" aria-labelledby="bandLbl">
