@@ -4,10 +4,18 @@
   "description": "Find the set of flights that gets everyone on the ground within 15-30 minutes of each other.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0c0a08",
-  "theme_color": "#0c0a08",
+  "background_color": "#0b0a08",
+  "theme_color": "#0b0a08",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
   ]
 }

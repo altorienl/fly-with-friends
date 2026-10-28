@@ -80,7 +80,7 @@ plausible-looking wrong answer would be invisible in the UI, so it has to be run
 against brute force outside a browser.
 
 ```
-node test-optimizer.js             # 73 checks
+node test-optimizer.js             # 80 checks
 cd worker && node test-worker.js   # 41 checks
 ```
 
@@ -135,6 +135,25 @@ Four of those airports have **no commercial service** — Kyiv, Lviv and Odesa s
 2022. Typing "kyiv" returns them with the reason and the airports people actually fly from
 instead (Kraków, Warsaw, Rzeszów, Chișinău), rather than an empty result or a search that
 burns a credit proving it.
+
+**Who carries the premium.** One group total is not what anyone pays, and the premium for
+landing together almost never lands evenly — it falls on whoever is furthest away. Each
+party's fare in the chosen plan is compared with what they would have paid flying whenever
+they liked, so the plan reads *"Sam $114, Jo $78, Alex $76, Ray $11 — that is 41% on Sam
+alone, worth deciding before anyone books."* Zero extra searches; it is subtraction over
+data already in hand.
+
+There is also a cap: **nobody absorbs more than $50/$100/$200**. It prunes each party's
+options to those within their own baseline plus the cap and re-solves, as a filter on the
+option set rather than a change to the optimiser, so the window algorithms stay exactly as
+verified. On the example trip a $100 cap moves the window from 8 minutes to 20 and takes
+$126 *off* the group total, because the expensive tight options were what the cap removed.
+
+**Copy for the group chat.** The decision happens in a group chat, not here. The plan
+exports as a paste-ready block — each person's flight, time, fare, who is paying extra, the
+window, the total, the capture timestamp, and a link that opens on that exact row. The link
+carries the chosen row, leg and bag assumptions, so the fifth person to open it sees the
+same numbers rather than their own device's defaults.
 
 **Stops and trip length.** The optimiser originally minimised price alone, which meant it
 would happily pick a 31-hour two-stop itinerary to save $70. Two fixes:
@@ -204,6 +223,7 @@ which turns an impossible constraint into a real decision.
 | `index.html` | markup and styles for the four-step flow |
 | `app.js` | steps, autocomplete, rendering, search |
 | `airports.js` | 306 airports including ones with no service, and the lookup |
+| `worker/worker.js` | SerpApi proxy: key, cache, budget cap, rate limit |
 | `optimizer.js` | window/cost maths and time bands, runs in browser and node |
 | `test-optimizer.js` | brute-force verification, `node test-optimizer.js` |
 | `worker/worker.js` | SerpApi proxy: key, cache, budget cap, rate limit |

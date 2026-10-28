@@ -59,7 +59,7 @@ function applyTheme() {
     }
     document.documentElement.setAttribute('data-theme', m);
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', m === 'light' ? '#fbfbfc' : '#0a0a0b');
+    if (meta) meta.setAttribute('content', m === 'light' ? '#f7f4ee' : '#0b0a08');
 }
 
 /* ---------------------------------------------------------- query model */
@@ -71,7 +71,7 @@ function blankQuery() {
     return {
         dest: '', dep: '', ret: '',
         band: { outbound: { from: '', to: '' }, return: { from: '', to: '' } },
-        maxStops: null,
+        maxStops: null, maxPremium: null,
         parties: [newParty(0), newParty(1), newParty(2)]
     };
 }
@@ -110,15 +110,38 @@ function compute() {
     var field = state.leg === 'outbound' ? 'arrive' : 'depart';
     var band = bandMinutes(), maxStops = state.q.maxStops;
 
-    var prep = FWF.prepare(legData, ids, field, { band: band, maxStops: maxStops });
     var costFn = FWF.makeCostFn(tv, {
         assumedCheckedBagFee: APP.bagFee, assumedCarryOnFee: APP.carryOnFee,
         priceDisplay: SET.priceDisplay
     });
 
+    var prep = FWF.prepare(legData, ids, field, { band: band, maxStops: maxStops });
+
+    /* What each party would pay flying whenever they liked, inside the same
+     * filters. This is the baseline the premium is measured from, and it is the
+     * number that turns one group total into "who is actually absorbing it". */
+    var solo = {};
+    var loner = FWF.minCostAtWindow(prep, FWF.INF, costFn);
+    if (loner) ids.forEach(function (id) { solo[id] = loner.picks[id].cost; });
+
+    /* The fairness cap prunes each party's options to those within their own
+     * baseline plus the cap, then re-prepares. Done as a filter on the option
+     * set rather than inside the optimiser, so the window algorithms stay
+     * exactly as verified. */
+    var cap = state.q.maxPremium;
+    if (cap != null && loner) {
+        var pruned = {};
+        ids.forEach(function (id) {
+            pruned[id] = (legData[id] || []).filter(function (o) {
+                return costFn(o, id) <= solo[id] + cap;
+            });
+        });
+        prep = FWF.prepare(pruned, ids, field, { band: band, maxStops: maxStops });
+    }
+
     var out = { travelers: tv, ids: ids, prep: prep, costFn: costFn, band: band,
-                maxStops: maxStops, tight: null, ladder: null, target: null,
-                subset: null, anyTime: null };
+                maxStops: maxStops, cap: cap, solo: solo,
+                tight: null, ladder: null, target: null, subset: null, anyTime: null };
 
     /* The cost of a filter only means anything against the same search without
      * it, and that comparison is free -- same options, no extra request. */
@@ -147,24 +170,39 @@ function compute() {
 
 /* One implementation, attached to the destination field and to every party
  * airport field. Keyboard nav mirrors intrinsics: arrows move, Enter commits. */
+var acSeq = 0;
 function attachAc(input, drop, onPick, opts) {
-    var matches = [], idx = -1;
+    var matches = [], idx = -1, uid = 'ac' + (++acSeq);
     opts = opts || {};
+    if (!drop.id) drop.id = uid + 'list';
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-controls', drop.id);
+    input.setAttribute('aria-expanded', 'false');
+    drop.setAttribute('role', 'listbox');
 
-    function close() { drop.classList.add('hidden'); idx = -1; }
+    function close() {
+        drop.classList.remove('open');
+        input.setAttribute('aria-expanded', 'false');
+        input.removeAttribute('aria-activedescendant');
+        idx = -1;
+    }
 
     function paint() {
         if (!matches.length) { close(); return; }
         drop.innerHTML = matches.map(function (a, i) {
-            return '<button class="ac-item' + (i === idx ? ' active' : '')
-                + (a.closed ? ' closed' : '') + '" data-ac="' + i + '">'
+            return '<button type="button" class="ac-item' + (i === idx ? ' active' : '')
+                + (a.closed ? ' closed' : '') + '" data-ac="' + i + '" role="option" tabindex="-1"'
+                + ' id="' + uid + '-' + i + '" aria-selected="' + (i === idx) + '">'
                 + '<span class="ac-code">' + esc(a.code) + '</span>'
                 + '<span class="ac-body"><span class="ac-city">' + esc(a.city)
-                + (a.closed ? ' — closed' : '') + '</span>'
+                + (a.closed ? ' — no service' : '') + '</span>'
                 + '<span class="ac-sub">' + esc(a.name) + '</span></span>'
                 + '<span class="ac-flag">' + esc(a.country) + '</span></button>';
         }).join('');
-        drop.classList.remove('hidden');
+        drop.classList.add('open');
+        input.setAttribute('aria-expanded', 'true');
+        if (idx >= 0) input.setAttribute('aria-activedescendant', uid + '-' + idx);
     }
 
     function refresh() {
@@ -192,12 +230,17 @@ function attachAc(input, drop, onPick, opts) {
             else if (opts.onEnter) opts.onEnter();
         } else if (ev.key === 'Escape') { close(); }
     });
-    drop.addEventListener('mousedown', function (ev) {
-        var t = ev.target.closest('[data-ac]');
+    /* mousedown beats the input's blur so the list is still there; click is what
+     * a keyboard Enter and a VoiceOver double-tap actually emit, so both are
+     * needed or the suggestions are unusable without a mouse. */
+    function activate(ev) {
+        var t = ev.target.closest && ev.target.closest('[data-ac]');
         if (!t) return;
         ev.preventDefault();
         commit(+t.getAttribute('data-ac'));
-    });
+    }
+    drop.addEventListener('mousedown', activate);
+    drop.addEventListener('click', activate);
 
     return { close: close };
 }
@@ -209,12 +252,13 @@ var STEPS = ['Where', 'When', 'Who', 'Flights'];
 function showStep(n) {
     state.step = n;
     [1, 2, 3, 4].forEach(function (i) { el('s' + i).classList.toggle('hidden', i !== n); });
+    el('s' + n).focus({ preventScroll: true });
     var rail = el('rail');
     rail.classList.toggle('hidden', n === 4);
     if (n !== 4) {
         rail.innerHTML = STEPS.slice(0, 3).map(function (_, i) {
             return '<span class="seg' + (i < n ? ' done' : '') + '"></span>';
-        }).join('') + '<span class="lbl">' + STEPS[n - 1] + ' · ' + n + ' of 3</span>';
+        }).join('') + '<span class="lbl">' + STEPS[n - 1] + '</span>';
     }
     window.scrollTo(0, 0);
 }
@@ -240,22 +284,29 @@ function renderParties() {
 
         return '<div class="party" data-pid="' + esc(p.id) + '">'
             + '<div class="party-top">'
-            + '<div class="ava" style="background:' + partyColor(i) + '">' + esc(partyInitials(p, i)) + '</div>'
-            + '<input class="inp sans" data-f="name" placeholder="Name (optional)" value="' + esc(p.name) + '" maxlength="22">'
-            + '<div class="stepper">'
-            + '<button data-seats="-1" aria-label="Fewer"' + (p.seats <= 1 ? ' disabled' : '') + '>&minus;</button>'
-            + '<span class="n">' + p.seats + '</span>'
-            + '<button data-seats="1" aria-label="More"' + (p.seats >= APP.maxSeats ? ' disabled' : '') + '>+</button>'
+            + '<div class="ava" aria-hidden="true" style="background:' + partyColor(i) + '">' + esc(partyInitials(p, i)) + '</div>'
+            + '<input class="inp sans" data-f="name" placeholder="Name (optional)" value="' + esc(p.name)
+            + '" maxlength="22" aria-label="Name for departure city ' + (i + 1) + '">'
+            + '<div class="stepper" role="group" aria-label="Seats for ' + esc(partyLabel(p, i)) + '">'
+            + '<button data-seats="-1" aria-label="One fewer seat for ' + esc(partyLabel(p, i)) + '"'
+            + (p.seats <= 1 ? ' disabled' : '') + '>&minus;</button>'
+            + '<output class="n" aria-live="polite">' + p.seats + '</output>'
+            + '<button data-seats="1" aria-label="One more seat for ' + esc(partyLabel(p, i)) + '"'
+            + (p.seats >= APP.maxSeats ? ' disabled' : '') + '>+</button>'
             + '</div>'
-            + (state.q.parties.length > 2 ? '<button class="party-x" data-rmparty aria-label="Remove">&times;</button>' : '')
+            + (state.q.parties.length > 2
+                ? '<button class="party-x" data-rmparty aria-label="Remove ' + esc(partyLabel(p, i)) + '">&times;</button>' : '')
             + '</div>'
             + '<span class="k">Flying from</span>'
             + '<div class="chips" style="margin-top:8px">' + chips
-            + '<button class="add-air" data-addair>' + (p.airports.length ? '+ another airport' : '+ pick airport') + '</button>'
+            + '<button class="add-air" data-addair aria-label="'
+            + (p.airports.length ? 'Add another airport for ' : 'Pick an airport for ') + esc(partyLabel(p, i))
+            + '">' + (p.airports.length ? '+ another airport' : '+ pick airport') + '</button>'
             + '</div>'
             + '<div class="field hidden" data-airfield style="margin:10px 0 0">'
-            + '<input class="inp" data-airinput placeholder="Airport or city" autocapitalize="characters" autocomplete="off">'
-            + '<div class="ac hidden" data-airac></div></div>'
+            + '<input class="inp" data-airinput placeholder="Airport or city" autocapitalize="characters"'
+            + ' autocomplete="off" aria-label="Add an airport for ' + esc(partyLabel(p, i)) + '">'
+            + '<div class="ac" data-airac></div></div>'
             + closedNote
             + (p.seats > 1 ? '<div class="party-note">' + p.seats + ' seats booked together from one airport.</div>' : '')
             + '</div>';
@@ -311,11 +362,16 @@ function validate() {
 
 function doSearch() {
     readNames();
-    state.q.parties = state.q.parties.filter(function (p) { return p.airports.length; });
-    if (state.q.parties.length < 2) state.q.parties = state.q.parties.concat([newParty(9)]);
 
+    /* Validate before touching the query: a failed search must not silently eat
+     * the cards someone has half-filled in. */
     var bad = validate();
     if (bad) { state.error = bad; render(); return; }
+
+    /* Only now drop the cards with no airport, so ids, totals and the plan all
+     * agree on who is actually travelling. */
+    state.q.parties = state.q.parties.filter(function (p) { return p.airports.length; });
+    renderParties();
 
     state.error = null; state.busy = true; render();
     writeHash();
@@ -374,16 +430,37 @@ function loadDemo() {
 
 /* ---------------------------------------------------------------- hash */
 
+/* The link carries the decision as well as the search. Without this, the fifth
+ * person opens it and their own device picks a different recommended row and a
+ * different target, so the group is arguing about two different numbers. */
+function hashPayload() {
+    return {
+        q: state.q,
+        v: { threshold: state.threshold === FWF.INF ? 'inf' : state.threshold,
+             leg: state.leg, recommend: state.recommend,
+             target: SET.target, bags: SET.bags, priceDisplay: SET.priceDisplay }
+    };
+}
 function writeHash() {
     try {
-        var enc = btoa(unescape(encodeURIComponent(JSON.stringify(state.q)))).replace(/=+$/, '');
+        var enc = btoa(unescape(encodeURIComponent(JSON.stringify(hashPayload())))).replace(/=+$/, '');
         history.replaceState(null, '', '#s=' + enc);
     } catch (e) {}
 }
 function readHash() {
     var m = /[#&]s=([^&]+)/.exec(location.hash || '');
     if (!m) return null;
-    try { return JSON.parse(decodeURIComponent(escape(atob(m[1])))); } catch (e) { return null; }
+    try {
+        var o = JSON.parse(decodeURIComponent(escape(atob(m[1]))));
+        /* Older links carried the bare query. */
+        return o && o.parties ? { q: o, v: null } : o;
+    } catch (e) { return null; }
+}
+function shareUrl() {
+    try {
+        return location.origin + location.pathname + '#s='
+            + btoa(unescape(encodeURIComponent(JSON.stringify(hashPayload())))).replace(/=+$/, '');
+    } catch (e) { return location.href; }
 }
 
 /* -------------------------------------------------------------- render */
@@ -392,13 +469,17 @@ function render() {
     C = compute();
     renderNotices();
     renderGear();
-    el('go').textContent = state.busy ? 'Searching…' : 'Find flights';
-    el('go').disabled = state.busy;
+    el('go').textContent = state.busy ? 'Searching…' : 'Land them together';
+    el('go').setAttribute('aria-disabled', state.busy ? 'true' : 'false');
+    el('go').setAttribute('aria-busy', state.busy ? 'true' : 'false');
+    el('go').classList.toggle('busy', state.busy);
     if (state.step !== 4) return;
     if (!C) { showStep(3); return; }
+    if (state.threshold === null && C.ladder) state.threshold = recommended();
     renderResHead();
     renderTabs();
     renderStopPills();
+    renderCapPills();
     renderVerdict();
     renderRecPills();
     renderBoard();
@@ -471,6 +552,7 @@ function filterText() {
     if (C.band) bits.push(legVerb() + ' between ' + bandText());
     if (C.maxStops === 0) bits.push('are nonstop');
     else if (C.maxStops != null) bits.push('have at most ' + C.maxStops + ' stop');
+    if (C.cap != null) bits.push('cost them no more than ' + money(C.cap) + ' over their own cheapest');
     return bits.join(' and ');
 }
 
@@ -480,7 +562,8 @@ function renderResHead() {
     el('resT').textContent = (a ? a.city : q.dest) + ' · ' + seats + ' travelling';
     var gen = DATA.generated_at ? new Date(DATA.generated_at) : null;
     var hrs = gen ? Math.round((Date.now() - gen.getTime()) / 3600000) : null;
-    var cls = hrs == null ? 'fresh-mid' : hrs < 6 ? 'fresh-ok' : hrs < 24 ? 'fresh-mid' : 'fresh-old';
+    var cls = DATA.sample ? 'fresh-sample'
+        : hrs == null ? 'fresh-mid' : hrs < 6 ? 'fresh-ok' : hrs < 24 ? 'fresh-mid' : 'fresh-old';
     var word = DATA.sample ? 'example data'
         : hrs == null ? 'unknown age' : hrs < 1 ? 'fares just now' : 'fares ' + hrs + 'h old';
     el('resS').innerHTML = esc(q.dep + (q.ret ? ' → ' + q.ret : ' · one way'))
@@ -489,7 +572,9 @@ function renderResHead() {
 
 function renderTabs() {
     Array.prototype.forEach.call(document.querySelectorAll('#tabs button'), function (b) {
-        b.classList.toggle('on', b.getAttribute('data-leg') === state.leg);
+        var on = b.getAttribute('data-leg') === state.leg;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
         if (b.getAttribute('data-leg') === 'return') b.classList.toggle('hidden', !hasReturn());
     });
     el('bandLbl').textContent = state.leg === 'outbound' ? 'Land between' : 'Leave between';
@@ -502,18 +587,35 @@ function renderTabs() {
 
 function renderStopPills() {
     var o = [{ v: 0, l: 'Nonstop' }, { v: 1, l: 'Up to 1 stop' }, { v: null, l: 'Any' }];
+    el('stopPills').setAttribute('role', 'radiogroup');
+    el('stopPills').setAttribute('aria-label', 'Maximum stops');
     el('stopPills').innerHTML = '<span class="k">Stops</span>' + o.map(function (x) {
-        return '<button class="pill' + (state.q.maxStops === x.v ? ' on' : '') + '" data-stops="'
-            + (x.v === null ? '' : x.v) + '">' + x.l + '</button>';
+        var on = state.q.maxStops === x.v;
+        return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
+            + '" data-stops="' + (x.v === null ? '' : x.v) + '">' + x.l + '</button>';
+    }).join('');
+}
+
+function renderCapPills() {
+    var o = [{ v: null, l: 'No cap' }, { v: 50, l: '$50' }, { v: 100, l: '$100' }, { v: 200, l: '$200' }];
+    el('capPills').setAttribute('role', 'radiogroup');
+    el('capPills').setAttribute('aria-label', 'Cap on what one party absorbs');
+    el('capPills').innerHTML = '<span class="k">Nobody absorbs over</span>' + o.map(function (x) {
+        var on = state.q.maxPremium === x.v;
+        return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
+            + '" data-cap="' + (x.v === null ? '' : x.v) + '">' + x.l + '</button>';
     }).join('');
 }
 
 function renderRecPills() {
     var o = [{ k: 'tightest', l: 'Closest times' }, { k: 'target', l: 'Cheapest at ' + SET.target + 'm' },
              { k: 'value', l: 'Best value' }];
+    el('recPills').setAttribute('role', 'radiogroup');
+    el('recPills').setAttribute('aria-label', 'Which plan to put forward');
     el('recPills').innerHTML = '<span class="k">Show</span>' + o.map(function (x) {
-        return '<button class="pill' + (state.recommend === x.k ? ' on' : '') + '" data-rec="' + x.k + '">'
-            + esc(x.l) + '</button>';
+        var on = state.recommend === x.k;
+        return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
+            + '" data-rec="' + x.k + '">' + esc(x.l) + '</button>';
     }).join('');
 }
 
@@ -546,21 +648,23 @@ function renderVerdict() {
     }
 
     if (C.target) {
-        var base = C.ladder.baseline, prem = C.target.cost - base;
+        var base = C.ladder.baseline;
+        var sel = selectedPlan();
+        var shown = sel ? sel.cost : C.target.cost;
+        var prem = shown - base;
         html += '<div class="note">Everyone can ' + legVerb() + ' within <strong>' + SET.target
             + ' minutes</strong> for <strong>' + money(C.target.cost) + '</strong>. The cheapest scattered option is '
-            + money(base) + ', so ' + (prem > 0
-                ? 'travelling together costs <strong>' + money(prem) + '</strong> more.'
-                : 'travelling together costs nothing extra.') + '</div>'
+            + money(base) + '.</div>'
             + '<div class="split">'
-            + '<div><span class="k">Together</span><div class="v mono">' + money(C.target.cost) + '</div></div>'
+            + '<div><span class="k">This plan</span><div class="v mono">' + money(shown) + '</div></div>'
             + '<div><span class="k">Scattered</span><div class="v mono">' + money(base) + '</div></div>'
             + '<div><span class="k">Cost of together</span><div class="v mono" style="color:var(--accent)">'
             + (prem > 0 ? '+' + money(prem) : money(0)) + '</div></div>'
             + (C.anyTime != null
                 ? '<div><span class="k">Cost of your filters</span><div class="v mono" style="color:var(--accent)">'
                   + (base - C.anyTime > 0 ? '+' + money(base - C.anyTime) : money(0)) + '</div></div>' : '')
-            + '</div>';
+            + '</div>'
+            + whoPays(selectedPlan());
     } else if (C.subset) {
         var sub = C.subset;
         html += '<div class="note"><strong>No combination gets all ' + C.ids.length + ' within '
@@ -571,6 +675,48 @@ function renderVerdict() {
             }).join(', ')) + '.</div>';
     }
     v.innerHTML = html;
+}
+
+/* The one plan every part of the results screen must agree on. */
+function selectedPlan() {
+    if (!C) return null;
+    if (state.threshold === 'subset' || !C.prep.complete) {
+        if (C.subset && C.subset.included.length) {
+            return { picks: C.subset.picks, included: C.subset.included,
+                     excluded: C.subset.excluded, spread: C.subset.summary.spread,
+                     cost: C.subset.cost, subset: true };
+        }
+        return null;
+    }
+    var row = C.ladder && C.ladder.rows.filter(function (r) {
+        return r.feasible && r.threshold === state.threshold;
+    })[0];
+    if (!row) return null;
+    return { picks: row.result.picks, included: C.ids.slice(), excluded: [],
+             spread: row.result.spread, cost: row.result.cost, subset: false };
+}
+
+/* The group total is not what anyone pays. This says whose fare moved. */
+function whoPays(plan) {
+    if (!plan || !C.solo) return '';
+    var rows = (plan.included || C.ids).map(function (id) {
+        return { id: id, prem: premiumFor(id, plan.picks[id]) };
+    }).filter(function (r) { return r.prem != null && r.prem > 0; })
+      .sort(function (a, b) { return b.prem - a.prem; });
+
+    if (!rows.length) return '<div class="note">Nobody pays extra to land together on this plan.</div>';
+
+    var total = rows.reduce(function (n, r) { return n + r.prem; }, 0);
+    var top = rows[0];
+    var share = total > 0 ? Math.round((top.prem / total) * 100) : 0;
+
+    return '<div class="note"><strong>Who carries it:</strong> '
+        + rows.map(function (r) { return esc(name(r.id)) + ' ' + money(r.prem); }).join(', ')
+        + (rows.length > 1 && share >= 60
+            ? '. That is ' + share + '% of the premium on ' + esc(name(top.id))
+              + ' alone — worth deciding before anyone books.'
+            : '.')
+        + '</div>';
 }
 
 function recommended() {
@@ -607,7 +753,7 @@ function renderBoard() {
             + (rec === 'subset' ? '<span class="rec">recommended</span>' : '') + '</span>'
             + '<span class="c mono">' + money(s.cost) + '</span>'
             + '<span class="a mono">' + FWF.fmtGap(s.summary.spread) + '</span>'
-            + '<span class="d mono" style="color:var(--faint)">n/a</span></button>';
+            + '<span class="d mono dim" title="Not comparable: covers fewer people">n/a</span></button>';
     }
 
     var bad = C.ladder.rows.filter(function (r) { return !r.feasible; });
@@ -620,8 +766,13 @@ function renderBoard() {
 
     html += C.ladder.rows.filter(function (r) { return r.feasible; }).map(function (r) {
         var label = r.threshold === FWF.INF ? 'Any time' : 'Within ' + r.threshold + ' min';
-        return '<button class="brow' + (r.threshold === state.threshold ? ' on' : '')
-            + '" data-threshold="' + r.threshold + '">'
+        var sel = r.threshold === state.threshold;
+        var spoken = label + ', ' + money(r.result.cost) + ' total, '
+            + FWF.fmtGap(r.result.spread) + ' apart'
+            + (r.delta > 0 ? ', ' + money(r.delta) + ' more than the cheapest' : ', the cheapest option');
+        return '<button class="brow' + (sel ? ' on' : '') + '" role="listitem"'
+            + (sel ? ' aria-current="true"' : '') + ' aria-label="' + esc(spoken) + '"'
+            + ' data-threshold="' + r.threshold + '">'
             + '<span><span class="w">' + label + '</span>'
             + (r.threshold === rec ? '<span class="rec">recommended</span>' : '') + '</span>'
             + '<span class="c mono">' + money(r.result.cost) + '</span>'
@@ -643,19 +794,56 @@ function bookUrl(o, seats) {
     return 'https://www.google.com/travel/flights?q=' + encodeURIComponent(q);
 }
 
+/* A block you can paste into the group chat. The decision happens there, not
+ * here, and until now the app handed the organiser a screenful of numbers and no
+ * way to move them. Stamped with the capture time on purpose: fares move, and a
+ * pasted total with no date is the kind of thing a group argues with on Friday. */
+function chatBlock(picks, included, excluded, spread, cost) {
+    var a = AIRPORTS.get(state.q.dest);
+    var lines = [];
+    lines.push((a ? a.city + ' (' + a.code + ')' : state.q.dest) + ' · '
+        + state.q.dep + (state.q.ret ? ' – ' + state.q.ret : ' one way'));
+    lines.push('');
+
+    var verb = state.leg === 'outbound' ? 'lands' : 'leaves';
+    included.slice().sort(function (x, y) {
+        return picks[x].option.clusterMin - picks[y].option.clusterMin;
+    }).forEach(function (id) {
+        var t = C.travelers.filter(function (z) { return z.id === id; })[0];
+        var o = picks[id].option;
+        var prem = premiumFor(id, picks[id]);
+        lines.push('• ' + t.name + ' — ' + o.from + ' to ' + o.to + ', ' + verb + ' '
+            + clock(state.leg === 'outbound' ? o.arriveMin : o.departMin)
+            + ', ' + money(picks[id].cost) + (t.seats > 1 ? ' for ' + t.seats : '')
+            + ((o.airlines || []).length ? ', ' + o.airlines.join('/') : '')
+            + (o.stops === 0 ? ', nonstop' : ', ' + o.stops + ' stop')
+            + (prem > 0 ? '  (+' + money(prem) + ' to be on time with everyone)' : ''));
+    });
+    (excluded || []).forEach(function (x) {
+        lines.push('• ' + name(x.id) + ' — cannot make this window ('
+            + FWF.fmtGap(x.gapMinutes) + ' outside)');
+    });
+
+    lines.push('');
+    lines.push('Everyone ' + (state.leg === 'outbound' ? 'on the ground' : 'away')
+        + ' within ' + FWF.fmtGap(spread) + ' · ' + money(cost) + ' total'
+        + (SET.priceDisplay === 'fare' ? ' (fares only)' : ' including bags'));
+    var gen = DATA && DATA.generated_at ? new Date(DATA.generated_at) : null;
+    lines.push('Fares as of ' + (gen ? gen.toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : 'unknown')
+        + ' — check before paying.');
+    lines.push(shareUrl());
+    return lines.join('\n');
+}
+
 function renderPlan() {
     var host = el('plan');
     if (!C.prep.complete && !(C.subset && C.subset.included.length)) { host.innerHTML = ''; return; }
     if (!C.prep.complete) state.threshold = 'subset';
 
-    var row = (state.threshold === 'subset' || !C.ladder) ? null
-        : C.ladder.rows.filter(function (r) { return r.feasible && r.threshold === state.threshold; })[0];
-
-    var picks, included, excluded = [], spread, cost;
-    if (row) { picks = row.result.picks; included = C.ids.slice(); spread = row.result.spread; cost = row.result.cost; }
-    else if (C.subset) { picks = C.subset.picks; included = C.subset.included; excluded = C.subset.excluded;
-                         spread = C.subset.summary.spread; cost = C.subset.cost; }
-    else { host.innerHTML = ''; return; }
+    var plan = selectedPlan();
+    if (!plan) { host.innerHTML = ''; return; }
+    var picks = plan.picks, included = plan.included, excluded = plan.excluded || [];
+    var spread = plan.spread, cost = plan.cost, row = !plan.subset;
 
     var seats = included.reduce(function (n, id) {
         return n + (C.travelers.filter(function (t) { return t.id === id; })[0] || {}).seats;
@@ -689,7 +877,41 @@ function renderPlan() {
     html += '<div class="total"><span class="k">Group total'
         + (SET.priceDisplay === 'fare' ? ' · fares only' : ' · incl. bags') + '</span>'
         + '<span class="v mono">' + money(cost) + '</span></div>';
+
+    html += '<div class="share"><button class="btn wide" id="copyBtn">Copy for the group chat</button>'
+        + '<div class="share-note" id="copyNote">Pastes the plan, each person’s flight, who pays what, '
+        + 'and a link that opens on this exact row.</div></div>';
+
     host.innerHTML = html;
+
+    el('copyBtn').addEventListener('click', function () {
+        var text = chatBlock(picks, included, excluded, spread, cost);
+        var done = function (ok) {
+            el('copyNote').textContent = ok ? 'Copied. Paste it in the group chat.'
+                : 'Could not copy automatically — long-press the plan above to select it.';
+            el('copyNote').className = 'share-note' + (ok ? ' ok' : '');
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+        } else {
+            /* Older iOS Safari without the async clipboard API. */
+            var ta = document.createElement('textarea');
+            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            var ok = false;
+            try { ok = document.execCommand('copy'); } catch (e) {}
+            document.body.removeChild(ta);
+            done(ok);
+        }
+    });
+}
+
+/* Each party's share of the premium: what this plan costs them minus what they
+ * would have paid flying whenever they liked. One group total hides the fact
+ * that it rarely lands evenly, and the person furthest away usually eats it. */
+function premiumFor(id, pick) {
+    if (!C.solo || C.solo[id] == null || !pick || pick.cost == null) return null;
+    return Math.round(pick.cost - C.solo[id]);
 }
 
 function paxRow(id, pick, out, gap) {
@@ -718,6 +940,12 @@ function paxRow(id, pick, out, gap) {
         ? money(o.price * t.seats) + (t.seats > 1 ? ' · ' + money(o.price) + ' each' : ' fare')
         : money(b.total) + (b.bagFee > 0 ? ' incl. ' + money(b.bagFee) + ' bags' : ' all-in');
 
+    var prem = out ? null : premiumFor(id, pick);
+    var premLine = prem == null ? ''
+        : prem > 0
+            ? '<div class="prem over">+' + money(prem) + ' to land together</div>'
+            : '<div class="prem">their own cheapest anyway</div>';
+
     return '<div class="pax' + (out ? ' out' : '') + '">'
         + '<div class="ava" style="background:' + partyColor(i < 0 ? 0 : i) + '">'
         + esc(partyInitials(state.q.parties[i] || { name: t.name }, i < 0 ? 0 : i)) + '</div>'
@@ -726,10 +954,11 @@ function paxRow(id, pick, out, gap) {
         + '<div class="pax-meta">' + esc(o.from) + ' &rarr; ' + esc(o.to) + ' · '
         + esc((o.airlines || []).join(', ')) + ' · ' + (o.stops === 0 ? 'nonstop' : o.stops + ' stop')
         + ' · ' + FWF.fmtGap(o.duration_minutes) + '</div>'
+        + premLine
         + '<a class="book" href="' + bookUrl(o, t.seats) + '" target="_blank" rel="noopener">Book on Google Flights &rarr;</a>'
         + '</div><div class="pax-right"><div class="pax-time mono">' + clock(show) + '</div>'
         + '<div class="pax-price mono">' + price + '</div>'
-        + '<div class="pax-price mono" style="opacity:0.6">'
+        + '<div class="pax-price mono dim">'
         + (state.leg === 'outbound' ? 'dep ' : 'arr ') + clock(other) + '</div></div></div>';
 }
 
@@ -778,13 +1007,56 @@ function timeline(picks, included, excluded) {
 
 /* --------------------------------------------------------------- sheets */
 
-function openSheet(html) {
-    el('sheet').innerHTML = '<div class="grip"></div>' + html
-        + '<button class="btn primary wide" id="sheetClose" style="margin-top:8px">Done</button>';
-    el('sheet').classList.remove('hidden');
-    el('scrim').classList.remove('hidden');
+var sheetReturn = null;
+
+function focusables(root) {
+    return Array.prototype.filter.call(
+        root.querySelectorAll('button, a[href], input, select, [tabindex]:not([tabindex="-1"])'),
+        function (n) { return !n.disabled && n.offsetParent !== null; });
 }
-function closeSheet() { el('sheet').classList.add('hidden'); el('scrim').classList.add('hidden'); }
+
+function openSheet(html) {
+    var sheet = el('sheet');
+    sheetReturn = document.activeElement;
+    sheet.innerHTML = '<div class="grip"></div>' + html
+        + '<button class="btn primary wide" id="sheetClose" style="margin-top:8px">Done</button>';
+    sheet.classList.remove('hidden', 'out');
+    el('scrim').classList.remove('hidden', 'out');
+    /* The page must not stay tabbable behind the scrim. */
+    document.querySelector('main').setAttribute('inert', '');
+    document.querySelector('.brand').setAttribute('inert', '');
+    sheet.focus();
+}
+
+function closeSheet() {
+    var sheet = el('sheet'), scrim = el('scrim');
+    if (sheet.classList.contains('hidden')) return;
+    document.querySelector('main').removeAttribute('inert');
+    document.querySelector('.brand').removeAttribute('inert');
+    sheet.classList.add('out');
+    scrim.classList.add('out');
+    setTimeout(function () {
+        sheet.classList.add('hidden'); sheet.classList.remove('out');
+        scrim.classList.add('hidden'); scrim.classList.remove('out');
+    }, 200);
+    if (sheetReturn && sheetReturn.focus) sheetReturn.focus();
+    sheetReturn = null;
+}
+
+document.addEventListener('keydown', function (ev) {
+    var sheet = el('sheet');
+    if (sheet.classList.contains('hidden')) return;
+    if (ev.key === 'Escape') { ev.preventDefault(); closeSheet(); return; }
+    if (ev.key !== 'Tab') return;
+    var f = focusables(sheet);
+    if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (ev.shiftKey && (document.activeElement === first || document.activeElement === sheet)) {
+        ev.preventDefault(); last.focus();
+    } else if (!ev.shiftKey && document.activeElement === last) {
+        ev.preventDefault(); first.focus();
+    }
+});
 
 function settingsSheet() {
     var people = state.q ? travelers() : [];
@@ -794,7 +1066,7 @@ function settingsSheet() {
     };
     var gen = DATA && DATA.generated_at ? new Date(DATA.generated_at) : null;
 
-    openSheet('<h2>Settings</h2><div class="sub">Kept on this device. No account, no sign-in.</div>'
+    openSheet('<h2 id="sheetTitle">Settings</h2><div class="sub">Kept on this device. No account, no sign-in.</div>'
         + '<div class="grp"><span class="k">Which one am I</span><div class="pills">'
         + people.map(function (p, i) { return pill(SET.meId === p.id, 'meId', p.id, p.name); }).join('')
         + pill(!SET.meId, 'meId', '', 'Not set')
@@ -832,7 +1104,7 @@ function settingsSheet() {
 }
 
 function aboutSheet() {
-    openSheet('<h2>About</h2><div class="sub">Fly with Friends</div><div class="about-body">'
+    openSheet('<h2 id="sheetTitle">About</h2><div class="sub">Fly with Friends</div><div class="about-body">'
         + '<p>Three or more people in three or more cities agree on somewhere to meet. Then everyone '
         + 'opens Google Flights alone, and the group ends up with one person landing at 7am and another '
         + 'at 11pm, with nobody able to say whether the $80 someone saved cost the group five hours in '
@@ -879,7 +1151,7 @@ document.addEventListener('click', function (ev) {
     }
 
     var t = tgt.closest && tgt.closest('[data-threshold],[data-rec],[data-leg],[data-set],[data-bag],'
-        + '[data-stops],[data-seats],[data-rmparty],[data-addair],[data-rmair]');
+        + '[data-stops],[data-cap],[data-seats],[data-rmparty],[data-addair],[data-rmair]');
     if (!t) return;
     var card = t.closest('.party');
     var p = card ? party(card.getAttribute('data-pid')) : null;
@@ -901,6 +1173,10 @@ document.addEventListener('click', function (ev) {
         var code = t.getAttribute('data-rmair');
         p.airports = p.airports.filter(function (c) { return c !== code; });
         renderParties();
+    } else if (t.hasAttribute('data-cap')) {
+        var rawCap = t.getAttribute('data-cap');
+        state.q.maxPremium = rawCap === '' ? null : +rawCap;
+        state.threshold = null; writeHash(); render();
     } else if (t.hasAttribute('data-stops')) {
         var raw = t.getAttribute('data-stops');
         state.q.maxStops = raw === '' ? null : +raw;
@@ -969,7 +1245,7 @@ el('to3').addEventListener('click', function () {
 el('back2').addEventListener('click', function () { showStep(1); });
 el('back3').addEventListener('click', function () { showStep(2); });
 el('back4').addEventListener('click', function () { showStep(3); });
-el('go').addEventListener('click', doSearch);
+el('go').addEventListener('click', function () { if (!state.busy) doSearch(); });
 el('demo').addEventListener('click', loadDemo);
 el('newBtn').addEventListener('click', function () {
     state.q = blankQuery(); DATA = null; state.error = null; state.threshold = null;
@@ -1003,7 +1279,17 @@ SET = loadSet();
 applyTheme();
 
 var shared = readHash();
-state.q = shared && shared.parties ? shared : blankQuery();
+state.q = (shared && shared.q && shared.q.parties) ? shared.q : blankQuery();
+if (shared && shared.v) {
+    /* Adopt the sender's reading of the trip so both people see one number. */
+    var v = shared.v;
+    if (v.target) SET.target = v.target;
+    if (v.bags) SET.bags = v.bags;
+    if (v.priceDisplay) SET.priceDisplay = v.priceDisplay;
+    if (v.leg) state.leg = v.leg;
+    if (v.recommend) state.recommend = v.recommend;
+    if (v.threshold != null) state.threshold = v.threshold === 'inf' ? FWF.INF : v.threshold;
+}
 
 attachAc(el('dest'), el('destAc'), function (a) {
     state.q.dest = a.code;
@@ -1044,6 +1330,6 @@ if (API) {
         .then(function (b) { BUDGET = b; }).catch(function () {});
 }
 
-if (shared && shared.parties && validate() === null) doSearch();
+if (shared && shared.q && shared.q.parties && validate() === null) doSearch();
 
 })();
