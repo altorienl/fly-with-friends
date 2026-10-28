@@ -67,9 +67,14 @@
   /* All-in cost for one option. A missing bag fee is NEVER treated as $0 -- that
    * would systematically flatter the basic-economy fares most likely to look
    * artificially cheap. Unknown fees fall back to the configured assumption and
-   * are flagged so the UI can badge them as estimates. */
+   * are flagged so the UI can badge them as estimates.
+   *
+   * A traveller is a PARTY, not a person: two people leaving from the same
+   * airport are one search, one booking and one row, so costs scale by seats.
+   * Bag counts are per person within the party. */
   function allInCost(option, traveler, settings) {
-    var fare = option.price || 0;
+    var seats = Math.max(1, ((traveler && traveler.seats) || 1));
+    var fare = (option.price || 0) * seats;
     var bags = option.bags || {};
     var wantChecked = ((traveler && traveler.bags) || {}).checked || 0;
     var wantCarryOn = ((traveler && traveler.bags) || {}).carry_on || 0;
@@ -78,26 +83,28 @@
 
     if (wantChecked > 0) {
       if (bags.confidence === 'parsed' && bags.checked_first_price != null) {
-        bagFee += bags.checked_first_price * wantChecked;
+        bagFee += bags.checked_first_price * wantChecked * seats;
       } else {
-        bagFee += (settings.assumedCheckedBagFee || 0) * wantChecked;
+        bagFee += (settings.assumedCheckedBagFee || 0) * wantChecked * seats;
         estimated = true;
       }
     }
 
     if (wantCarryOn > 0 && bags.carry_on_included === false) {
-      bagFee += settings.assumedCarryOnFee || 0;
+      bagFee += (settings.assumedCarryOnFee || 0) * seats;
       estimated = true;
     }
 
-    return { fare: fare, bagFee: bagFee, total: fare + bagFee, estimated: estimated };
+    return { fare: fare, bagFee: bagFee, total: fare + bagFee,
+             estimated: estimated, seats: seats };
   }
 
   function makeCostFn(travelers, settings) {
     var byId = {};
     travelers.forEach(function (t) { byId[t.id] = t; });
     return function (option, travelerId) {
-      if (settings.priceDisplay === 'fare') return option.price || 0;
+      var seats = Math.max(1, ((byId[travelerId] || {}).seats || 1));
+      if (settings.priceDisplay === 'fare') return (option.price || 0) * seats;
       return allInCost(option, byId[travelerId], settings).total;
     };
   }

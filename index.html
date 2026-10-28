@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <title>Fly with Friends</title>
-<meta name="description" content="Find the set of flights that gets everyone on the ground within 15-30 minutes of each other.">
+<meta name="description" content="Find the set of flights that gets everyone on the ground within 15–30 minutes of each other.">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Fly with Friends">
 <meta property="og:description" content="Three or more people, three or more cities, one destination. Land together.">
 <meta property="og:image" content="og.png">
-<meta name="theme-color" content="#0c0a08">
+<meta name="theme-color" content="#0a0a0b">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
@@ -18,1664 +18,490 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FlyWithFriends">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
 
 :root, [data-theme="dark"] {
     color-scheme: dark;
-    --bg: #0c0a08;
-    --card: #16120d;
-    --card-2: #1d1811;
-    --edge: #2a2118;
-    --text: #f0e6d8;
-    --muted: #9a8c78;
-    --faint: #6b6052;
-    --accent: #ffb000;
-    --accent-dim: #4a3410;
+    --bg: #0a0a0b;
+    --card: #141416;
+    --card-2: #1c1c1f;
+    --edge: #26262b;
+    --edge-2: #34343b;
+    --text: #f2f2f3;
+    --muted: #9a9aa2;
+    --faint: #63636b;
+    --accent: #ffb300;
+    --accent-ink: #120d00;
+    --accent-dim: rgba(255, 179, 0, 0.13);
     --good: #4ade80;
-    --warn: #fb923c;
+    --warn: #fbbf24;
     --bad: #f87171;
-    --shadow: rgba(0,0,0,0.5);
+    --lift: 0 1px 2px rgba(0,0,0,0.6);
+    --pop: 0 18px 44px rgba(0,0,0,0.6);
 }
 [data-theme="light"] {
     color-scheme: light;
-    --bg: #faf8f5;
+    --bg: #fbfbfc;
     --card: #ffffff;
-    --card-2: #f4f0e8;
-    --edge: #e8e2d8;
-    --text: #1a1510;
-    --muted: #7a6b58;
-    --faint: #a89880;
-    --accent: #b36b00;
-    --accent-dim: #ffeec9;
+    --card-2: #f4f4f6;
+    --edge: #e4e4e8;
+    --edge-2: #d2d2d9;
+    --text: #16161a;
+    --muted: #65656f;
+    --faint: #9a9aa2;
+    --accent: #a86400;
+    --accent-ink: #ffffff;
+    --accent-dim: rgba(255, 179, 0, 0.16);
     --good: #15803d;
-    --warn: #c2410c;
+    --warn: #b45309;
     --bad: #b91c1c;
-    --shadow: rgba(0,0,0,0.08);
+    --lift: 0 1px 2px rgba(16,16,20,0.07);
+    --pop: 0 18px 44px rgba(16,16,20,0.14);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
 body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    background: var(--bg);
-    color: var(--text);
+    background: var(--bg); color: var(--text);
     min-height: 100vh;
-    padding-top: env(safe-area-inset-top);
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
-    padding-bottom: env(safe-area-inset-bottom);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     -webkit-font-smoothing: antialiased;
-    transition: background 0.3s, color 0.3s;
+    -webkit-tap-highlight-color: transparent;
 }
 .mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
 .hidden { display: none !important; }
-button { font-family: inherit; cursor: pointer; }
+button { font-family: inherit; color: inherit; cursor: pointer; border: none; background: none; }
+a { color: var(--accent); }
+.k { font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--faint); font-weight: 600; }
 
-/* ---------- header ---------- */
-.header {
+/* ---------------- brand ---------------- */
+.brand {
     display: flex; align-items: center; justify-content: space-between;
-    gap: 12px; padding: 14px 18px;
-    border-bottom: 1px solid var(--edge);
-    position: sticky; top: 0; z-index: 20;
-    background: var(--bg);
+    gap: 12px; padding: 16px 20px 6px;
+    max-width: 640px; margin: 0 auto;
 }
-.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.brand svg { width: 32px; height: 32px; flex-shrink: 0; border-radius: 8px; }
-.brand h1 { font-size: 16px; font-weight: 800; letter-spacing: -0.2px; white-space: nowrap; }
-.brand .est { font-size: 10px; color: var(--faint); letter-spacing: 1px; text-transform: uppercase; }
-.profile-btn {
-    width: 36px; height: 36px; border-radius: 50%;
+.brand-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand-mark { width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0; display: block; }
+.brand-name { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; white-space: nowrap; }
+.gear {
+    width: 38px; height: 38px; border-radius: 50%;
+    display: grid; place-items: center; flex-shrink: 0;
     border: 1px solid var(--edge); background: var(--card);
-    color: var(--text); display: grid; place-items: center;
-    font-size: 12px; font-weight: 700; flex-shrink: 0;
-    transition: border-color 0.15s, background 0.15s;
+    box-shadow: var(--lift);
+    transition: border-color 0.15s, transform 0.12s;
 }
-.profile-btn:hover { border-color: var(--accent); }
+.gear svg { width: 17px; height: 17px; display: block; }
+.gear:hover { border-color: var(--edge-2); }
+.gear:active { transform: scale(0.94); }
+.gear .ini { font-size: 11px; font-weight: 800; letter-spacing: 0.3px; }
 
-.container { max-width: 760px; margin: 0 auto; padding: 16px 18px 48px; }
+.container { max-width: 640px; margin: 0 auto; padding: 10px 20px 56px; }
 
-/* ---------- notices ---------- */
+/* ---------------- step rail ---------------- */
+.rail { display: flex; align-items: center; gap: 7px; margin: 10px 0 22px; }
+.rail .seg { height: 3px; flex: 1 1 0; border-radius: 2px; background: var(--edge); transition: background 0.3s; }
+.rail .seg.done { background: var(--accent); }
+.rail .lbl { font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--faint); white-space: nowrap; margin-left: 4px; font-weight: 600; }
+
+/* ---------------- notices ---------------- */
 .notice {
-    border-radius: 10px; padding: 10px 14px; margin-bottom: 12px;
-    font-size: 13px; line-height: 1.5;
+    border-radius: 11px; padding: 12px 14px; margin-bottom: 12px;
+    font-size: 13px; line-height: 1.55;
     border: 1px solid var(--edge); background: var(--card);
 }
 .notice.warn { border-color: var(--warn); color: var(--warn); }
 .notice.bad { border-color: var(--bad); color: var(--bad); }
 .notice b { font-weight: 700; }
+.notice a { font-weight: 700; }
 
-/* ---------- trip bar ---------- */
-.trip-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
-.trip-select {
-    background: var(--card); color: var(--text); border: 1px solid var(--edge);
-    border-radius: 8px; padding: 8px 10px; font-size: 14px; font-weight: 600;
-}
-.leg-tabs { display: flex; gap: 0; border: 1px solid var(--edge); border-radius: 8px; overflow: hidden; }
-.leg-tabs button {
-    background: var(--card); color: var(--muted); border: none;
-    padding: 8px 14px; font-size: 13px; font-weight: 600;
-    transition: background 0.15s, color 0.15s;
-}
-.leg-tabs button.active { background: var(--accent); color: var(--bg); }
-[data-theme="light"] .leg-tabs button.active { color: #fff; }
+/* ---------------- steps ---------------- */
+.step-head { margin-bottom: 20px; }
+.step-head h2 { font-size: 26px; font-weight: 800; letter-spacing: -0.7px; line-height: 1.18; }
+.step-head p { font-size: 14px; color: var(--muted); line-height: 1.55; margin-top: 7px; }
 
-/* ---------- verdict ---------- */
-.verdict {
-    background: var(--card); border: 1px solid var(--edge);
-    border-radius: 14px; padding: 18px; margin-bottom: 18px;
+.field { position: relative; margin-bottom: 16px; }
+.field > .k { display: block; margin-bottom: 8px; }
+.inp {
+    width: 100%; min-height: 48px; background: var(--card); color: var(--text);
+    border: 1px solid var(--edge); border-radius: 11px; padding: 12px 14px;
+    font-family: 'JetBrains Mono', monospace; font-size: 16px;
+    font-variant-numeric: tabular-nums;
+    -webkit-appearance: none; appearance: none; box-shadow: var(--lift);
 }
-.verdict-label { font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
-.verdict-big { font-size: 38px; font-weight: 700; line-height: 1; letter-spacing: -1px; }
-.verdict-big .unit { font-size: 17px; font-weight: 400; color: var(--muted); margin-left: 4px; letter-spacing: 0; }
+.inp::placeholder { color: var(--faint); }
+.inp:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.inp.sans { font-family: 'Inter', sans-serif; }
+.inp[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: pointer; }
+
+.big-inp {
+    text-align: center; font-size: 38px; font-weight: 700;
+    letter-spacing: 7px; text-indent: 7px; min-height: 76px; text-transform: uppercase;
+}
+.big-inp::placeholder { letter-spacing: 7px; opacity: 0.22; }
+.hint { font-size: 12px; color: var(--faint); margin-top: 9px; line-height: 1.5; text-align: center; }
+.hint.bad { color: var(--bad); }
+.hint.good { color: var(--good); }
+
+/* ---------------- autocomplete (same shape as intrinsics) ---------------- */
+.ac {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 60;
+    background: var(--card); border: 1px solid var(--edge-2); border-radius: 12px;
+    max-height: 310px; overflow-y: auto; box-shadow: var(--pop);
+    -webkit-overflow-scrolling: touch;
+}
+.ac.hidden { display: none; }
+.ac-item {
+    display: flex; align-items: center; gap: 12px; padding: 11px 14px;
+    cursor: pointer; border-bottom: 1px solid var(--edge); text-align: left; width: 100%;
+}
+.ac-item:last-child { border-bottom: none; }
+.ac-item.active, .ac-item:hover { background: var(--card-2); }
+.ac-code {
+    font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700;
+    width: 42px; flex-shrink: 0; color: var(--accent); letter-spacing: 0.5px;
+}
+.ac-body { min-width: 0; flex: 1; }
+.ac-city { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ac-sub { font-size: 11px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ac-flag { font-size: 11px; color: var(--faint); font-family: 'JetBrains Mono', monospace; flex-shrink: 0; }
+.ac-item.closed .ac-code { color: var(--bad); }
+.ac-item.closed .ac-city { color: var(--muted); }
+
+/* ---------------- party cards ---------------- */
+.party {
+    background: var(--card); border: 1px solid var(--edge); border-radius: 13px;
+    padding: 13px 14px; margin-bottom: 10px; box-shadow: var(--lift);
+}
+.party-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.ava {
+    width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 12px; font-weight: 800;
+    color: #0a0a0b; letter-spacing: 0.2px;
+}
+.party-top .inp { min-height: 40px; padding: 8px 11px; font-size: 15px; box-shadow: none; }
+.stepper { display: flex; align-items: center; gap: 2px; flex-shrink: 0; border: 1px solid var(--edge); border-radius: 9px; overflow: hidden; }
+.stepper button { width: 34px; height: 40px; font-size: 17px; font-weight: 700; color: var(--muted); }
+.stepper button:hover:not(:disabled) { background: var(--card-2); color: var(--text); }
+.stepper button:disabled { opacity: 0.3; cursor: default; }
+.stepper .n { min-width: 26px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700; }
+.party-x { width: 32px; height: 40px; font-size: 19px; color: var(--faint); flex-shrink: 0; }
+.party-x:hover { color: var(--bad); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
 .chip {
-    display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 9px;
-    border-radius: 999px; letter-spacing: 0.4px; text-transform: uppercase;
-    margin-top: 10px;
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--card-2); border: 1px solid var(--edge);
+    border-radius: 8px; padding: 7px 9px 7px 11px;
+    font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; letter-spacing: 0.4px;
 }
-.chip.good { background: var(--good); color: var(--bg); }
-.chip.warn { background: var(--warn); color: var(--bg); }
-.chip.bad  { background: var(--bad);  color: var(--bg); }
-[data-theme="light"] .chip { color: #fff; }
-.verdict-note { font-size: 13px; color: var(--muted); line-height: 1.6; margin-top: 12px; }
-.verdict-note strong { color: var(--text); font-weight: 700; }
-.verdict-split { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--edge); }
-.vs-item { min-width: 110px; }
-.vs-item .k { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
-.vs-item .v { font-size: 19px; font-weight: 700; margin-top: 3px; }
+.chip .city { font-family: 'Inter', sans-serif; font-weight: 500; font-size: 11px; color: var(--muted); letter-spacing: 0; }
+.chip button { color: var(--faint); font-size: 15px; line-height: 1; padding: 0 2px; }
+.chip button:hover { color: var(--bad); }
+.chip.closed { border-color: var(--bad); }
+.chip.closed .city { color: var(--bad); }
+.add-air {
+    border: 1px dashed var(--edge-2); border-radius: 8px; padding: 7px 11px;
+    font-size: 12px; font-weight: 600; color: var(--muted);
+}
+.add-air:hover { border-color: var(--accent); color: var(--accent); }
+.party-note { font-size: 11px; color: var(--faint); margin-top: 9px; line-height: 1.5; }
 
-/* ---------- recommend pills ---------- */
-.pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+/* ---------------- buttons ---------------- */
+.btn {
+    border-radius: 11px; min-height: 48px; padding: 13px 18px;
+    font-size: 15px; font-weight: 700;
+    border: 1px solid var(--edge); background: var(--card); color: var(--text);
+    box-shadow: var(--lift);
+    transition: transform 0.1s, border-color 0.15s, box-shadow 0.15s;
+}
+.btn:hover { border-color: var(--edge-2); }
+.btn:active { transform: translateY(1px); box-shadow: none; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:disabled { opacity: 0.45; cursor: default; }
+.btn.ghost { background: transparent; box-shadow: none; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { color: var(--text); border-color: var(--edge); }
+.btn.wide { width: 100%; }
+.nav { display: flex; gap: 10px; margin-top: 22px; align-items: center; }
+.nav .btn.primary { flex: 1 1 auto; }
+
+/* ---------------- results ---------------- */
+.res-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.icon-btn {
+    width: 40px; height: 40px; flex-shrink: 0; border-radius: 11px;
+    border: 1px solid var(--edge); background: var(--card); box-shadow: var(--lift);
+    display: grid; place-items: center; font-size: 17px;
+}
+.icon-btn:active { transform: translateY(1px); }
+.res-title { min-width: 0; }
+.res-title .t { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
+.res-title .s { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+.fresh { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.dot.fresh-ok { background: var(--good); box-shadow: 0 0 0 3px rgba(74,222,128,0.16); }
+.dot.fresh-mid { background: var(--warn); box-shadow: 0 0 0 3px rgba(251,191,36,0.16); }
+.dot.fresh-old { background: var(--bad); box-shadow: 0 0 0 3px rgba(248,113,113,0.16); }
+
+.tabs { display: flex; border: 1px solid var(--edge); border-radius: 10px; overflow: hidden; margin-bottom: 16px; }
+.tabs button { flex: 1; padding: 11px 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.tabs button.on { background: var(--accent); color: var(--accent-ink); }
+
+.panel { background: var(--card); border: 1px solid var(--edge); border-radius: 14px; padding: 18px; margin-bottom: 14px; box-shadow: var(--lift); }
+.verdict-big { font-size: 40px; font-weight: 700; line-height: 1; letter-spacing: -1.4px; margin: 9px 0 2px; }
+.verdict-big .u { font-size: 16px; font-weight: 500; color: var(--muted); margin-left: 5px; letter-spacing: 0; }
+.tag {
+    display: inline-block; font-size: 10px; font-weight: 800; padding: 4px 9px;
+    border-radius: 999px; letter-spacing: 0.6px; text-transform: uppercase; margin-top: 11px;
+}
+.tag.good { background: var(--good); color: #06240f; }
+.tag.bad { background: var(--bad); color: #2b0606; }
+[data-theme="light"] .tag.good, [data-theme="light"] .tag.bad { color: #fff; }
+.note { font-size: 13px; color: var(--muted); line-height: 1.62; margin-top: 13px; }
+.note strong { color: var(--text); font-weight: 700; }
+.split { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 17px; padding-top: 16px; border-top: 1px solid var(--edge); }
+.split div .k { display: block; }
+.split div .v { font-size: 19px; font-weight: 700; margin-top: 4px; }
+
+.pills { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
 .pill {
     background: var(--card); border: 1px solid var(--edge); color: var(--muted);
-    border-radius: 999px; padding: 6px 13px; font-size: 12px; font-weight: 600;
+    border-radius: 999px; padding: 7px 13px; font-size: 12px; font-weight: 600;
     transition: all 0.15s;
 }
-.pill.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
-.pills-label { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); align-self: center; margin-right: 2px; }
+.pill.on { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+.pills .k { margin-right: 2px; }
 
-/* ---------- the board ---------- */
-.board { border: 1px solid var(--edge); border-radius: 12px; overflow: hidden; background: var(--card); }
-.board-head {
-    display: grid; grid-template-columns: 1fr 86px 70px 72px;
-    gap: 8px; padding: 9px 14px; background: var(--card-2);
-    font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint);
-    border-bottom: 1px solid var(--edge);
-}
-.board-head span:not(:first-child) { text-align: right; }
-.row {
-    display: grid; grid-template-columns: 1fr 86px 70px 72px;
-    gap: 8px; align-items: center; padding: 13px 14px; width: 100%;
-    background: none; border: none; border-bottom: 1px solid var(--edge);
-    color: var(--text); text-align: left; font-size: 14px;
-    transition: background 0.15s;
-}
-.row:last-child { border-bottom: none; }
-.row:hover:not(.infeasible) { background: var(--card-2); }
-.row.selected { background: var(--accent-dim); box-shadow: inset 3px 0 0 var(--accent); }
-.row.infeasible { color: var(--faint); cursor: default; }
-.row .win { font-weight: 700; }
-.row .rec { font-size: 9px; font-weight: 700; color: var(--accent); letter-spacing: 0.8px; text-transform: uppercase; display: block; margin-top: 2px; }
-.row .cost, .row .sp, .row .dl { text-align: right; }
-.row .cost { font-weight: 700; }
-.row .sp { color: var(--muted); font-size: 13px; }
-.row .dl { font-size: 13px; }
-.row .dl.up { color: var(--warn); }
-.row .dl.flat { color: var(--good); }
-.row .nope { grid-column: 2 / -1; text-align: right; font-size: 12px; letter-spacing: 0.3px; }
+.filters { background: var(--card); border: 1px solid var(--edge); border-radius: 13px; padding: 14px; margin-bottom: 14px; box-shadow: var(--lift); }
+.filters .row2 { display: flex; align-items: center; gap: 8px; }
+.filters .row2 .inp { flex: 1 1 0; min-width: 0; min-height: 44px; }
+.filters .sep { font-size: 12px; color: var(--muted); flex-shrink: 0; }
+.filters .pills { margin-top: 11px; }
+.free { font-size: 11px; color: var(--good); margin-top: 10px; line-height: 1.5; }
 
-/* ---------- plan ---------- */
-.plan { margin-top: 20px; }
-.plan-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
-.plan-title { font-size: 15px; font-weight: 700; }
-.plan-sub { font-size: 12px; color: var(--muted); }
+.board { border: 1px solid var(--edge); border-radius: 13px; overflow: hidden; background: var(--card); box-shadow: var(--lift); }
+.bhead, .brow { display: grid; grid-template-columns: 1fr 80px 62px 66px; gap: 8px; align-items: center; }
+.bhead { padding: 10px 14px; background: var(--card-2); border-bottom: 1px solid var(--edge); }
+.bhead span:not(:first-child) { text-align: right; }
+.brow { width: 100%; padding: 14px; border-bottom: 1px solid var(--edge); text-align: left; font-size: 14px; }
+.brow:last-child { border-bottom: none; }
+.brow:hover:not(.off) { background: var(--card-2); }
+.brow.on { background: var(--accent-dim); box-shadow: inset 3px 0 0 var(--accent); }
+.brow.off { color: var(--faint); cursor: default; }
+.brow .w { font-weight: 700; }
+.brow .rec { display: block; font-size: 9px; font-weight: 800; color: var(--accent); letter-spacing: 0.9px; text-transform: uppercase; margin-top: 3px; }
+.brow .c, .brow .a, .brow .d { text-align: right; }
+.brow .c { font-weight: 700; }
+.brow .a { color: var(--muted); font-size: 13px; }
+.brow .d { font-size: 13px; }
+.brow .d.up { color: var(--warn); }
+.brow .none { grid-column: 2 / -1; text-align: right; font-size: 12px; }
 
-.timeline {
-    position: relative; height: 104px; margin: 6px 0 20px;
-    border: 1px solid var(--edge); border-radius: 12px; background: var(--card);
-    overflow: hidden;
-}
+.plan-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 22px 0 10px; flex-wrap: wrap; }
+.plan-head .t { font-size: 16px; font-weight: 700; }
+.plan-head .s { font-size: 12px; color: var(--muted); }
+
+.timeline { position: relative; height: 106px; margin-bottom: 18px; border: 1px solid var(--edge); border-radius: 13px; background: var(--card); overflow: hidden; }
 .tl-band { position: absolute; top: 0; bottom: 0; background: var(--accent-dim); }
-.tl-axis { position: absolute; left: 0; right: 0; top: 56px; height: 1px; background: var(--edge); }
-.tl-mark { position: absolute; top: 34px; transform: translateX(-50%); text-align: center; }
-/* People landing in the same minute stack side by side under one time label,
-   rather than drawing on top of each other. */
+.tl-axis { position: absolute; left: 0; right: 0; top: 57px; height: 1px; background: var(--edge); }
+.tl-mark { position: absolute; top: 35px; transform: translateX(-50%); text-align: center; }
 .tl-dots { display: flex; justify-content: center; }
-.tl-dot {
-    width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
-    font-size: 9px; font-weight: 800; color: #0c0a08;
-    box-shadow: 0 0 0 2px var(--card);
-}
+.tl-dot { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 9px; font-weight: 800; color: #0a0a0b; box-shadow: 0 0 0 2px var(--card); }
 .tl-dots .tl-dot + .tl-dot { margin-left: -7px; }
-.tl-time { font-size: 9px; color: var(--muted); margin-top: 6px; white-space: nowrap; }
-/* Close-together groups alternate onto a second row so labels never collide. */
-.tl-time.alt { margin-top: 20px; }
-.tl-edge { position: absolute; bottom: 5px; font-size: 9px; color: var(--faint); }
+.tl-t { font-size: 9px; color: var(--muted); margin-top: 6px; white-space: nowrap; }
+.tl-t.alt { margin-top: 20px; }
+.tl-edge { position: absolute; bottom: 6px; font-size: 9px; color: var(--faint); }
 
-.pax {
-    display: grid; grid-template-columns: 28px 26px 1fr auto;
-    gap: 10px; align-items: center;
-    padding: 12px 14px; border: 1px solid var(--edge); border-radius: 10px;
-    background: var(--card); margin-bottom: 8px;
-}
-.pax.out { border-style: dashed; opacity: 0.85; }
-.avatar {
-    width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
-    font-size: 10px; font-weight: 800; color: #0c0a08;
-}
+.pax { display: grid; grid-template-columns: 32px 26px 1fr auto; gap: 11px; align-items: center; padding: 13px 14px; border: 1px solid var(--edge); border-radius: 12px; background: var(--card); margin-bottom: 8px; box-shadow: var(--lift); }
+.pax.out { border-style: dashed; opacity: 0.8; }
 .pax-logo { width: 26px; height: 26px; border-radius: 6px; object-fit: contain; background: var(--card-2); }
-.pax-logo-fb {
-    width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center;
-    background: var(--card-2); font-size: 9px; font-weight: 700; color: var(--muted);
-}
+.pax-fb { width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; background: var(--card-2); font-size: 9px; font-weight: 700; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
 .pax-main { min-width: 0; }
 .pax-name { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .pax-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
 .pax-right { text-align: right; white-space: nowrap; }
 .pax-time { font-size: 15px; font-weight: 700; }
 .pax-price { font-size: 11px; color: var(--muted); margin-top: 3px; }
-.badge {
-    font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
-    letter-spacing: 0.4px; text-transform: uppercase;
-    border: 1px solid var(--edge); color: var(--muted);
-}
-.badge.est { border-color: var(--warn); color: var(--warn); }
+.badge { font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.5px; text-transform: uppercase; border: 1px solid var(--edge-2); color: var(--muted); }
 .badge.me { border-color: var(--accent); color: var(--accent); }
 .badge.out { border-color: var(--bad); color: var(--bad); }
-.book {
-    display: inline-block; margin-top: 6px; font-size: 11px; font-weight: 700;
-    color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-dim);
-}
-.plan-total {
-    display: flex; justify-content: space-between; align-items: baseline;
-    padding: 14px; border: 1px solid var(--accent); border-radius: 10px;
-    background: var(--accent-dim); margin-top: 4px;
-}
-.plan-total .k { font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; }
-.plan-total .v { font-size: 22px; font-weight: 700; }
+.badge.seats { border-color: var(--edge-2); }
+.book { display: inline-block; margin-top: 7px; font-size: 11px; font-weight: 700; color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-dim); }
+.total { display: flex; justify-content: space-between; align-items: baseline; padding: 15px; border: 1px solid var(--accent); border-radius: 12px; background: var(--accent-dim); margin-top: 6px; }
+.total .k { color: var(--accent); }
+.total .v { font-size: 23px; font-weight: 700; }
 
-/* ---------- settings sheet ---------- */
-.sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 40; }
+/* ---------------- sheet ---------------- */
+.scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 80; }
 .sheet {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
-    background: var(--card); border-top: 1px solid var(--edge);
-    border-radius: 18px 18px 0 0; padding: 8px 20px calc(28px + env(safe-area-inset-bottom));
-    max-height: 88vh; overflow-y: auto;
-    animation: slideUp 0.25s ease;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 90;
+    background: var(--card); border-top: 1px solid var(--edge-2);
+    border-radius: 20px 20px 0 0; padding: 8px 20px calc(26px + env(safe-area-inset-bottom));
+    max-height: 90vh; overflow-y: auto; animation: up 0.26s cubic-bezier(.2,.8,.2,1);
+    max-width: 640px; margin: 0 auto;
 }
-@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-.sheet-grip { width: 38px; height: 4px; border-radius: 2px; background: var(--edge); margin: 8px auto 16px; }
-.sheet h2 { font-size: 17px; font-weight: 800; margin-bottom: 4px; }
-.sheet .sub { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
-.field { margin-bottom: 18px; }
-.field > label { display: block; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
-.field .hint { font-size: 11px; color: var(--faint); margin-top: 7px; line-height: 1.5; }
-.sheet-foot {
-    display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-    border-top: 1px solid var(--edge); padding-top: 14px; margin-top: 4px;
-    font-size: 11px; color: var(--faint);
-}
-.sheet-foot a { color: var(--muted); }
-.sheet-close {
-    width: 100%; padding: 13px; border-radius: 10px; border: none;
-    background: var(--accent); color: #0c0a08; font-size: 14px; font-weight: 700;
-    margin-top: 6px;
-}
+@keyframes up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.grip { width: 38px; height: 4px; border-radius: 2px; background: var(--edge-2); margin: 8px auto 18px; }
+.sheet h2 { font-size: 18px; font-weight: 800; }
+.sheet .sub { font-size: 12px; color: var(--muted); margin: 4px 0 20px; line-height: 1.5; }
+.sheet .grp { margin-bottom: 20px; }
+.sheet .grp > .k { display: block; margin-bottom: 9px; }
+.sheet .tip { font-size: 11px; color: var(--faint); margin-top: 8px; line-height: 1.55; }
+.sheet-foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--edge); padding-top: 14px; font-size: 11px; color: var(--faint); }
 
-/* ---------- install banner ---------- */
-.install-banner {
-    margin: 12px 18px 0; padding: 12px 14px; border-radius: 10px;
-    border: 1px solid var(--accent); background: var(--accent-dim);
-    font-size: 13px; line-height: 1.5; position: relative;
-}
-.install-banner b { color: var(--accent); }
-.install-banner-close {
-    position: absolute; top: 6px; right: 8px; background: none; border: none;
-    color: var(--muted); font-size: 18px; line-height: 1; padding: 4px;
-}
+/* ---------------- about ---------------- */
+.about-body { font-size: 14px; line-height: 1.68; color: var(--muted); }
+.about-body h3 { font-size: 13px; font-weight: 800; color: var(--text); margin: 20px 0 8px; letter-spacing: -0.1px; }
+.about-body p { margin-bottom: 12px; }
+.about-body strong { color: var(--text); }
 
-footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--edge); font-size: 11px; color: var(--faint); line-height: 1.6; }
+footer {
+    margin-top: 32px; padding-top: 18px; border-top: 1px solid var(--edge);
+    text-align: center; font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--faint); letter-spacing: 0.4px; line-height: 2;
+}
+footer button { font-family: inherit; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--edge-2); letter-spacing: 0.4px; }
+footer .sep { color: var(--edge-2); margin: 0 8px; }
 
-/* ---------- views ---------- */
-.hero { padding: 26px 2px 22px; text-align: center; }
-.hero h2 { font-size: 27px; font-weight: 800; letter-spacing: -0.7px; margin-bottom: 8px; }
-.hero p { font-size: 14px; color: var(--muted); line-height: 1.55; max-width: 330px; margin: 0 auto 22px; }
-.hero-field { display: block; max-width: 300px; margin: 0 auto; }
-.hero-field .k { display: block; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); margin-bottom: 9px; }
-.hero-inp {
-    text-align: center; font-size: 34px !important; font-weight: 700;
-    letter-spacing: 5px; text-indent: 5px; min-height: 66px; padding: 10px;
-    text-transform: uppercase;
-}
-.hero-inp::placeholder { letter-spacing: 5px; opacity: 0.28; }
-.hero-hint { display: block; font-size: 11px; color: var(--faint); margin-top: 9px; }
-.hero-hint.bad { color: var(--bad); }
+.banner { margin: 12px 20px 0; padding: 12px 14px; border-radius: 11px; border: 1px solid var(--accent); background: var(--accent-dim); font-size: 13px; line-height: 1.5; position: relative; max-width: 640px; }
+.banner b { color: var(--accent); }
+.banner .x { position: absolute; top: 5px; right: 8px; color: var(--muted); font-size: 18px; padding: 4px; }
 
-.card { background: var(--card); border: 1px solid var(--edge); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
-.opt { text-transform: none; letter-spacing: 0; color: var(--faint); font-weight: 400; }
-.btn.big { width: 100%; min-height: 54px; font-size: 16px; }
-
-.results-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
-.back {
-    width: 42px; height: 42px; flex-shrink: 0; border-radius: 11px;
-    border: 1px solid var(--edge); background: var(--card); color: var(--text);
-    font-size: 19px; line-height: 1;
-}
-.back:active { transform: translateY(1px); }
-.trip-summary { font-size: 13px; font-weight: 700; line-height: 1.4; min-width: 0; }
-.trip-summary span { display: block; font-size: 11px; font-weight: 400; color: var(--muted); margin-top: 2px; }
-
-.filters { background: var(--card); border: 1px solid var(--edge); border-radius: 12px; padding: 13px 14px; margin-bottom: 14px; }
-.filters .pills { margin-bottom: 0; margin-top: 10px; }
-
-/* ---------- search form ---------- */
-.search { background: var(--card); border: 1px solid var(--edge); border-radius: 14px; padding: 16px; margin-bottom: 18px; }
-.search h2 { font-size: 13px; font-weight: 700; letter-spacing: 0.3px; margin-bottom: 14px; }
-.search-grid { display: grid; grid-template-columns: 96px 1fr 1fr; gap: 12px; margin-bottom: 18px; }
-.search-grid.two { grid-template-columns: 1fr 1fr; }
-.search-grid label, .person-row label { display: block; }
-.search-grid .k { display: block; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); margin-bottom: 5px; }
-.inp {
-    width: 100%; min-height: 44px; background: var(--bg); color: var(--text);
-    border: 1px solid var(--edge); border-radius: 10px; padding: 10px 12px;
-    font-family: 'JetBrains Mono', monospace;
-    /* 16px keeps iOS from zooming the page when a field takes focus. */
-    font-size: 16px; font-variant-numeric: tabular-nums;
-    -webkit-appearance: none; appearance: none;
-}
-.inp::placeholder { color: var(--faint); }
-.inp:focus {
-    outline: none; border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-dim);
-}
-.inp.name { font-family: 'Inter', sans-serif; }
-/* Date and time fields need room for the native segments, AM/PM included. */
-.inp[type="date"], .inp[type="time"] {
-    min-width: 0; padding-right: 8px;
-    font-size: 16px; letter-spacing: -0.2px;
-}
-.inp[type="date"]::-webkit-calendar-picker-indicator,
-.inp[type="time"]::-webkit-calendar-picker-indicator {
-    filter: invert(0.5) sepia(1) saturate(4) hue-rotate(5deg);
-    opacity: 0.9; cursor: pointer;
-}
-.inp[type="time"]::-webkit-datetime-edit-ampm-field { padding: 0 2px; font-weight: 700; }
-.person-row { display: grid; grid-template-columns: 28px 1fr 104px 30px; gap: 8px; align-items: center; margin-bottom: 8px; }
-.person-row .avatar { font-size: 10px; }
-.row-x { background: none; border: none; color: var(--faint); font-size: 18px; line-height: 1; padding: 4px; }
-.row-x:hover { color: var(--bad); }
-.search-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
-.btn {
-    border-radius: 10px; min-height: 44px; padding: 12px 18px;
-    font-size: 14px; font-weight: 700;
-    border: 1px solid var(--edge); background: var(--card); color: var(--text);
-    box-shadow: 0 1px 0 var(--edge);
-    transition: transform 0.12s, border-color 0.15s, box-shadow 0.15s;
-}
-.btn:hover { border-color: var(--accent); }
-/* Movement only on the actual press, so the resting state never reads as sunken. */
-.btn:active { transform: translateY(1px); box-shadow: none; }
-.btn.primary {
-    background: var(--accent); color: #0c0a08; border-color: var(--accent);
-    box-shadow: 0 1px 0 rgba(0,0,0,0.25);
-}
-.btn.primary:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
-.btn.ghost { background: transparent; box-shadow: none; }
-.band-row { margin: 0 0 2px; }
-.band-row .k { display: block; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
-.band-inputs { display: flex; align-items: center; gap: 8px; }
-.band-inputs .inp { flex: 1 1 0; min-width: 0; }
-.band-row .sep { font-size: 12px; color: var(--muted); flex: 0 0 auto; }
-.band-inputs .pill { flex: 0 0 auto; }
-.band-free { font-size: 11px; color: var(--good); margin-top: 6px; }
-
-.budget-line { font-size: 11px; color: var(--faint); margin-top: 12px; line-height: 1.5; }
-.budget-line b { color: var(--muted); }
-.field-note { font-size: 11px; color: var(--faint); margin-top: 8px; line-height: 1.5; }
-
-@media (max-width: 480px) {
-    .search-grid { grid-template-columns: 1fr 1fr; }
-    .search-grid label:first-child { grid-column: 1 / -1; }
-    .search-grid.two { grid-template-columns: 1fr 1fr; }
-    .search-grid.two label:first-child { grid-column: auto; }
-    .person-row { grid-template-columns: 26px 1fr 96px 30px; }
-    .btn { flex: 1 1 auto; }
-    .board-head, .row { grid-template-columns: 1fr 76px 58px 62px; font-size: 13px; }
-    .verdict-big { font-size: 32px; }
-    .container { padding: 14px 14px 40px; }
+@media (max-width: 420px) {
+    .bhead, .brow { grid-template-columns: 1fr 72px 54px 58px; font-size: 13px; }
+    .verdict-big { font-size: 34px; }
+    .step-head h2 { font-size: 23px; }
+    .container { padding: 10px 15px 48px; }
+    .brand { padding: 14px 15px 4px; }
+    .banner { margin: 10px 15px 0; }
 }
 </style>
 </head>
 <body>
 
-<div class="install-banner hidden" id="installBanner">
-    <button class="install-banner-close" id="installClose" aria-label="Dismiss">&times;</button>
-    <b>Add to Home Screen</b><br>
-    Tap Share, then "Add to Home Screen" to use this like an app.
+<div class="banner hidden" id="installBanner">
+    <button class="x" id="installX" aria-label="Dismiss">&times;</button>
+    <b>Add to Home Screen</b><br>Tap Share, then “Add to Home Screen”.
 </div>
 
-<header class="header">
-    <div class="brand">
-        <svg viewBox="0 0 64 64" aria-hidden="true">
-            <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" stop-color="#ffd166"/><stop offset="1" stop-color="#e8902b"/>
+<header class="brand">
+    <div class="brand-left">
+        <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+            <defs><linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#ffd23f"/><stop offset="1" stop-color="#f59300"/>
             </linearGradient></defs>
-            <rect width="64" height="64" rx="15" fill="url(#g)"/>
+            <rect width="64" height="64" rx="15" fill="url(#bg1)"/>
             <g fill="#fff">
-                <circle cx="24" cy="20" r="6"/><circle cx="43" cy="20" r="6"/>
-                <path d="M24 28c-5 0-8 3-8 7v3h7v12h4V38h4v10h4V35c0-4-3-7-8-7h-3z"/>
-                <path d="M43 28c-2 0-3 .4-4 1v6h1v13h4V38h4v10h4V35c0-4-3-7-8-7h-1z"/>
-                <rect x="12" y="30" width="40" height="3.6" rx="1.8"/>
+                <circle cx="23" cy="19" r="6.4"/><circle cx="41" cy="19" r="6.4"/>
+                <rect x="8" y="28.4" width="48" height="5.6" rx="2.8"/>
+                <path d="M19.5 34h7l-2.2 18a2.3 2.3 0 1 1-4.5 0zM28.5 34h7l2.2 18a2.3 2.3 0 1 1-4.5 0z" opacity="0"/>
+                <path d="M17.8 34h4.6l-3 17.6a2.2 2.2 0 1 1-4.3-.7zM23.8 34h4.6l2.6 16.9a2.2 2.2 0 1 1-4.3.7z"/>
+                <path d="M35.8 34h4.6l-3 17.6a2.2 2.2 0 1 1-4.3-.7zM41.8 34h4.6l2.6 16.9a2.2 2.2 0 1 1-4.3.7z"/>
             </g>
         </svg>
-        <div>
-            <h1>Fly with Friends</h1>
-            <div class="est">Est. Mar 2023</div>
-        </div>
+        <span class="brand-name">Fly with Friends</span>
     </div>
-    <button class="profile-btn" id="profileBtn" aria-label="Profile and settings">&#9881;</button>
+    <button class="gear" id="gearBtn" aria-label="Settings"></button>
 </header>
 
-<div class="container">
-    <div class="notice hidden" id="noticeSample"></div>
-    <div class="notice warn hidden" id="noticeStale"></div>
-    <div class="notice bad hidden" id="noticeIncomplete"></div>
-    <div class="notice bad hidden" id="noticeError"></div>
+<main class="container">
+    <div class="rail hidden" id="rail"></div>
 
-    <div id="search">
-        <div class="hero">
-            <h2>Everyone lands together</h2>
-            <p>Three or more people, three or more cities, one destination.</p>
-            <label class="hero-field">
-                <span class="k">Where are you all going?</span>
-                <input class="inp hero-inp" id="qDest" placeholder="SJD" maxlength="3"
-                       autocapitalize="characters" autocomplete="off" enterkeyhint="next">
-                <span class="hero-hint" id="destHint">3-letter airport code</span>
-            </label>
+    <div class="notice hidden" id="nSample"></div>
+    <div class="notice warn hidden" id="nStale"></div>
+    <div class="notice bad hidden" id="nShort"></div>
+    <div class="notice bad hidden" id="nErr"></div>
+
+    <!-- step 1 -->
+    <section id="s1">
+        <div class="step-head">
+            <h2>Where are we going?</h2>
+            <p>One destination, everyone converging on it.</p>
         </div>
-
-        <div class="card">
-            <div class="search-grid two">
-                <label><span class="k">Depart</span><input class="inp" id="qDepart" type="date"></label>
-                <label><span class="k">Return <span class="opt">optional</span></span><input class="inp" id="qReturn" type="date"></label>
-            </div>
-
-            <div class="k" style="margin-bottom:8px">Who's flying</div>
-            <div id="people"></div>
-            <div class="field-note">Airport codes only. Several per person is fine — "SFO,OAK,SJC" still counts as one search. Names optional.</div>
-            <div class="search-actions">
-                <button class="btn ghost" id="addPerson">+ Add person</button>
-                <button class="btn ghost" id="tryExample">See an example</button>
-            </div>
+        <div class="field">
+            <input class="inp big-inp" id="dest" placeholder="SJD" maxlength="26"
+                   autocapitalize="characters" autocomplete="off" enterkeyhint="next" aria-label="Destination airport">
+            <div class="ac hidden" id="destAc"></div>
         </div>
-
-        <button class="btn primary big" id="goSearch">Find flights</button>
-        <div class="budget-line" id="budgetLine"></div>
-    </div>
-
-    <div id="results" class="hidden">
-        <div class="results-bar">
-            <button class="back" id="backBtn" aria-label="Change trip">&larr;</button>
-            <div class="trip-summary" id="tripSummary"></div>
+        <div class="hint" id="destHint">Airport code or city — try “cabo”</div>
+        <div class="nav">
+            <button class="btn primary wide" id="to2">Continue</button>
         </div>
-
-        <div class="trip-bar">
-            <div class="leg-tabs">
-                <button data-leg="outbound" class="active">Landing together</button>
-                <button data-leg="return">Leaving together</button>
-            </div>
+        <div style="text-align:center;margin-top:14px">
+            <button class="btn ghost" id="demo">See an example first</button>
         </div>
+    </section>
 
-        <div class="verdict" id="verdict"></div>
+    <!-- step 2 -->
+    <section id="s2" class="hidden">
+        <div class="step-head">
+            <h2>When?</h2>
+            <p id="s2sub">Leave the return blank for a one-way.</p>
+        </div>
+        <div class="field"><span class="k">Depart</span><input class="inp" id="dep" type="date"></div>
+        <div class="field"><span class="k">Return <span style="color:var(--faint);text-transform:none;letter-spacing:0">optional</span></span><input class="inp" id="ret" type="date"></div>
+        <div class="nav">
+            <button class="icon-btn" id="back2" aria-label="Back">&larr;</button>
+            <button class="btn primary" id="to3">Continue</button>
+        </div>
+    </section>
 
+    <!-- step 3 -->
+    <section id="s3" class="hidden">
+        <div class="step-head">
+            <h2>Who’s coming?</h2>
+            <p>One card per airport. Two people leaving from the same place share a card — one search, one booking.</p>
+        </div>
+        <div id="parties"></div>
+        <button class="btn ghost wide" id="addParty">+ Add another departure city</button>
+        <div class="nav">
+            <button class="icon-btn" id="back3" aria-label="Back">&larr;</button>
+            <button class="btn primary" id="go">Find flights</button>
+        </div>
+    </section>
+
+    <!-- step 4 -->
+    <section id="s4" class="hidden">
+        <div class="res-head">
+            <button class="icon-btn" id="back4" aria-label="Change trip">&larr;</button>
+            <div class="res-title"><div class="t" id="resT"></div><div class="s" id="resS"></div></div>
+        </div>
+        <div class="tabs" id="tabs">
+            <button data-leg="outbound" class="on">Landing together</button>
+            <button data-leg="return">Leaving together</button>
+        </div>
+        <div class="panel" id="verdict"></div>
         <div class="filters">
-            <div class="band-row">
-                <span class="k" id="bandLabel">Land between</span>
-                <div class="band-inputs">
-                    <input class="inp" id="qFrom" type="time">
+            <div><span class="k" id="bandLbl">Land between</span>
+                <div class="row2" style="margin-top:8px">
+                    <input class="inp" id="bFrom" type="time" aria-label="Earliest">
                     <span class="sep">and</span>
-                    <input class="inp" id="qTo" type="time">
-                    <button class="pill" id="bandClear">any time</button>
+                    <input class="inp" id="bTo" type="time" aria-label="Latest">
+                    <button class="pill" id="bClear">any</button>
                 </div>
             </div>
             <div class="pills" id="stopPills"></div>
-            <div class="band-free hidden" id="bandFree"></div>
+            <div class="free hidden" id="freeNote"></div>
         </div>
-
-        <div class="pills" id="recommendPills"></div>
-
+        <div class="pills" id="recPills" style="margin-bottom:12px"></div>
         <div class="board">
-        <div class="board-head">
-            <span id="headWindow">Window</span>
-            <span>Group</span><span>Actual</span><span>vs min</span>
+            <div class="bhead"><span class="k">Window</span><span class="k">Group</span><span class="k">Actual</span><span class="k">vs min</span></div>
+            <div id="brows"></div>
         </div>
-            <div id="boardRows"></div>
-        </div>
+        <div id="plan"></div>
+    </section>
 
-        <div class="plan" id="plan"></div>
-    </div>
+    <footer>
+        <button id="aboutBtn">About</button><span class="sep">·</span><button id="newBtn">New trip</button><br>
+        &copy; 2026 Altorien Lockwood
+    </footer>
+</main>
 
-    <footer id="footer"></footer>
-</div>
-
-<div class="sheet-backdrop hidden" id="sheetBackdrop"></div>
+<div class="scrim hidden" id="scrim"></div>
 <div class="sheet hidden" id="sheet"></div>
 
+<script src="airports.js"></script>
 <script src="optimizer.js"></script>
-<script>
-(function () {
-'use strict';
-
-var VERSION = '2.0.0';
-var REPO = 'https://github.com/altorienl/fly-with-friends';
-var LS_KEY = 'fwf_settings';
-
-/* Your deployed Cloudflare Worker, e.g. 'https://fly-with-friends-api.you.workers.dev'.
- * Until this is set the app runs in example mode only: SerpApi refuses browser
- * requests by design, so there is no way to search without a proxy. */
-var API_BASE = 'https://fly-with-friends-api.altorien.workers.dev';
-
-var APP = {
-    assumedCheckedBagFee: 35,
-    assumedCarryOnFee: 30,
-    defaultTarget: 30,
-    maxTravelers: 8
-};
-var PALETTE = ['#ffb000', '#4ade80', '#38bdf8', '#c084fc', '#fb923c', '#f472b6', '#2dd4bf', '#facc15'];
-
-var DATA = null, SET = null, BUDGET = null;
-var state = { view: 'home', leg: 'outbound', threshold: null, recommend: 'tightest',
-              query: null, busy: false, error: null };
-var cache = null;
-
-/* ------------------------------------------------------------ settings */
-
-function defaults() {
-    return {
-        meId: null, theme: 'system', target: 30,
-        priceDisplay: 'allin', time24: false,
-        groupBags: { carry_on: 1, checked: 0 }
-    };
-}
-
-function loadSettings() {
-    var saved = {};
-    try { saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { saved = {}; }
-    var s = defaults();
-    for (var k in saved) if (Object.prototype.hasOwnProperty.call(s, k)) s[k] = saved[k];
-    return s;
-}
-
-function saveSettings() {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(SET)); } catch (e) { /* private mode */ }
-}
-
-function applyTheme() {
-    var mode = SET.theme;
-    if (mode === 'system') {
-        mode = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
-            ? 'light' : 'dark';
-    }
-    document.documentElement.setAttribute('data-theme', mode);
-    var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', mode === 'light' ? '#faf8f5' : '#0c0a08');
-}
-
-/* --------------------------------------------------------------- utils */
-
-function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-}
-function money(n) { return '$' + Math.round(n).toLocaleString('en-US'); }
-function initials(name) {
-    return String(name || '?').trim().split(/\s+/).map(function (w) { return w[0]; })
-        .join('').slice(0, 2).toUpperCase();
-}
-function clock(min) { return FWF.fmtClock(min, SET.time24); }
-function el(id) { return document.getElementById(id); }
-
-/* ---------------------------------------------------------------- data */
-
-/* The query is whatever is in the form: no fixed roster, no config file. Blank
- * names become Flight 1, Flight 2, ... so a group can skip naming entirely. */
-function blankQuery() {
-    return {
-        dest: '', depart: '', ret: '',
-        /* One band per leg: you want to LAND together at a civil hour on the way
-         * out, and LEAVE together on the way home. They are different times of
-         * day, so sharing one band between the legs would be wrong. */
-        band: { outbound: { from: '', to: '' }, return: { from: '', to: '' } },
-        maxStops: null,
-        travelers: [newPerson(0), newPerson(1), newPerson(2)]
-    };
-}
-
-function currentBand() {
-    var b = (state.query && state.query.band) || {};
-    return b[state.leg] || { from: '', to: '' };
-}
-
-/* Null unless both ends parse -- a half-filled band must not silently filter. */
-function bandMinutes() {
-    var b = currentBand();
-    var from = FWF.parseTimeOfDay(b.from), to = FWF.parseTimeOfDay(b.to);
-    return (from != null && to != null) ? { from: from, to: to } : null;
-}
-function newPerson(i) { return { id: 'p' + i + '-' + Math.random().toString(36).slice(2, 6), name: '', origins: '' }; }
-function parseCodes(raw) {
-    return String(raw || '').toUpperCase().split(/[^A-Z]+/).filter(function (c) { return c.length === 3; });
-}
-function personLabel(p, i) { return (p.name || '').trim() || ('Flight ' + (i + 1)); }
-
-function queryTravelers() {
-    return (state.query.travelers || []).map(function (p, i) {
-        return {
-            id: p.id,
-            name: personLabel(p, i),
-            origins: parseCodes(p.origins),
-            color: PALETTE[i % PALETTE.length],
-            bags: SET.groupBags
-        };
-    });
-}
-
-function hasReturn() { return !!(state.query && state.query.ret); }
-
-function compute() {
-    if (!DATA || !state.query) return null;
-
-    var legData = ((DATA.trips || {}).query || {})[state.leg] || {};
-    var travelers = queryTravelers();
-    var ids = travelers.map(function (t) { return t.id; });
-    var field = state.leg === 'outbound' ? 'arrive' : 'depart';
-
-    var band = bandMinutes();
-    var maxStops = state.query.maxStops;
-    var prep = FWF.prepare(legData, ids, field, { band: band, maxStops: maxStops });
-    var costFn = FWF.makeCostFn(travelers, {
-        assumedCheckedBagFee: APP.assumedCheckedBagFee,
-        assumedCarryOnFee: APP.assumedCarryOnFee,
-        priceDisplay: SET.priceDisplay
-    });
-
-    var out = {
-        travelers: travelers, ids: ids, prep: prep, costFn: costFn,
-        band: band, maxStops: maxStops,
-        tight: null, ladder: null, target: null, subset: null, anyTimeCost: null
-    };
-
-    /* What the band costs is only meaningful against the same search with no
-     * band, so compute that too. It is free -- same options, no extra request. */
-    if (band || maxStops != null) {
-        var open = FWF.prepare(legData, ids, field);
-        if (open.complete) {
-            var openBest = FWF.minCostAtWindow(open, FWF.INF, costFn);
-            if (openBest) out.anyTimeCost = openBest.cost;
-        }
-    }
-
-    if (!prep.complete) {
-        out.subset = (band || maxStops != null) ? FWF.bestSubset(prep, SET.target, costFn) : null;
-        return out;
-    }
-
-    out.tight = FWF.tightestWindow(prep);
-    var thresholds = FWF.DEFAULT_THRESHOLDS.concat([SET.target]).filter(function (v, i, a) {
-        return a.indexOf(v) === i;
-    });
-    out.ladder = FWF.ladder(prep, costFn, thresholds);
-    out.target = FWF.minCostAtWindow(prep, SET.target, costFn);
-    if (!out.target) out.subset = FWF.bestSubset(prep, SET.target, costFn);
-    return out;
-}
-
-/* ----------------------------------------------------------- recommend */
-
-/* Which ladder row to put forward. Tightest-first is the default because the
- * whole point of the app is landing together; the others exist for groups that
- * decide the window is worth trading away. */
-function recommendedThreshold(c) {
-    /* If nobody can hit the target as a full group, the subset plan IS the
-     * answer -- recommending a 3-hour full-group row instead would bury the one
-     * result the verdict just told them about. */
-    if (!c.target && c.subset) return 'subset';
-
-    var feasible = c.ladder.rows.filter(function (r) { return r.feasible; });
-    if (!feasible.length) return null;
-
-    if (state.recommend === 'tightest') return feasible[0].threshold;
-
-    if (state.recommend === 'target') {
-        var atTarget = feasible.filter(function (r) { return r.threshold <= SET.target; });
-        return (atTarget.length ? atTarget[atTarget.length - 1] : feasible[0]).threshold;
-    }
-
-    // Best value: the biggest saving per extra minute of spread bought.
-    var best = feasible[0], bestRate = -1;
-    for (var i = 1; i < feasible.length; i++) {
-        var prev = feasible[i - 1], cur = feasible[i];
-        if (cur.threshold === FWF.INF) continue;
-        var added = cur.threshold - prev.threshold;
-        if (added <= 0) continue;
-        var rate = (prev.result.cost - cur.result.cost) / added;
-        if (rate > bestRate) { bestRate = rate; best = cur; }
-    }
-    return best.threshold;
-}
-
-/* -------------------------------------------------------------- render */
-
-function render() {
-    cache = compute();
-    var showResults = state.view === 'results' && !!cache;
-
-    el('search').classList.toggle('hidden', showResults);
-    el('results').classList.toggle('hidden', !showResults);
-
-    renderNotices();
-    renderBudget();
-    renderFooter();
-    el('profileBtn').innerHTML = SET.meId ? esc(initials(meName())) : '&#9881;';
-    el('goSearch').textContent = state.busy ? 'Searching…' : 'Find flights';
-    el('goSearch').disabled = state.busy;
-
-    if (!showResults) return;
-
-    renderLegTabs();
-    renderTripSummary();
-    renderStopPills();
-    renderVerdict();
-    renderPills();
-    renderBoard();
-    renderPlan();
-}
-
-function renderTripSummary() {
-    var q = state.query;
-    var n = q.travelers.length;
-    var dates = q.depart + (q.ret ? ' → ' + q.ret : ' · one way');
-    el('tripSummary').innerHTML = esc(parseCodes(q.dest)[0] || '???')
-        + ' · ' + n + ' ' + (n === 1 ? 'person' : 'people')
-        + '<span>' + esc(dates) + ' · tap back to change</span>';
-}
-
-function renderStopPills() {
-    var opts = [
-        { v: 0, label: 'Nonstop only' },
-        { v: 1, label: 'Up to 1 stop' },
-        { v: null, label: 'Any' }
-    ];
-    el('stopPills').innerHTML = '<span class="pills-label">Stops</span>'
-        + opts.map(function (o) {
-            var on = state.query.maxStops === o.v;
-            return '<button class="pill' + (on ? ' active' : '') + '" data-stops="'
-                + (o.v === null ? '' : o.v) + '">' + o.label + '</button>';
-        }).join('');
-}
-
-function meName() {
-    var t = queryTravelers().filter(function (x) { return x.id === SET.meId; })[0];
-    return t ? t.name : '';
-}
-
-function travelerName(id) {
-    var t = (cache.travelers || []).filter(function (x) { return x.id === id; })[0];
-    return t ? t.name : id;
-}
-
-/* "No flights at all" and "flights, but your filters removed them all" are
- * different problems with different fixes, so they must not share a message.
- * Anyone with dropped options is in the second category, whichever filter did it. */
-function filteredOut() {
-    if (!cache || !cache.prep) return [];
-    return cache.prep.missing.filter(function (id) {
-        return (cache.prep.dropped || {})[id] > 0;
-    });
-}
-
-function bandText() {
-    var b = currentBand();
-    return b.from + '–' + b.to;
-}
-
-/* Names the filters actually in force, so the message says what to loosen. */
-function activeFilterText() {
-    var bits = [];
-    if (cache.band) bits.push(legVerb() + ' between ' + bandText());
-    if (cache.maxStops === 0) bits.push('are nonstop');
-    else if (cache.maxStops != null) bits.push('have at most ' + cache.maxStops + ' stop');
-    return bits.join(' and ');
-}
-
-function legVerb() { return state.leg === 'outbound' ? 'land' : 'leave'; }
-
-function renderLegTabs() {
-    var tab = document.querySelector('[data-leg="return"]');
-    if (tab) tab.classList.toggle('hidden', !hasReturn());
-    if (!hasReturn() && state.leg === 'return') state.leg = 'outbound';
-
-    el('bandLabel').textContent = state.leg === 'outbound' ? 'Land between' : 'Leave between';
-
-    var free = el('bandFree');
-    if (DATA && !DATA.sample) {
-        free.className = 'band-free';
-        free.textContent = 'Changing this window is free — it filters flights already fetched, '
-            + 'so it never costs a search.';
-    } else { free.className = 'band-free hidden'; }
-}
-
-/* Band inputs are per leg, so they get re-filled whenever the leg changes. */
-function fillBand() {
-    var b = currentBand();
-    el('qFrom').value = b.from || '';
-    el('qTo').value = b.to || '';
-}
-
-function goHome() {
-    state.query = readForm();
-    state.view = 'home';
-    state.error = null;
-    render();
-    window.scrollTo(0, 0);
-}
-
-function renderBudget() {
-    var host = el('budgetLine');
-    if (!API_BASE) {
-        host.innerHTML = 'No search endpoint configured yet — set <b>API_BASE</b> in index.html '
-            + 'to your deployed Worker. Until then, try the example below.';
-        return;
-    }
-    if (!BUDGET) { host.innerHTML = ''; return; }
-    var left = Math.max(BUDGET.limit - BUDGET.used, 0);
-    var people = (state.query && state.query.travelers.length) || 0;
-    var costNow = people * (hasReturn() ? 2 : 1);
-    host.innerHTML = '<b>' + left + '</b> of ' + BUDGET.limit + ' searches left this month'
-        + ' (resets ' + BUDGET.resetsAt + '). This search costs up to <b>' + costNow + '</b>'
-        + ' — repeats of the same search are free for 24 hours.';
-}
-
-function renderNotices() {
-    if (!DATA) {
-        el('noticeSample').className = 'notice hidden';
-        el('noticeStale').className = 'notice warn hidden';
-        el('noticeIncomplete').className = 'notice bad hidden';
-    }
-
-    var sample = el('noticeSample');
-    if (DATA && DATA.sample) {
-        sample.className = 'notice warn';
-        sample.innerHTML = '<b>Sample data.</b> These fares are made up so the app has '
-            + 'something to render. Set <span class="mono">SERPAPI_KEY</span> and run the scan '
-            + 'workflow to replace them.';
-    } else { sample.className = 'notice hidden'; }
-
-    var stale = el('noticeStale');
-    var gen = DATA && DATA.generated_at ? new Date(DATA.generated_at) : null;
-    var days = gen ? Math.floor((Date.now() - gen.getTime()) / 86400000) : null;
-    if (DATA && !DATA.sample && days != null && days >= 10) {
-        stale.className = 'notice warn';
-        stale.innerHTML = '<b>Fares are ' + days + ' days old.</b> Treat these as indicative, '
-            + 'not current — re-run the scan before anyone books.';
-    } else { stale.className = 'notice warn hidden'; }
-
-    var errBox = el('noticeError');
-    if (state.error) {
-        errBox.className = 'notice bad';
-        errBox.innerHTML = esc(state.error);
-    } else { errBox.className = 'notice bad hidden'; }
-
-    var inc = el('noticeIncomplete');
-    if (cache && cache.prep && !cache.prep.complete) {
-        var blocked = filteredOut();
-        var noData = cache.prep.missing.filter(function (id) { return blocked.indexOf(id) === -1; });
-
-        var parts = [];
-        if (blocked.length) {
-            var all = blocked.length === cache.ids.length;
-            parts.push('<b>' + (all
-                    ? 'Your filters rule everyone out.'
-                    : esc(blocked.map(travelerName).join(', ')) + ' can\'t meet your filters.')
-                + '</b> '
-                + (all ? 'Nobody has' : (blocked.length === 1 ? 'They have' : 'They have'))
-                + ' flights on this date, but none that ' + activeFilterText()
-                + '. Loosen a filter above.');
-        }
-        if (noData.length) {
-            parts.push('<b>No flights found</b> for ' + esc(noData.map(travelerName).join(', '))
-                + ' on this leg at all.');
-        }
-        parts.push('A total covering ' + (cache.ids.length - cache.prep.missing.length)
-            + ' of ' + cache.ids.length + ' people would be a wrong number, not a partial one.');
-
-        inc.className = 'notice bad';
-        inc.innerHTML = parts.join('<br><br>');
-    } else { inc.className = 'notice bad hidden'; }
-}
-
-function renderVerdict() {
-    var v = el('verdict');
-
-    if (!cache.prep.complete) {
-        var s = cache.subset;
-        if (s && s.included.length) {
-            v.innerHTML = '<div class="verdict-label">Best achievable in your window</div>'
-                + '<div class="verdict-big mono">' + s.included.length + '<span class="unit">of '
-                + cache.ids.length + '</span></div>'
-                + '<span class="chip bad">Not everyone fits your filters</span>'
-                + '<div class="verdict-note">' + esc(s.included.map(travelerName).join(', '))
-                + ' can ' + legVerb() + ' within ' + FWF.fmtGap(s.summary.spread)
-                + ' for <strong>' + money(s.cost) + '</strong>. '
-                + esc(s.excluded.map(travelerName).join(', '))
-                + ' cannot, on these filters.</div>';
-        } else {
-            v.innerHTML = '<div class="verdict-note">No plan to show for this leg.</div>';
-        }
-        return;
-    }
-
-    var verb = state.leg === 'outbound' ? 'land' : 'leave';
-    var noun = state.leg === 'outbound' ? 'landing' : 'departure';
-    var tight = cache.tight;
-    var meets = tight.spread <= SET.target;
-
-    var html = '<div class="verdict-label">Tightest ' + noun + ' window possible</div>'
-        + '<div class="verdict-big mono">' + FWF.fmtGap(tight.spread) + '<span class="unit">apart</span></div>'
-        + '<span class="chip ' + (meets ? 'good' : 'bad') + '">'
-        + (meets ? 'Meets your ' + SET.target + '-minute target' : 'Misses your ' + SET.target + '-minute target')
-        + '</span>';
-
-    if (cache.band || cache.maxStops != null) {
-        var dropped = cache.ids.reduce(function (n, id) {
-            return n + ((cache.prep.dropped || {})[id] || 0);
-        }, 0);
-        var limits = [];
-        if (cache.band) limits.push(legVerb() + ' between <strong>' + esc(bandText()) + '</strong>');
-        if (cache.maxStops === 0) limits.push('are <strong>nonstop</strong>');
-        else if (cache.maxStops != null) limits.push('have <strong>at most ' + cache.maxStops + ' stop</strong>');
-        html += '<div class="verdict-note" style="margin-top:10px">Restricted to flights that '
-            + limits.join(' and ')
-            + (dropped ? ', which set aside ' + dropped + ' other option' + (dropped === 1 ? '' : 's') : '')
-            + '.</div>';
-    }
-
-    if (cache.target) {
-        var baseline = cache.ladder.baseline;
-        var premium = cache.target.cost - baseline;
-        html += '<div class="verdict-note">Everyone can ' + verb + ' within <strong>'
-            + SET.target + ' minutes</strong> for <strong>' + money(cache.target.cost)
-            + '</strong>. The cheapest scattered option is ' + money(baseline) + ', so '
-            + (premium > 0
-                ? 'travelling together costs the group <strong>' + money(premium) + '</strong> more.'
-                : 'travelling together costs nothing extra.')
-            + '</div>'
-            + '<div class="verdict-split">'
-            + '<div class="vs-item"><div class="k">Together</div><div class="v mono">' + money(cache.target.cost) + '</div></div>'
-            + '<div class="vs-item"><div class="k">Scattered</div><div class="v mono">' + money(baseline) + '</div></div>'
-            + '<div class="vs-item"><div class="k">Cost of together</div><div class="v mono" style="color:var(--accent)">'
-            + (premium > 0 ? '+' + money(premium) : money(0)) + '</div></div>'
-            + (cache.anyTimeCost != null
-                ? '<div class="vs-item"><div class="k">Cost of your window</div><div class="v mono" style="color:var(--accent)">'
-                  + (baseline - cache.anyTimeCost > 0
-                      ? '+' + money(baseline - cache.anyTimeCost) : money(0))
-                  + '</div></div>'
-                : '')
-            + '</div>';
-    } else if (cache.subset) {
-        var s = cache.subset;
-        var names = s.excluded.map(function (x) {
-            var t = cache.travelers.filter(function (y) { return y.id === x.id; })[0];
-            return (t ? t.name : x.id) + ' (+' + FWF.fmtGap(x.gapMinutes) + ')';
-        });
-        html += '<div class="verdict-note"><strong>No combination gets all '
-            + cache.ids.length + ' of you within ' + SET.target + ' minutes.</strong> '
-            + 'The best achievable is <strong>' + s.included.length + ' of ' + cache.ids.length
-            + '</strong> within ' + FWF.fmtGap(s.summary.spread) + ', for ' + money(s.cost) + '. '
-            + 'Outside the cluster: ' + esc(names.join(', ')) + '. '
-            + 'Either wait, or have them route differently.</div>';
-    } else {
-        html += '<div class="verdict-note">No feasible plan at this target.</div>';
-    }
-
-    v.innerHTML = html;
-}
-
-function renderPills() {
-    var opts = [
-        { k: 'tightest', label: 'Closest times' },
-        { k: 'target', label: 'Cheapest at ' + SET.target + 'm' },
-        { k: 'value', label: 'Best value' }
-    ];
-    el('recommendPills').innerHTML = '<span class="pills-label">Recommend</span>'
-        + opts.map(function (o) {
-            return '<button class="pill' + (state.recommend === o.k ? ' active' : '')
-                + '" data-rec="' + o.k + '">' + esc(o.label) + '</button>';
-        }).join('');
-}
-
-function renderBoard() {
-    var rows = el('boardRows');
-    if (!cache.prep.complete || !cache.ladder) { rows.innerHTML = ''; return; }
-
-    var rec = recommendedThreshold(cache);
-    if (state.threshold === null) state.threshold = rec;
-
-    var feasibleExists = cache.ladder.rows.some(function (r) { return r.feasible; });
-    if (!feasibleExists) { rows.innerHTML = '<div class="row infeasible"><span>No plan covers everyone.</span></div>'; return; }
-
-    var html = '';
-
-    if (!cache.target && cache.subset) {
-        var sub = cache.subset;
-        var subLabel = sub.included.length + ' of ' + cache.ids.length + ' within ' + SET.target + ' min';
-        html += '<button class="row' + (state.threshold === 'subset' ? ' selected' : '')
-            + '" data-threshold="subset">'
-            + '<span><span class="win">' + subLabel + '</span>'
-            + (rec === 'subset' ? '<span class="rec">recommended</span>' : '')
-            + '</span>'
-            + '<span class="cost mono">' + money(sub.cost) + '</span>'
-            + '<span class="sp mono">' + FWF.fmtGap(sub.summary.spread) + '</span>'
-            + '<span class="dl mono" style="color:var(--faint)" title="Not comparable: covers fewer people">n/a</span>'
-            + '</button>';
-    }
-
-    /* One line for the whole infeasible range rather than seven near-identical
-     * rows -- the useful fact is where feasibility starts, not each miss. */
-    var infeasible = cache.ladder.rows.filter(function (r) { return !r.feasible; });
-    if (infeasible.length) {
-        var lo = infeasible[0].threshold, hi = infeasible[infeasible.length - 1].threshold;
-        html += '<div class="row infeasible"><span class="win">'
-            + (lo === hi ? 'Within ' + lo + ' min' : 'Within ' + lo + '–' + hi + ' min')
-            + '</span><span class="nope">no combination covers everyone</span></div>';
-    }
-
-    html += cache.ladder.rows.filter(function (r) { return r.feasible; }).map(function (r) {
-        var label = r.threshold === FWF.INF ? 'Any time' : 'Within ' + r.threshold + ' min';
-        var cls = 'row' + (r.threshold === state.threshold ? ' selected' : '');
-        var deltaCls = r.delta > 0 ? 'up' : 'flat';
-        return '<button class="' + cls + '" data-threshold="' + r.threshold + '">'
-            + '<span><span class="win">' + label + '</span>'
-            + (r.threshold === rec ? '<span class="rec">recommended</span>' : '') + '</span>'
-            + '<span class="cost mono">' + money(r.result.cost) + '</span>'
-            + '<span class="sp mono">' + FWF.fmtGap(r.result.spread) + '</span>'
-            + '<span class="dl mono ' + deltaCls + '">' + (r.delta > 0 ? '+' + money(r.delta) : '—') + '</span>'
-            + '</button>';
-    }).join('');
-
-    rows.innerHTML = html;
-}
-
-function bookingUrl(option) {
-    /* Built at click time from route, date and carrier. booking_token is not used:
-     * live responses returned none at all (0 of 76 on a real search), and its
-     * lifetime is undocumented even when present, so a token from a cached search
-     * could not be trusted anyway.
-     *
-     * Naming the carrier narrows the destination page to a handful of flights
-     * instead of the whole day, which is as close to "go straight to this flight"
-     * as this data allows. It lands on a search, not a checkout. */
-    var carrier = (option.airlines || [])[0];
-    var q = 'Flights from ' + option.from + ' to ' + option.to
-        + ' on ' + String(option.depart).slice(0, 10)
-        + (carrier ? ' ' + carrier : '');
-    return 'https://www.google.com/travel/flights?q=' + encodeURIComponent(q);
-}
-
-function renderPlan() {
-    var host = el('plan');
-    if (!cache.prep.complete) {
-        if (cache.subset && cache.subset.included.length) { state.threshold = 'subset'; }
-        else { host.innerHTML = ''; return; }
-    }
-
-    var row = (state.threshold === 'subset' || !cache.ladder) ? null
-        : cache.ladder.rows.filter(function (r) {
-            return r.feasible && r.threshold === state.threshold;
-        })[0];
-
-    var picks, included, excluded = [], spread, cost;
-    if (row) {
-        picks = row.result.picks; included = cache.ids.slice();
-        spread = row.result.spread; cost = row.result.cost;
-    } else if (cache.subset) {
-        picks = cache.subset.picks; included = cache.subset.included;
-        excluded = cache.subset.excluded; spread = cache.subset.summary.spread; cost = cache.subset.cost;
-    } else { host.innerHTML = ''; return; }
-
-    var verb = state.leg === 'outbound' ? 'on the ground' : 'wheels up';
-    var waitWord = state.leg === 'outbound' ? 'waits for the last' : 'waits at the airport';
-
-    var html = '<div class="plan-head">'
-        + '<div class="plan-title">' + (row ? 'The plan'
-            : 'Best achievable plan · ' + included.length + ' of ' + cache.ids.length) + '</div>'
-        + '<div class="plan-sub">' + included.length + ' of ' + cache.ids.length + ' ' + verb
-        + ' within ' + FWF.fmtGap(spread) + ' · first ' + waitWord + ' ' + FWF.fmtGap(spread)
-        + '</div></div>';
-
-    html += renderTimeline(picks, included, excluded);
-
-    /* Google usually publishes no bag prices at all -- in live data every fare
-     * comes back as a bare "Checked baggage for a fee". When nothing is known,
-     * badging every row says nothing; one honest line does, and it also makes
-     * clear the assumption cannot change which plan wins. */
-    var known = 0, assumed = 0;
-    included.forEach(function (id) {
-        var t = cache.travelers.filter(function (x) { return x.id === id; })[0];
-        var b = FWF.allInCost(picks[id].option, t, {
-            assumedCheckedBagFee: APP.assumedCheckedBagFee,
-            assumedCarryOnFee: APP.assumedCarryOnFee
-        });
-        if (b.bagFee > 0) { if (b.estimated) assumed++; else known++; }
-    });
-    cache.bagsAllAssumed = assumed > 0 && known === 0;
-
-    if (cache.bagsAllAssumed && SET.priceDisplay !== 'fare') {
-        html += '<div class="notice warn" style="margin-bottom:10px">'
-            + '<b>No bag prices published for these fares.</b> Google returned only '
-            + '"checked baggage for a fee", so ' + money(APP.assumedCheckedBagFee)
-            + ' per checked bag is assumed for everyone. Because it is the same assumption on '
-            + 'every option, it changes the totals below but not which plan wins. '
-            + 'Carry-on fees are not published either, so fares that exclude a carry-on are '
-            + 'not penalised.</div>';
-    }
-
-    var sorted = included.slice().sort(function (a, b) {
-        return picks[a].option.clusterMin - picks[b].option.clusterMin;
-    });
-
-    sorted.forEach(function (id) { html += paxRow(id, picks[id], false); });
-    excluded.forEach(function (x) { html += paxRow(x.id, { option: x.nearest, cost: null }, true, x.gapMinutes); });
-
-    html += '<div class="plan-total"><span class="k">Group total'
-        + (SET.priceDisplay === 'fare' ? ' (fares only)' : ' (incl. bags)') + '</span>'
-        + '<span class="v mono">' + money(cost) + '</span></div>';
-
-    host.innerHTML = html;
-}
-
-function paxRow(id, pick, isOut, gap) {
-    var t = cache.travelers.filter(function (x) { return x.id === id; })[0] || { name: id, color: '#ffb000' };
-    var o = pick.option;
-    if (!o) return '';
-
-    var breakdown = FWF.allInCost(o, t, {
-        assumedCheckedBagFee: APP.assumedCheckedBagFee,
-        assumedCarryOnFee: APP.assumedCarryOnFee
-    });
-
-    var showMin = state.leg === 'outbound' ? o.arriveMin : o.departMin;
-    var otherMin = state.leg === 'outbound' ? o.departMin : o.arriveMin;
-
-    var logo = o.airline_logo
-        ? '<img class="pax-logo" src="' + esc(o.airline_logo) + '" alt="" '
-          + 'onerror="this.outerHTML=\'<div class=&quot;pax-logo-fb&quot;>' + esc(initials(o.airlines && o.airlines[0])) + '</div>\'">'
-        : '<div class="pax-logo-fb">' + esc(initials(o.airlines && o.airlines[0])) + '</div>';
-
-    var badges = '';
-    if (SET.meId === id) badges += ' <span class="badge me">you</span>';
-    if (isOut) badges += ' <span class="badge out">+' + FWF.fmtGap(gap) + ' outside</span>';
-    if (breakdown.estimated && !cache.bagsAllAssumed && SET.priceDisplay !== 'fare') {
-        badges += ' <span class="badge est">bag fee est.</span>';
-    }
-
-    var priceLine = SET.priceDisplay === 'fare'
-        ? money(o.price) + ' fare'
-        : money(breakdown.total) + (breakdown.bagFee > 0 ? ' incl. ' + money(breakdown.bagFee) + ' bags' : ' all-in');
-
-    return '<div class="pax' + (isOut ? ' out' : '') + '">'
-        + '<div class="avatar" style="background:' + esc(t.color) + '">' + esc(initials(t.name)) + '</div>'
-        + logo
-        + '<div class="pax-main"><div class="pax-name">' + esc(t.name) + badges + '</div>'
-        + '<div class="pax-meta">' + esc(o.from) + ' &rarr; ' + esc(o.to) + ' · '
-        + esc((o.airlines || []).join(', ')) + ' · ' + (o.stops === 0 ? 'nonstop' : o.stops + ' stop')
-        + ' · ' + FWF.fmtGap(o.duration_minutes) + '</div>'
-        + '<a class="book" href="' + bookingUrl(o) + '" target="_blank" rel="noopener">Book on Google Flights &rarr;</a>'
-        + '</div>'
-        + '<div class="pax-right"><div class="pax-time mono">' + clock(showMin) + '</div>'
-        + '<div class="pax-price mono">' + priceLine + '</div>'
-        + '<div class="pax-price mono" style="opacity:0.6">'
-        + (state.leg === 'outbound' ? 'dep ' : 'arr ') + clock(otherMin) + '</div></div>'
-        + '</div>';
-}
-
-/* The single most legible view of whether the app worked: if the dots are
- * bunched, the trip works. */
-function renderTimeline(picks, included, excluded) {
-    var times = included.map(function (id) { return picks[id].option.clusterMin; });
-    var lo = Math.min.apply(null, times), hi = Math.max.apply(null, times);
-    var pad = Math.max(Math.round((hi - lo) * 0.45), 25);
-    var from = lo - pad, to = hi + pad;
-    var span = to - from || 1;
-    var pct = function (m) { return ((m - from) / span) * 100; };
-
-    function person(id) {
-        return cache.travelers.filter(function (x) { return x.id === id; })[0]
-            || { id: id, name: id, color: '#ffb000' };
-    }
-
-    /* Group by exact time: two people landing in the same minute share one mark
-     * and one label instead of drawing over each other. */
-    var groups = {};
-    included.forEach(function (id) {
-        var m = picks[id].option.clusterMin;
-        (groups[m] = groups[m] || []).push({ id: id, dim: false });
-    });
-    (excluded || []).forEach(function (x) {
-        if (!x.nearest) return;
-        var m = x.nearest.clusterMin;
-        if (m < from || m > to) return; // off-scale; their row carries the gap badge
-        (groups[m] = groups[m] || []).push({ id: x.id, dim: true });
-    });
-
-    var keys = Object.keys(groups).map(Number).sort(function (a, b) { return a - b; });
-
-    var bandStart = Math.max(pct(lo), 0), bandEnd = Math.min(pct(hi), 100);
-    var html = '<div class="timeline">'
-        + '<div class="tl-band" style="left:' + bandStart + '%;width:' + Math.max(bandEnd - bandStart, 1.5) + '%"></div>'
-        + '<div class="tl-axis"></div>';
-
-    /* Labels need ~48px of room; below that, drop every other one to the second
-     * row so nothing overlaps. */
-    var minGapPct = (48 / 390) * 100;
-    var lastLabelPct = -999, alt = false;
-
-    keys.forEach(function (m) {
-        var p = pct(m);
-        if (p - lastLabelPct < minGapPct) { alt = !alt; } else { alt = false; }
-        lastLabelPct = p;
-
-        var dots = groups[m].map(function (g) {
-            var t = person(g.id);
-            var style = g.dim ? 'background:var(--edge);color:var(--muted)' : 'background:' + esc(t.color);
-            return '<div class="tl-dot" style="' + style + '">' + esc(initials(t.name)) + '</div>';
-        }).join('');
-
-        html += '<div class="tl-mark" style="left:' + p + '%">'
-            + '<div class="tl-dots">' + dots + '</div>'
-            + '<div class="tl-time mono' + (alt ? ' alt' : '') + '">' + clock(m) + '</div></div>';
-    });
-
-    html += '<div class="tl-edge mono" style="left:10px">' + clock(from) + '</div>'
-        + '<div class="tl-edge mono" style="right:10px">' + clock(to) + '</div></div>';
-    return html;
-}
-
-function renderFooter() {
-    var gen = DATA && DATA.generated_at ? new Date(DATA.generated_at) : null;
-    el('footer').innerHTML = 'Fares from Google Flights via SerpApi'
-        + (gen ? ', captured ' + gen.toISOString().slice(0, 10) : '')
-        + '. Prices and seats change constantly — confirm on the airline site before booking. '
-        + 'Bag fees are parsed from Google\'s own text and are approximate where marked. v' + VERSION;
-}
-
-/* --------------------------------------------------------------- form */
-
-/* The people list is rebuilt only on add/remove, never on keystroke -- the
- * inputs are uncontrolled so typing never loses focus. Values are read back out
- * of the DOM on submit. */
-function renderPeople() {
-    el('people').innerHTML = state.query.travelers.map(function (p, i) {
-        return '<div class="person-row" data-pid="' + esc(p.id) + '">'
-            + '<div class="avatar" style="background:' + PALETTE[i % PALETTE.length] + '">'
-            + (i + 1) + '</div>'
-            + '<input class="inp name" data-f="name" placeholder="Flight ' + (i + 1) + '" '
-            + 'value="' + esc(p.name) + '" maxlength="18">'
-            + '<input class="inp" data-f="origins" placeholder="'
-            + ['SFO', 'JFK', 'ORD', 'ATL', 'DEN', 'SEA', 'BOS', 'AUS'][i % 8]
-            + '" value="' + esc(p.origins) + '" autocapitalize="characters" autocomplete="off">'
-            + (state.query.travelers.length > 2
-                ? '<button class="row-x" data-remove="' + esc(p.id) + '" aria-label="Remove">&times;</button>'
-                : '<span></span>')
-            + '</div>';
-    }).join('');
-}
-
-function fillForm() {
-    el('qDest').value = state.query.dest || '';
-    el('qDepart').value = state.query.depart || '';
-    el('qReturn').value = state.query.ret || '';
-    fillBand();
-}
-
-function readForm() {
-    var people = [];
-    Array.prototype.forEach.call(document.querySelectorAll('.person-row'), function (row) {
-        people.push({
-            id: row.getAttribute('data-pid'),
-            name: row.querySelector('[data-f="name"]').value,
-            origins: row.querySelector('[data-f="origins"]').value
-        });
-    });
-    /* Only the visible leg's band is in the DOM; the other leg's is preserved. */
-    var band = {
-        outbound: { from: '', to: '' },
-        return: { from: '', to: '' }
-    };
-    var existing = (state.query && state.query.band) || {};
-    band.outbound = existing.outbound || band.outbound;
-    band.return = existing.return || band.return;
-    band[state.leg] = { from: el('qFrom').value, to: el('qTo').value };
-
-    return {
-        dest: el('qDest').value.trim().toUpperCase(),
-        depart: el('qDepart').value,
-        ret: el('qReturn').value,
-        band: band,
-        maxStops: state.query ? state.query.maxStops : null,
-        travelers: people
-    };
-}
-
-/* Mirrors the Worker's validator so mistakes are caught before spending a
- * search, not after. The Worker still validates -- this is convenience, not
- * trust. */
-function validateQuery(q) {
-    if (parseCodes(q.dest).length !== 1) return 'Destination needs one 3-letter airport code, like PIT.';
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(q.depart)) return 'Pick a departure date.';
-    if (q.ret && q.ret < q.depart) return 'The return date is before the departure date.';
-    if (q.travelers.length < 2) return 'Add at least two people — this only makes sense for a group.';
-    for (var i = 0; i < q.travelers.length; i++) {
-        if (!parseCodes(q.travelers[i].origins).length) {
-            return personLabel(q.travelers[i], i) + ' needs an origin airport code.';
-        }
-    }
-    return null;
-}
-
-function encodeQuery(q) {
-    try { return btoa(unescape(encodeURIComponent(JSON.stringify(q)))).replace(/=+$/, ''); }
-    catch (e) { return ''; }
-}
-function decodeQuery(str) {
-    try { return JSON.parse(decodeURIComponent(escape(atob(str)))); } catch (e) { return null; }
-}
-function writeHash(q) {
-    var enc = encodeQuery(q);
-    if (enc) history.replaceState(null, '', '#s=' + enc);
-}
-function readHash() {
-    var m = /[#&]s=([^&]+)/.exec(location.hash || '');
-    return m ? decodeQuery(m[1]) : null;
-}
-
-function fetchBudget() {
-    if (!API_BASE) return;
-    fetch(API_BASE + '/budget')
-        .then(function (r) { return r.json(); })
-        .then(function (b) { BUDGET = b; renderBudget(); })
-        .catch(function () { /* budget display is optional */ });
-}
-
-function doSearch() {
-    var q = readForm();
-    var invalid = validateQuery(q);
-    state.query = q;
-
-    if (invalid) {
-        state.error = invalid;
-        state.view = 'home';
-        DATA = null;
-        var bad = parseCodes(q.dest).length !== 1;
-        el('destHint').className = 'hero-hint' + (bad ? ' bad' : '');
-        el('destHint').textContent = bad ? 'Needs a 3-letter airport code' : '3-letter airport code';
-        render();
-        if (bad) el('qDest').focus();
-        return;
-    }
-    el('destHint').className = 'hero-hint';
-    el('destHint').textContent = '3-letter airport code';
-    if (!API_BASE) {
-        state.error = 'No search endpoint is configured. Deploy the Worker in worker/ and set '
-            + 'API_BASE at the top of index.html.';
-        render(); return;
-    }
-
-    writeHash(q);
-    state.busy = true; state.error = null;
-    render();
-
-    fetch(API_BASE + '/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            dest: parseCodes(q.dest),
-            depart: q.depart,
-            ret: q.ret || null,
-            travelers: queryTravelers().map(function (t) {
-                return { id: t.id, name: t.name, origins: t.origins, bags: t.bags };
-            })
-        })
-    }).then(function (r) {
-        return r.json().then(function (j) { return { ok: r.ok, body: j }; });
-    }).then(function (res) {
-        state.busy = false;
-        if (res.body.budget) BUDGET = res.body.budget;
-        if (!res.ok) { state.error = res.body.error || 'Search failed.'; render(); return; }
-        DATA = res.body;
-        state.threshold = null;
-        state.leg = 'outbound';
-        state.view = 'results';
-        render();
-        window.scrollTo(0, 0);
-    }).catch(function (err) {
-        state.busy = false;
-        state.error = 'Could not reach the search service: ' + err.message;
-        render();
-    });
-}
-
-/* Lets the app demonstrate itself before a Worker exists, without spending a
- * search. Clearly flagged as fabricated by the banner the sample data carries. */
-function loadExample() {
-    fetch('flights.json', { cache: 'no-store' }).then(function (r) { return r.json(); })
-        .then(function (sample) {
-            var trip = sample.trips['pit-feb'];
-            state.query = {
-                dest: 'PIT', depart: '2027-02-12', ret: '2027-02-15',
-                travelers: [
-                    { id: 'alex', name: 'Alex', origins: 'SFO,OAK,SJC' },
-                    { id: 'sam', name: 'Sam', origins: 'ORD' },
-                    { id: 'jo', name: 'Jo', origins: 'ATL' },
-                    { id: 'ray', name: 'Ray', origins: 'DEN' }
-                ]
-            };
-            DATA = { generated_at: sample.generated_at, currency: sample.currency, sample: true,
-                     trips: { query: trip }, errors: [] };
-            state.error = null; state.threshold = null; state.leg = 'outbound';
-            state.view = 'results';
-            renderPeople(); fillForm(); render(); window.scrollTo(0, 0);
-        })
-        .catch(function (e) { state.error = 'Could not load the example: ' + e.message; render(); });
-}
-
-/* -------------------------------------------------------------- sheet */
-
-function openSheet() {
-    var people = state.query ? queryTravelers() : [];
-    var bags = SET.groupBags || { carry_on: 0, checked: 0 };
-    var gen = DATA && DATA.generated_at ? new Date(DATA.generated_at) : null;
-
-    el('sheet').innerHTML = '<div class="sheet-grip"></div>'
-        + '<h2>Profile &amp; settings</h2>'
-        + '<div class="sub">Stored on this device only. No account, no sign-in.</div>'
-
-        + '<div class="field"><label>Which traveler am I</label><div class="pills">'
-        + people.map(function (p) {
-            return '<button class="pill' + (SET.meId === p.id ? ' active' : '') + '" data-set="meId" data-val="'
-                + esc(p.id) + '">' + esc(p.name) + '</button>';
-        }).join('')
-        + '<button class="pill' + (!SET.meId ? ' active' : '') + '" data-set="meId" data-val="">Not set</button>'
-        + '</div><div class="hint">Highlights your row everywhere and applies your bag choices to the group total.</div></div>'
-
-        + '<div class="field"><label>Theme</label><div class="pills">'
-        + [['dark', 'Dark'], ['light', 'Light'], ['system', 'Follow system']].map(function (o) {
-            return '<button class="pill' + (SET.theme === o[0] ? ' active' : '') + '" data-set="theme" data-val="'
-                + o[0] + '">' + o[1] + '</button>';
-        }).join('') + '</div></div>'
-
-        + '<div class="field"><label>Target window</label><div class="pills">'
-        + [15, 30, 45, 60].map(function (n) {
-            return '<button class="pill' + (SET.target === n ? ' active' : '') + '" data-set="target" data-val="'
-                + n + '">' + n + ' min</button>';
-        }).join('') + '</div><div class="hint">How close together everyone has to be for the trip to count as working.</div></div>'
-
-        + '<div class="field"><label>Bags, per person</label><div class="pills">'
-        + '<button class="pill' + (bags.carry_on > 0 ? ' active' : '') + '" data-bag="carry_on">Carry-on</button>'
-        + '<button class="pill' + (bags.checked > 0 ? ' active' : '') + '" data-bag="checked">Checked bag</button>'
-        + '</div><div class="hint">Applied to everyone, so group totals stay comparable. '
-        + 'Where Google does not publish a fee, ' + money(APP.assumedCheckedBagFee)
-        + ' is assumed for a checked bag and the row is badged as an estimate. '
-        + 'An unknown fee is never treated as free.</div></div>'
-
-        + '<div class="field"><label>Price display</label><div class="pills">'
-        + [['allin', 'All-in'], ['fare', 'Fare only']].map(function (o) {
-            return '<button class="pill' + (SET.priceDisplay === o[0] ? ' active' : '') + '" data-set="priceDisplay" data-val="'
-                + o[0] + '">' + o[1] + '</button>';
-        }).join('') + '</div><div class="hint">Fare-only hides bag costs, which is the misleading number — it is here for comparison, not as the default.</div></div>'
-
-        + '<div class="field"><label>Time format</label><div class="pills">'
-        + [['12', '1:40pm'], ['24', '13:40']].map(function (o) {
-            return '<button class="pill' + ((SET.time24 ? '24' : '12') === o[0] ? ' active' : '') + '" data-set="time24" data-val="'
-                + o[0] + '">' + o[1] + '</button>';
-        }).join('') + '</div></div>'
-
-        + '<div class="sheet-foot"><span>Fares ' + (!DATA ? 'not loaded yet' : DATA.sample ? 'are sample data' : 'captured '
-            + (gen ? gen.toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : 'unknown')) + '</span>'
-        + '<span>v' + VERSION + ' · <a href="' + REPO + '" target="_blank" rel="noopener">source</a></span></div>'
-        + '<button class="sheet-close" id="sheetClose">Done</button>';
-
-    el('sheet').classList.remove('hidden');
-    el('sheetBackdrop').classList.remove('hidden');
-}
-
-function closeSheet() {
-    el('sheet').classList.add('hidden');
-    el('sheetBackdrop').classList.add('hidden');
-}
-
-/* -------------------------------------------------------------- events */
-
-document.addEventListener('click', function (ev) {
-    var t = ev.target.closest
-        ? ev.target.closest('[data-threshold],[data-rec],[data-leg],[data-set],[data-bag],[data-stops]')
-        : null;
-
-    if (ev.target.id === 'profileBtn') { openSheet(); return; }
-    if (ev.target.id === 'sheetClose' || ev.target.id === 'sheetBackdrop') { closeSheet(); return; }
-    if (ev.target.id === 'installClose') {
-        el('installBanner').classList.add('hidden');
-        try { localStorage.setItem('fwf_install_dismissed', new Date().toISOString().slice(0, 10)); } catch (e) {}
-        return;
-    }
-    if (!t) return;
-
-    if (t.hasAttribute('data-stops')) {
-        /* Another free filter: it narrows options already fetched. */
-        var raw = t.getAttribute('data-stops');
-        state.query = readForm();
-        state.query.maxStops = raw === '' ? null : +raw;
-        state.threshold = null;
-        writeHash(state.query);
-        render();
-    } else if (t.hasAttribute('data-threshold')) {
-        var v = t.getAttribute('data-threshold');
-        state.threshold = v === 'subset' ? 'subset' : (v === 'Infinity' ? FWF.INF : +v);
-        render();
-    } else if (t.hasAttribute('data-rec')) {
-        state.recommend = t.getAttribute('data-rec');
-        state.threshold = null;
-        render();
-    } else if (t.hasAttribute('data-leg')) {
-        state.query = readForm();
-        state.leg = t.getAttribute('data-leg');
-        state.threshold = null;
-        fillBand();
-        Array.prototype.forEach.call(document.querySelectorAll('.leg-tabs button'), function (b) {
-            b.classList.toggle('active', b.getAttribute('data-leg') === state.leg);
-        });
-        render();
-    } else if (t.hasAttribute('data-set')) {
-        var key = t.getAttribute('data-set'), val = t.getAttribute('data-val');
-        if (key === 'target') val = +val;
-        else if (key === 'time24') val = val === '24';
-        else if (key === 'meId' && val === '') val = null;
-        SET[key] = val;
-        saveSettings();
-        if (key === 'theme') applyTheme();
-        state.threshold = null;
-        openSheet();
-        render();
-    } else if (t.hasAttribute('data-bag')) {
-        var which = t.getAttribute('data-bag');
-        var cur = SET.groupBags || { carry_on: 0, checked: 0 };
-        var next = { carry_on: cur.carry_on || 0, checked: cur.checked || 0 };
-        next[which] = next[which] > 0 ? 0 : 1;
-        SET.groupBags = next;
-        saveSettings();
-        state.threshold = null;
-        openSheet();
-        render();
-    }
-});
-
-el('backBtn').addEventListener('click', goHome);
-
-/* Typing a code and pressing Enter should move on, the way the intrinsics box
- * does, rather than submitting a half-filled form. */
-el('qDest').addEventListener('keydown', function (ev) {
-    if (ev.key !== 'Enter') return;
-    ev.preventDefault();
-    if (parseCodes(el('qDest').value).length === 1 && !el('qDepart').value) el('qDepart').focus();
-    else doSearch();
-});
-el('qDest').addEventListener('input', function () {
-    el('destHint').className = 'hero-hint';
-    el('destHint').textContent = parseCodes(el('qDest').value).length === 1
-        ? 'Looks good' : '3-letter airport code';
-});
-
-el('addPerson').addEventListener('click', function () {
-    if (state.query.travelers.length >= APP.maxTravelers) {
-        state.error = 'Maximum ' + APP.maxTravelers + ' people.'; render(); return;
-    }
-    state.query = readForm();
-    state.query.travelers.push(newPerson(state.query.travelers.length));
-    renderPeople(); renderBudget();
-});
-
-el('goSearch').addEventListener('click', doSearch);
-el('tryExample').addEventListener('click', loadExample);
-
-document.addEventListener('click', function (ev) {
-    var x = ev.target.closest && ev.target.closest('[data-remove]');
-    if (!x) return;
-    var id = x.getAttribute('data-remove');
-    state.query = readForm();
-    state.query.travelers = state.query.travelers.filter(function (p) { return p.id !== id; });
-    renderPeople(); renderBudget();
-});
-
-/* Enter anywhere in the form runs the search. */
-el('search').addEventListener('keydown', function (ev) {
-    if (ev.key === 'Enter') { ev.preventDefault(); doSearch(); }
-});
-
-/* Changing the return date flips the leg tabs and the per-search cost. */
-el('qReturn').addEventListener('change', function () {
-    state.query = readForm(); renderLegTabs(); renderBudget();
-});
-
-/* The band filters options already in hand, so it re-renders without fetching.
- * This is the one control a group will fiddle with repeatedly, and it has to be
- * free or the 250/month budget would evaporate. */
-function applyBand() {
-    state.query = readForm();
-    state.threshold = null;
-    writeHash(state.query);
-    render();
-}
-el('qFrom').addEventListener('change', applyBand);
-el('qTo').addEventListener('change', applyBand);
-el('bandClear').addEventListener('click', function () {
-    el('qFrom').value = ''; el('qTo').value = '';
-    applyBand();
-});
-
-if (window.matchMedia) {
-    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function () {
-        if (SET.theme === 'system') applyTheme();
-    });
-}
-
-function maybeInstallBanner() {
-    var standalone = window.navigator.standalone
-        || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-    var mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    var today = new Date().toISOString().slice(0, 10);
-    var dismissed = null;
-    try { dismissed = localStorage.getItem('fwf_install_dismissed'); } catch (e) {}
-    if (mobile && !standalone && dismissed !== today) el('installBanner').classList.remove('hidden');
-}
-
-/* ---------------------------------------------------------------- boot */
-
-SET = loadSettings();
-if (SET.target == null) SET.target = APP.defaultTarget;
-applyTheme();
-
-var shared = readHash();
-state.query = shared || blankQuery();
-renderPeople();
-fillForm();
-render();
-maybeInstallBanner();
-fetchBudget();
-
-/* A shared link replays the same search, which the Worker serves from cache for
- * 24 hours -- so passing a link around costs nothing. */
-if (shared && validateQuery(state.query) === null && API_BASE) doSearch();
-
-})();
-</script>
+<script src="app.js"></script>
 </body>
 </html>

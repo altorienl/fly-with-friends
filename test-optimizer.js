@@ -438,5 +438,44 @@ console.log('\n13. Tie-breaking prefers the better trip at the same price');
   check('and the total is unchanged, so "cheapest" is still true', plan.cost === 700);
 })();
 
+console.log('\n14. Parties: a row is an airport, not a person');
+(function () {
+  var settings = { assumedCheckedBagFee: 35, assumedCarryOnFee: 30 };
+  var opt = { price: 200, bags: { confidence: 'parsed', checked_first_price: 40, carry_on_included: true } };
+
+  var solo = F.allInCost(opt, { id: 'a', seats: 1, bags: { carry_on: 1, checked: 1 } }, settings);
+  check('one seat is unchanged', solo.fare === 200 && solo.bagFee === 40 && solo.total === 240,
+    JSON.stringify(solo));
+
+  var pair = F.allInCost(opt, { id: 'a', seats: 2, bags: { carry_on: 1, checked: 1 } }, settings);
+  check('two seats doubles fare and bags', pair.fare === 400 && pair.bagFee === 80 && pair.total === 480,
+    JSON.stringify(pair));
+  check('seats is reported back', pair.seats === 2);
+
+  var noSeats = F.allInCost(opt, { id: 'a', bags: { carry_on: 1, checked: 1 } }, settings);
+  check('missing seats defaults to one', noSeats.total === 240);
+  check('zero or negative seats still bills one',
+    F.allInCost(opt, { id: 'a', seats: 0, bags: { carry_on: 0, checked: 0 } }, settings).fare === 200);
+
+  // A party of two from one airport must outweigh a single traveller when the
+  // group total is compared -- this is the whole point of the model.
+  var travelers = [
+    { id: 'pair', seats: 2, bags: { carry_on: 0, checked: 0 } },
+    { id: 'solo', seats: 1, bags: { carry_on: 0, checked: 0 } }
+  ];
+  var costFn = F.makeCostFn(travelers, { assumedCheckedBagFee: 35, assumedCarryOnFee: 30 });
+  var byTraveler = {
+    pair: [{ price: 100, arrive: '2027-02-12 12:00', depart: '2027-02-12 08:00', stops: 0 }],
+    solo: [{ price: 100, arrive: '2027-02-12 12:10', depart: '2027-02-12 08:00', stops: 0 }]
+  };
+  var prep = F.prepare(byTraveler, ['pair', 'solo'], 'arrive');
+  var plan = F.minCostAtWindow(prep, 30, costFn);
+  check('three seats at $100 totals $300, not $200', plan.cost === 300, 'got ' + plan.cost);
+
+  var fareOnlyFn = F.makeCostFn(travelers, { priceDisplay: 'fare' });
+  check('fare-only display also scales by seats',
+    F.minCostAtWindow(prep, 30, fareOnlyFn).cost === 300);
+})();
+
 console.log('\n' + (fail === 0 ? 'ALL ' + pass + ' CHECKS PASSED' : pass + ' passed, ' + fail + ' FAILED'));
 process.exit(fail === 0 ? 0 : 1);

@@ -122,6 +122,20 @@ cheapest at any time        $1,763
 On a real four-person Cabo search the window cost five times more than the clustering did —
 which is the opposite of what you would guess, and the kind of thing the tool exists to say.
 
+**A party is an airport, not a person.** Two people leaving the same city are one card, one
+search and one booking — which is both cheaper in API credits and closer to how groups
+actually buy tickets. A seat count multiplies the fare and the bag fees, so a couple from
+Chicago weighs correctly against a single traveller from Denver in the group total.
+
+**Airports are picked, not typed.** Free text was a silent failure mode: typing `SAN` when
+you meant `SJD` returns a real answer for the wrong city and nothing downstream can detect
+it. There are 306 curated airports with search over code, city and airport name.
+
+Four of those airports have **no commercial service** — Kyiv, Lviv and Odesa since February
+2022. Typing "kyiv" returns them with the reason and the airports people actually fly from
+instead (Kraków, Warsaw, Rzeszów, Chișinău), rather than an empty result or a search that
+burns a credit proving it.
+
 **Stops and trip length.** The optimiser originally minimised price alone, which meant it
 would happily pick a 31-hour two-stop itinerary to save $70. Two fixes:
 
@@ -187,7 +201,9 @@ which turns an impossible constraint into a real decision.
 
 | file | what it is |
 |---|---|
-| `index.html` | the whole front end — two screens, styles, markup, rendering |
+| `index.html` | markup and styles for the four-step flow |
+| `app.js` | steps, autocomplete, rendering, search |
+| `airports.js` | 306 airports including ones with no service, and the lookup |
 | `optimizer.js` | window/cost maths and time bands, runs in browser and node |
 | `test-optimizer.js` | brute-force verification, `node test-optimizer.js` |
 | `worker/worker.js` | SerpApi proxy: key, cache, budget cap, rate limit |
