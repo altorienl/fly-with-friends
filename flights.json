@@ -1,0 +1,946 @@
+{
+  "generated_at": "2026-10-27T05:00:00Z",
+  "currency": "USD",
+  "sample": true,
+  "trips": {
+    "pit-feb": {
+      "outbound": {
+        "alex": [
+          {
+            "price": 212,
+            "depart": "2027-02-12 07:15",
+            "arrive": "2027-02-12 15:40",
+            "duration_minutes": 325,
+            "stops": 1,
+            "airlines": [
+              "United"
+            ],
+            "from": "SFO",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/UA.png",
+            "booking_token": null,
+            "extensions": [
+              "Checked baggage for a fee"
+            ],
+            "bags": {
+              "carry_on_included": null,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          },
+          {
+            "price": 288,
+            "depart": "2027-02-12 08:05",
+            "arrive": "2027-02-12 16:20",
+            "duration_minutes": 315,
+            "stops": 1,
+            "airlines": [
+              "Delta"
+            ],
+            "from": "SFO",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+            "booking_token": null,
+            "extensions": [
+              "1st checked bag: 35",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 35,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 264,
+            "depart": "2027-02-12 06:00",
+            "arrive": "2027-02-12 14:55",
+            "duration_minutes": 355,
+            "stops": 1,
+            "airlines": [
+              "Alaska"
+            ],
+            "from": "SJC",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AS.png",
+            "booking_token": null,
+            "extensions": [
+              "2 free checked bags",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 0,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 236,
+            "depart": "2027-02-12 10:30",
+            "arrive": "2027-02-12 19:05",
+            "duration_minutes": 335,
+            "stops": 1,
+            "airlines": [
+              "American"
+            ],
+            "from": "SFO",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+            "booking_token": null,
+            "extensions": [
+              "Checked baggage for a fee"
+            ],
+            "bags": {
+              "carry_on_included": null,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          },
+          {
+            "price": 198,
+            "depart": "2027-02-12 13:40",
+            "arrive": "2027-02-12 22:15",
+            "duration_minutes": 335,
+            "stops": 1,
+            "airlines": [
+              "Spirit"
+            ],
+            "from": "OAK",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/NK.png",
+            "booking_token": null,
+            "extensions": [
+              "Carry-on bag not included",
+              "Checked baggage for a fee",
+              "Below average legroom (28 in)"
+            ],
+            "bags": {
+              "carry_on_included": false,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          }
+        ],
+        "sam": [
+          {
+            "price": 148,
+            "depart": "2027-02-12 14:27",
+            "arrive": "2027-02-12 15:52",
+            "duration_minutes": 85,
+            "stops": 0,
+            "airlines": [
+              "United"
+            ],
+            "from": "ORD",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/UA.png",
+            "booking_token": null,
+            "extensions": [
+              "Checked baggage for a fee"
+            ],
+            "bags": {
+              "carry_on_included": null,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          },
+          {
+            "price": 132,
+            "depart": "2027-02-12 14:55",
+            "arrive": "2027-02-12 16:20",
+            "duration_minutes": 85,
+            "stops": 0,
+            "airlines": [
+              "American"
+            ],
+            "from": "ORD",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+            "booking_token": null,
+            "extensions": [
+              "Carry-on bag not included",
+              "Checked baggage for a fee",
+              "Below average legroom (28 in)"
+            ],
+            "bags": {
+              "carry_on_included": false,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          },
+          {
+            "price": 165,
+            "depart": "2027-02-12 16:40",
+            "arrive": "2027-02-12 18:05",
+            "duration_minutes": 85,
+            "stops": 0,
+            "airlines": [
+              "Delta"
+            ],
+            "from": "ORD",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+            "booking_token": null,
+            "extensions": [
+              "1st checked bag: 35",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 35,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 140,
+            "depart": "2027-02-12 19:20",
+            "arrive": "2027-02-12 20:45",
+            "duration_minutes": 85,
+            "stops": 0,
+            "airlines": [
+              "Southwest"
+            ],
+            "from": "ORD",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/WN.png",
+            "booking_token": null,
+            "extensions": [
+              "2 free checked bags",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 0,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 118,
+            "depart": "2027-02-12 08:05",
+            "arrive": "2027-02-12 09:30",
+            "duration_minutes": 85,
+            "stops": 0,
+            "airlines": [
+              "Spirit"
+            ],
+            "from": "ORD",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/NK.png",
+            "booking_token": null,
+            "extensions": [
+              "Carry-on bag not included",
+              "Checked baggage for a fee",
+              "Below average legroom (28 in)"
+            ],
+            "bags": {
+              "carry_on_included": false,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          }
+        ],
+        "jo": [
+          {
+            "price": 176,
+            "depart": "2027-02-12 14:13",
+            "arrive": "2027-02-12 15:58",
+            "duration_minutes": 105,
+            "stops": 0,
+            "airlines": [
+              "Delta"
+            ],
+            "from": "ATL",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+            "booking_token": null,
+            "extensions": [
+              "1st checked bag: 35",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 35,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 204,
+            "depart": "2027-02-12 14:27",
+            "arrive": "2027-02-12 16:12",
+            "duration_minutes": 105,
+            "stops": 0,
+            "airlines": [
+              "American"
+            ],
+            "from": "ATL",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+            "booking_token": null,
+            "extensions": [
+              "1st checked bag: 40"
+            ],
+            "bags": {
+              "carry_on_included": null,
+              "checked_first_price": 40,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 189,
+            "depart": "2027-02-12 17:10",
+            "arrive": "2027-02-12 18:55",
+            "duration_minutes": 105,
+            "stops": 0,
+            "airlines": [
+              "United"
+            ],
+            "from": "ATL",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/UA.png",
+            "booking_token": null,
+            "extensions": [
+              "Checked baggage for a fee"
+            ],
+            "bags": {
+              "carry_on_included": null,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          },
+          {
+            "price": 166,
+            "depart": "2027-02-12 19:45",
+            "arrive": "2027-02-12 21:30",
+            "duration_minutes": 105,
+            "stops": 0,
+            "airlines": [
+              "Southwest"
+            ],
+            "from": "ATL",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/WN.png",
+            "booking_token": null,
+            "extensions": [
+              "2 free checked bags",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 0,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 158,
+            "depart": "2027-02-12 10:55",
+            "arrive": "2027-02-12 12:40",
+            "duration_minutes": 105,
+            "stops": 0,
+            "airlines": [
+              "Spirit"
+            ],
+            "from": "ATL",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/NK.png",
+            "booking_token": null,
+            "extensions": [
+              "Carry-on bag not included",
+              "Checked baggage for a fee",
+              "Below average legroom (28 in)"
+            ],
+            "bags": {
+              "carry_on_included": false,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          }
+        ],
+        "ray": [
+          {
+            "price": 232,
+            "depart": "2027-02-12 12:50",
+            "arrive": "2027-02-12 16:00",
+            "duration_minutes": 190,
+            "stops": 0,
+            "airlines": [
+              "United"
+            ],
+            "from": "DEN",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/UA.png",
+            "booking_token": null,
+            "extensions": [
+              "Checked baggage for a fee"
+            ],
+            "bags": {
+              "carry_on_included": null,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          },
+          {
+            "price": 256,
+            "depart": "2027-02-12 13:08",
+            "arrive": "2027-02-12 16:18",
+            "duration_minutes": 190,
+            "stops": 0,
+            "airlines": [
+              "Southwest"
+            ],
+            "from": "DEN",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/WN.png",
+            "booking_token": null,
+            "extensions": [
+              "2 free checked bags",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 0,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 210,
+            "depart": "2027-02-12 16:45",
+            "arrive": "2027-02-12 19:55",
+            "duration_minutes": 190,
+            "stops": 0,
+            "airlines": [
+              "Delta"
+            ],
+            "from": "DEN",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+            "booking_token": null,
+            "extensions": [
+              "1st checked bag: 35",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 35,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 245,
+            "depart": "2027-02-12 09:30",
+            "arrive": "2027-02-12 12:40",
+            "duration_minutes": 190,
+            "stops": 0,
+            "airlines": [
+              "American"
+            ],
+            "from": "DEN",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+            "booking_token": null,
+            "extensions": [
+              "Average legroom (31 in)"
+            ],
+            "bags": {
+              "carry_on_included": null,
+              "checked_first_price": null,
+              "confidence": "absent"
+            }
+          },
+          {
+            "price": 189,
+            "depart": "2027-02-12 05:05",
+            "arrive": "2027-02-12 08:15",
+            "duration_minutes": 190,
+            "stops": 0,
+            "airlines": [
+              "Frontier"
+            ],
+            "from": "DEN",
+            "to": "PIT",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/F9.png",
+            "booking_token": null,
+            "extensions": [
+              "Carry-on bag not included",
+              "Checked baggage for a fee",
+              "Below average legroom (28 in)"
+            ],
+            "bags": {
+              "carry_on_included": false,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          }
+        ]
+      },
+      "return": {
+        "alex": [
+          {
+            "price": 221,
+            "depart": "2027-02-15 07:40",
+            "arrive": "2027-02-15 11:05",
+            "duration_minutes": 445,
+            "stops": 1,
+            "airlines": [
+              "United"
+            ],
+            "from": "PIT",
+            "to": "SFO",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/UA.png",
+            "booking_token": null,
+            "extensions": [
+              "Checked baggage for a fee"
+            ],
+            "bags": {
+              "carry_on_included": null,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          },
+          {
+            "price": 279,
+            "depart": "2027-02-15 11:15",
+            "arrive": "2027-02-15 14:50",
+            "duration_minutes": 455,
+            "stops": 1,
+            "airlines": [
+              "Delta"
+            ],
+            "from": "PIT",
+            "to": "SFO",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+            "booking_token": null,
+            "extensions": [
+              "1st checked bag: 35",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 35,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 254,
+            "depart": "2027-02-15 16:20",
+            "arrive": "2027-02-15 19:55",
+            "duration_minutes": 455,
+            "stops": 1,
+            "airlines": [
+              "Alaska"
+            ],
+            "from": "PIT",
+            "to": "SJC",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AS.png",
+            "booking_token": null,
+            "extensions": [
+              "2 free checked bags",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 0,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 205,
+            "depart": "2027-02-15 18:05",
+            "arrive": "2027-02-15 21:50",
+            "duration_minutes": 465,
+            "stops": 1,
+            "airlines": [
+              "Spirit"
+            ],
+            "from": "PIT",
+            "to": "OAK",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/NK.png",
+            "booking_token": null,
+            "extensions": [
+              "Carry-on bag not included",
+              "Checked baggage for a fee",
+              "Below average legroom (28 in)"
+            ],
+            "bags": {
+              "carry_on_included": false,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          },
+          {
+            "price": 243,
+            "depart": "2027-02-15 13:30",
+            "arrive": "2027-02-15 17:10",
+            "duration_minutes": 460,
+            "stops": 1,
+            "airlines": [
+              "American"
+            ],
+            "from": "PIT",
+            "to": "SFO",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+            "booking_token": null,
+            "extensions": [
+              "Checked baggage for a fee"
+            ],
+            "bags": {
+              "carry_on_included": null,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          }
+        ],
+        "sam": [
+          {
+            "price": 139,
+            "depart": "2027-02-15 07:55",
+            "arrive": "2027-02-15 08:15",
+            "duration_minutes": 80,
+            "stops": 0,
+            "airlines": [
+              "United"
+            ],
+            "from": "PIT",
+            "to": "ORD",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/UA.png",
+            "booking_token": null,
+            "extensions": [
+              "Checked baggage for a fee"
+            ],
+            "bags": {
+              "carry_on_included": null,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          },
+          {
+            "price": 128,
+            "depart": "2027-02-15 11:30",
+            "arrive": "2027-02-15 11:50",
+            "duration_minutes": 80,
+            "stops": 0,
+            "airlines": [
+              "American"
+            ],
+            "from": "PIT",
+            "to": "ORD",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+            "booking_token": null,
+            "extensions": [
+              "Carry-on bag not included",
+              "Checked baggage for a fee",
+              "Below average legroom (28 in)"
+            ],
+            "bags": {
+              "carry_on_included": false,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          },
+          {
+            "price": 158,
+            "depart": "2027-02-15 16:10",
+            "arrive": "2027-02-15 16:30",
+            "duration_minutes": 80,
+            "stops": 0,
+            "airlines": [
+              "Delta"
+            ],
+            "from": "PIT",
+            "to": "ORD",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+            "booking_token": null,
+            "extensions": [
+              "1st checked bag: 35",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 35,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 145,
+            "depart": "2027-02-15 18:40",
+            "arrive": "2027-02-15 19:00",
+            "duration_minutes": 80,
+            "stops": 0,
+            "airlines": [
+              "Southwest"
+            ],
+            "from": "PIT",
+            "to": "ORD",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/WN.png",
+            "booking_token": null,
+            "extensions": [
+              "2 free checked bags",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 0,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 112,
+            "depart": "2027-02-15 20:25",
+            "arrive": "2027-02-15 20:45",
+            "duration_minutes": 80,
+            "stops": 0,
+            "airlines": [
+              "Spirit"
+            ],
+            "from": "PIT",
+            "to": "ORD",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/NK.png",
+            "booking_token": null,
+            "extensions": [
+              "Carry-on bag not included",
+              "Checked baggage for a fee",
+              "Below average legroom (28 in)"
+            ],
+            "bags": {
+              "carry_on_included": false,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          }
+        ],
+        "jo": [
+          {
+            "price": 168,
+            "depart": "2027-02-15 07:35",
+            "arrive": "2027-02-15 09:20",
+            "duration_minutes": 105,
+            "stops": 0,
+            "airlines": [
+              "Delta"
+            ],
+            "from": "PIT",
+            "to": "ATL",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+            "booking_token": null,
+            "extensions": [
+              "1st checked bag: 35",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 35,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 196,
+            "depart": "2027-02-15 11:20",
+            "arrive": "2027-02-15 13:05",
+            "duration_minutes": 105,
+            "stops": 0,
+            "airlines": [
+              "American"
+            ],
+            "from": "PIT",
+            "to": "ATL",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+            "booking_token": null,
+            "extensions": [
+              "1st checked bag: 40"
+            ],
+            "bags": {
+              "carry_on_included": null,
+              "checked_first_price": 40,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 181,
+            "depart": "2027-02-15 16:05",
+            "arrive": "2027-02-15 17:50",
+            "duration_minutes": 105,
+            "stops": 0,
+            "airlines": [
+              "United"
+            ],
+            "from": "PIT",
+            "to": "ATL",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/UA.png",
+            "booking_token": null,
+            "extensions": [
+              "Checked baggage for a fee"
+            ],
+            "bags": {
+              "carry_on_included": null,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          },
+          {
+            "price": 159,
+            "depart": "2027-02-15 18:50",
+            "arrive": "2027-02-15 20:35",
+            "duration_minutes": 105,
+            "stops": 0,
+            "airlines": [
+              "Southwest"
+            ],
+            "from": "PIT",
+            "to": "ATL",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/WN.png",
+            "booking_token": null,
+            "extensions": [
+              "2 free checked bags",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 0,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 151,
+            "depart": "2027-02-15 20:30",
+            "arrive": "2027-02-15 22:15",
+            "duration_minutes": 105,
+            "stops": 0,
+            "airlines": [
+              "Spirit"
+            ],
+            "from": "PIT",
+            "to": "ATL",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/NK.png",
+            "booking_token": null,
+            "extensions": [
+              "Carry-on bag not included",
+              "Checked baggage for a fee",
+              "Below average legroom (28 in)"
+            ],
+            "bags": {
+              "carry_on_included": false,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          }
+        ],
+        "ray": [
+          {
+            "price": 228,
+            "depart": "2027-02-15 07:45",
+            "arrive": "2027-02-15 09:20",
+            "duration_minutes": 215,
+            "stops": 0,
+            "airlines": [
+              "United"
+            ],
+            "from": "PIT",
+            "to": "DEN",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/UA.png",
+            "booking_token": null,
+            "extensions": [
+              "Checked baggage for a fee"
+            ],
+            "bags": {
+              "carry_on_included": null,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          },
+          {
+            "price": 249,
+            "depart": "2027-02-15 11:25",
+            "arrive": "2027-02-15 13:00",
+            "duration_minutes": 215,
+            "stops": 0,
+            "airlines": [
+              "Southwest"
+            ],
+            "from": "PIT",
+            "to": "DEN",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/WN.png",
+            "booking_token": null,
+            "extensions": [
+              "2 free checked bags",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 0,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 214,
+            "depart": "2027-02-15 16:15",
+            "arrive": "2027-02-15 17:50",
+            "duration_minutes": 215,
+            "stops": 0,
+            "airlines": [
+              "Delta"
+            ],
+            "from": "PIT",
+            "to": "DEN",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+            "booking_token": null,
+            "extensions": [
+              "1st checked bag: 35",
+              "Free carry-on"
+            ],
+            "bags": {
+              "carry_on_included": true,
+              "checked_first_price": 35,
+              "confidence": "parsed"
+            }
+          },
+          {
+            "price": 238,
+            "depart": "2027-02-15 13:05",
+            "arrive": "2027-02-15 14:40",
+            "duration_minutes": 215,
+            "stops": 0,
+            "airlines": [
+              "American"
+            ],
+            "from": "PIT",
+            "to": "DEN",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+            "booking_token": null,
+            "extensions": [
+              "Average legroom (31 in)"
+            ],
+            "bags": {
+              "carry_on_included": null,
+              "checked_first_price": null,
+              "confidence": "absent"
+            }
+          },
+          {
+            "price": 192,
+            "depart": "2027-02-15 20:40",
+            "arrive": "2027-02-15 22:15",
+            "duration_minutes": 215,
+            "stops": 0,
+            "airlines": [
+              "Frontier"
+            ],
+            "from": "PIT",
+            "to": "DEN",
+            "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/F9.png",
+            "booking_token": null,
+            "extensions": [
+              "Carry-on bag not included",
+              "Checked baggage for a fee",
+              "Below average legroom (28 in)"
+            ],
+            "bags": {
+              "carry_on_included": false,
+              "checked_first_price": null,
+              "confidence": "fee_unknown"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "errors": []
+}

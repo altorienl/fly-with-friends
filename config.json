@@ -1,0 +1,30 @@
+{
+  "travelers": [
+    { "id": "alex", "name": "Alex",  "origins": ["SFO", "OAK", "SJC"], "color": "#ffb000", "bags": { "carry_on": 1, "checked": 1 } },
+    { "id": "sam",  "name": "Sam",   "origins": ["ORD"],               "color": "#4ade80", "bags": { "carry_on": 1, "checked": 0 } },
+    { "id": "jo",   "name": "Jo",    "origins": ["ATL"],               "color": "#38bdf8", "bags": { "carry_on": 1, "checked": 1 } },
+    { "id": "ray",  "name": "Ray",   "origins": ["DEN"],               "color": "#c084fc", "bags": { "carry_on": 1, "checked": 0 } },
+    { "id": "mia",  "name": "Mia",   "origins": ["BOS"],               "color": "#fb923c", "bags": { "carry_on": 1, "checked": 1 } },
+    { "id": "dev",  "name": "Dev",   "origins": ["AUS"],               "color": "#f472b6", "bags": { "carry_on": 1, "checked": 0 } },
+    { "id": "theo", "name": "Theo",  "origins": ["SEA"],               "color": "#2dd4bf", "bags": { "carry_on": 1, "checked": 1 } }
+  ],
+
+  "trips": [
+    {
+      "id": "pit-feb",
+      "label": "Pittsburgh",
+      "airports": ["PIT"],
+      "depart_date": "2027-02-12",
+      "return_date": "2027-02-15",
+      "travelers": ["alex", "sam", "jo", "ray"],
+      "active": true
+    }
+  ],
+
+  "currency": "USD",
+  "target_window_minutes": 30,
+  "assumed_checked_bag_fee": 35,
+  "assumed_carry_on_fee": 30,
+  "max_options_per_leg": 25,
+  "max_searches_per_run": 32
+}

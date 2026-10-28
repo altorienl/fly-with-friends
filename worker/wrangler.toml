@@ -1,0 +1,12 @@
+name = "fly-with-friends-api"
+main = "worker.js"
+compatibility_date = "2026-10-27"
+
+# Namespace id is filled in by:
+#   npx wrangler kv namespace create FWF
+[[kv_namespaces]]
+binding = "FWF"
+id = "25716e1f76e943bca5011c69ab6f5d52"
+
+# The SerpApi key is a secret, never a var:
+#   npx wrangler secret put SERPAPI_KEY
