@@ -152,6 +152,19 @@ knee of the cost curve — tight enough without paying for the last few minutes 
 headline states the window the chosen plan actually achieves with the theoretical floor
 beside it, rather than passing or failing against a threshold.
 
+**It does not leave anyone behind.** Missing the target window is not a reason to delete a
+traveller from the plan. If the group cannot all make 30 minutes, the answer is the tightest
+window they *can* all make, and the subset is a last resort reserved for when a filter has
+left somebody with no options at all — at which point the app names them and says which
+filter to loosen rather than quietly solving for a smaller group.
+
+That bug also produced a contradiction on screen: "6m apart" sitting under "closest possible
+is 42m", because a two-person spread was being measured against a three-person floor.
+
+**The verdict states a trade, not a correction.** It used to say "20m apart" and then
+"tightest is 8m", which reads as the app second-guessing its own answer. It now reads
+"8m is possible for $126 more", which is the actual decision.
+
 **One page, both legs.** Flipping between tabs to compare your own outbound against your own
 return is exactly the friction this exists to remove, so there are no tabs: "Getting there"
 and "Getting home" stack, each with its own window, time band, ladder and plan. The

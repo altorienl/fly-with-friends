@@ -233,6 +233,12 @@ section { animation: stepIn .2s var(--ease); }
 .dot.fresh-sample { background: var(--edge-2); }
 
 .leg { display: block; margin-top: 28px; }
+.opts { margin-top: 16px; border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card); }
+.opts > summary { padding: 14px 16px; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; list-style: none; }
+.opts > summary::-webkit-details-marker { display: none; }
+.opts > summary::after { content: ' ▾'; color: var(--faint); }
+.opts[open] > summary::after { content: ' ▴'; }
+.opts > .filters, .opts > .board { margin: 0 12px 12px; border-radius: var(--r-sm); }
 .leg-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--edge); }
 .leg-head h2 { font-size: 19px; font-weight: 800; letter-spacing: -.4px; }
 .leg-head .when { font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
@@ -260,6 +266,7 @@ section { animation: stepIn .2s var(--ease); }
 .tag { display: inline-block; font-size: 10px; font-weight: 800; padding: 4px 8px; border-radius: var(--r-pill); letter-spacing: .6px; text-transform: uppercase; margin-top: 12px; }
 .tag.good { background: var(--good); color: #04231a; }
 .tag.bad { background: var(--bad); color: #2b0c06; }
+.tag.info { background: var(--card-2); color: var(--muted); border: 1px solid var(--edge-2); }
 [data-theme="light"] .tag.good, [data-theme="light"] .tag.bad { color: #fff; }
 .note { font-size: 13px; color: var(--muted); line-height: 1.62; margin-top: 12px; }
 .note strong { color: var(--text); font-weight: 700; }
@@ -515,6 +522,17 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
             <div class="pills" id="sStops" role="radiogroup" aria-label="Maximum stops"></div>
         </div>
 
+        <div class="field">
+            <span class="k">Nobody absorbs more than</span>
+            <div class="pills" id="sCap" role="radiogroup" aria-label="Cap on what one party absorbs"></div>
+            <div class="party-note">Stops any one person eating the cost of everyone else landing together.</div>
+        </div>
+
+        <div class="field">
+            <span class="k">Optimise for</span>
+            <div class="pills" id="sRec" role="radiogroup" aria-label="What to optimise for"></div>
+        </div>
+
         <div class="nav">
             <button class="icon-btn" id="back2" aria-label="Back">&larr;</button>
             <button class="btn primary" id="to3">Next: who</button>
@@ -543,17 +561,21 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
         </div>
         <div class="trip hidden" id="tripTotal" aria-live="polite"></div>
 
-        <div class="filters">
-            <div class="pills" id="stopPills"></div>
-            <div class="pills" id="capPills"></div>
-            <div class="pills" id="recPills"></div>
-            <div class="free hidden" id="freeNote"></div>
-        </div>
+        <div class="panel hidden" id="perPerson" aria-live="polite"></div>
+
+        <details class="opts" id="adjust">
+            <summary>Adjust the search</summary>
+            <div class="filters">
+                <div class="pills" id="stopPills"></div>
+                <div class="pills" id="capPills"></div>
+                <div class="pills" id="recPills"></div>
+                <div class="free hidden" id="freeNote"></div>
+            </div>
+        </details>
 
         <section class="leg" id="legOut" aria-labelledby="legOutH"></section>
         <section class="leg hidden" id="legBack" aria-labelledby="legBackH"></section>
 
-        <div class="panel hidden" id="perPerson" aria-live="polite"></div>
         <div class="share" id="shareBox"></div>
     </section>
 

@@ -719,16 +719,41 @@ function renderLegs() {
         host.innerHTML = '<div class="leg-head"><h2 id="' + cfg[2] + '">'
             + (leg === 'outbound' ? 'Getting there' : 'Getting home') + '</h2>'
             + '<span class="when">' + esc(when || '') + '</span></div>'
-            + verdictHtml() + bandRow(leg) + boardHtml() + planHtml();
+            + verdictHtml() + planHtml()
+            + '<details class="opts"><summary>Other windows and what they cost</summary>'
+            + bandRow(leg) + boardHtml() + '</details>';
     });
 
     state.leg = prevLeg;
     C = prevC;
 }
 
+function renderStepPrefs() {
+    var cap = el('sCap');
+    if (cap) {
+        cap.innerHTML = [{ v: null, l: 'No cap' }, { v: 50, l: '$50' }, { v: 100, l: '$100' }, { v: 200, l: '$200' }]
+            .map(function (x) {
+                var on = state.q.maxPremium === x.v;
+                return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
+                    + '" data-cap="' + (x.v === null ? '' : x.v) + '">' + x.l + '</button>';
+            }).join('');
+    }
+    var rec = el('sRec');
+    if (rec) {
+        rec.innerHTML = [{ k: 'value', l: 'Best value' }, { k: 'tightest', l: 'Closest possible' },
+                         { k: 'target', l: 'Cheapest under ' + SET.target + 'm' }]
+            .map(function (x) {
+                var on = state.recommend === x.k;
+                return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
+                    + '" data-rec="' + x.k + '">' + esc(x.l) + '</button>';
+            }).join('');
+    }
+}
+
 function renderStepStops() {
     var host = el('sStops');
     if (!host) return;
+    renderStepPrefs();
     var o = [{ v: 0, l: 'Nonstop' }, { v: 1, l: 'Up to 1 stop' }, { v: null, l: 'Any' }];
     host.innerHTML = o.map(function (x) {
         var on = state.q.maxStops === x.v;
@@ -775,6 +800,22 @@ function verdictHtml() {
     var v = { innerHTML: '' };
     if (!C.prep.complete) {
         var s = C.subset;
+        var cut = C.prep.missing.filter(function (id) { return (C.prep.dropped || {})[id] > 0; });
+        if (cut.length) {
+            v.innerHTML = '<span class="k">These filters cannot work for everyone</span>'
+                + '<div class="verdict-big mono">' + esc(cut.map(name).join(', ')) + '</div>'
+                + '<span class="tag bad">' + (cut.length === 1 ? 'has' : 'have')
+                + ' no flights that ' + filterText() + '</span>'
+                + '<div class="note">There is no plan that includes '
+                + (cut.length === 1 ? 'them' : 'them all') + ' on these filters. Loosen one above and '
+                + 'the whole group comes back.'
+                + (s && s.included.length
+                    ? ' Without ' + esc(cut.map(name).join(', ')) + ', the rest can '
+                      + legVerb() + ' within ' + FWF.fmtGap(s.summary.spread) + ' for ' + money(s.cost) + '.'
+                    : '')
+                + '</div>';
+            return '<div class="panel">' + v.innerHTML + '</div>';
+        }
         if (s && s.included.length) {
             v.innerHTML = '<span class="k">Best achievable</span>'
                 + '<div class="verdict-big mono">' + seatsOf(s.included)
@@ -788,16 +829,36 @@ function verdictHtml() {
         return '<div class="panel">' + v.innerHTML + '</div>';
     }
 
-    var t = C.tight, meets = t.spread <= SET.target;
+    var t = C.tight;
     var sel0 = selectedPlan();
+    var everyone = sel0 && (!sel0.excluded || !sel0.excluded.length);
     var shownSpread = sel0 ? sel0.spread : t.spread;
-    var html = '<span class="k">Best ' + (state.leg === 'outbound' ? 'landing' : 'departure')
-        + ' window on this plan</span>'
-        + '<div class="verdict-big mono">' + FWF.fmtGap(shownSpread) + '<span class="u">apart</span></div>'
-        + '<span class="tag ' + (meets ? 'good' : 'bad') + '">'
-        + (shownSpread === t.spread
-            ? 'As close as this group can get'
-            : 'Closest possible is ' + FWF.fmtGap(t.spread))
+
+    /* A subset spread and a whole-group floor are not comparable, so a subset
+     * plan is labelled by how many it covers rather than by a window figure
+     * that reads tighter than the group's own best. */
+    /* The tag used to read as the app second-guessing its own answer -- "20m
+     * apart" then "tightest is 8m" with no reason for the gap. State the trade
+     * in money, which is the only thing that makes the choice make sense. */
+    var tightest = everyone && C.ladder
+        ? C.ladder.rows.filter(function (r) { return r.feasible; })[0] : null;
+    var tighterCost = tightest && tightest.result ? tightest.result.cost - (sel0 ? sel0.cost : 0) : 0;
+
+    var html = '<span class="k">' + (everyone
+            ? (state.leg === 'outbound' ? 'Everyone lands within' : 'Everyone leaves within')
+            : 'Only part of the group') + '</span>'
+        + '<div class="verdict-big mono">'
+        + (everyone
+            ? FWF.fmtGap(shownSpread) + '<span class="u">of each other</span>'
+            : seatsOf(sel0.included) + '<span class="u">of ' + seatsAll() + ' travelling</span>')
+        + '</div>'
+        + '<span class="tag ' + (!everyone ? 'bad'
+            : shownSpread === t.spread ? 'good' : 'info') + '">'
+        + (!everyone
+            ? 'Everyone together needs ' + FWF.fmtGap(t.spread)
+            : shownSpread === t.spread
+                ? 'As close as this group can get'
+                : FWF.fmtGap(t.spread) + ' is possible for ' + money(tighterCost) + ' more')
         + '</span>';
 
     if (C.band || C.maxStops != null) {
@@ -811,10 +872,7 @@ function verdictHtml() {
         var sel = selectedPlan();
         var shown = sel ? sel.cost : C.target.cost;
         var prem = shown - base;
-        html += '<div class="note">Everyone can ' + legVerb() + ' within <strong>' + SET.target
-            + ' minutes</strong> for <strong>' + money(C.target.cost) + '</strong>. The cheapest scattered option is '
-            + money(base) + '.</div>'
-            + '<div class="split">'
+        html += '<div class="split">'
             + '<div><span class="k">This plan</span><div class="v mono">' + money(shown) + '</div></div>'
             + '<div><span class="k">Scattered</span><div class="v mono">' + money(base) + '</div></div>'
             + '<div><span class="k">Cost of together</span><div class="v mono" style="color:var(--accent)">'
@@ -888,10 +946,16 @@ function whoPays(plan) {
 }
 
 function recommendedIn(ctx) {
-    if (!ctx || !ctx.ladder) return null;
+    if (!ctx || !ctx.ladder) {
+        /* No ladder at all means somebody has no options whatsoever on these
+         * filters, so a subset is genuinely the only thing left to show. */
+        return (ctx && ctx.subset && ctx.subset.included.length) ? 'subset' : null;
+    }
     var f = ctx.ladder.rows.filter(function (r) { return r.feasible; });
-    if (!ctx.target && ctx.subset) return 'subset';
-    if (!f.length) return null;
+    if (!f.length) return (ctx.subset && ctx.subset.included.length) ? 'subset' : null;
+    /* Missing the target is not a reason to leave someone behind: fall through
+     * to the tightest window the whole group can actually make. */
+    if (!ctx.target) return f[0].threshold;
     if (state.recommend === 'tightest') return f[0].threshold;
     if (state.recommend === 'target') {
         var at = f.filter(function (r) { return r.threshold <= SET.target; });
@@ -1046,7 +1110,12 @@ function renderPerPerson() {
         + '<div class="pp-total"><span class="k">Everyone, '
         + (TRIP.back != null ? 'round trip' : 'one way') + '</span>'
         + '<span class="mono">' + money(TRIP.total) + '</span></div>'
-        + '<div class="pp-note">Bags are an assumption where Google publishes no price. '
+        + '<div class="pp-note">'
+        + (TRIP.back != null
+            ? 'Priced as two one-ways, which is usually the cheaper way to buy when people '
+              + 'are coming from different cities — book each leg separately. '
+            : '')
+        + 'Bags are an assumption where Google publishes no price. '
         + 'Fares move — confirm on the airline before paying.</div>';
 }
 
@@ -1487,11 +1556,11 @@ document.addEventListener('click', function (ev) {
     } else if (t.hasAttribute('data-cap')) {
         var rawCap = t.getAttribute('data-cap');
         state.q.maxPremium = rawCap === '' ? null : +rawCap;
-        thReset(); writeHash(); render();
+        thReset(); renderStepStops(); writeHash(); render();
     } else if (t.hasAttribute('data-stops')) {
         var raw = t.getAttribute('data-stops');
         state.q.maxStops = raw === '' ? null : +raw;
-        thReset(); writeHash(); render();
+        thReset(); renderStepStops(); writeHash(); render();
     } else if (t.hasAttribute('data-threshold')) {
         var v = t.getAttribute('data-threshold');
         var sect = t.closest('.leg');
@@ -1499,7 +1568,7 @@ document.addEventListener('click', function (ev) {
         state.th[legOf] = v === 'subset' ? 'subset' : (v === 'Infinity' ? FWF.INF : +v);
         render();
     } else if (t.hasAttribute('data-rec')) {
-        state.recommend = t.getAttribute('data-rec'); thReset(); render();
+        state.recommend = t.getAttribute('data-rec'); thReset(); renderStepStops(); render();
     } else if (t.hasAttribute('data-set')) {
         var key = t.getAttribute('data-set'), val = t.getAttribute('data-val');
         if (key === 'target') val = +val;
