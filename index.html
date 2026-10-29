@@ -233,6 +233,32 @@ section { animation: stepIn .2s var(--ease); }
 .dot.fresh-sample { background: var(--edge-2); }
 
 .leg { display: block; margin-top: 28px; }
+
+/* one person, both legs, one action */
+.win { margin-bottom: 18px; }
+.win-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.win-head .t { font-size: 14px; font-weight: 700; }
+.win-head .s { font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+.win-note { font-size: 11px; color: var(--muted); margin-top: 8px; }
+.win-note .more { color: var(--accent); font-weight: 700; }
+
+.trav { border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card); box-shadow: var(--lift); margin-bottom: 12px; overflow: hidden; }
+.trav.apart { border-color: var(--bad); border-style: dashed; }
+.trav-top { display: grid; grid-template-columns: 34px 1fr auto; gap: 12px; align-items: center; padding: 14px 16px 10px; }
+.trav-name { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.trav-tot { font-size: 19px; font-weight: 700; text-align: right; }
+.trav-tot span { display: block; font-size: 10px; font-weight: 600; color: var(--muted); letter-spacing: .6px; text-transform: uppercase; margin-top: 2px; }
+.hop { display: grid; grid-template-columns: 34px 24px 1fr auto; gap: 12px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--edge); }
+.hop-dir { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--faint); }
+.hop-main { min-width: 0; }
+.hop-route { font-size: 13px; font-weight: 600; }
+.hop-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.hop-right { text-align: right; white-space: nowrap; }
+.hop-time { font-size: 14px; font-weight: 700; }
+.hop-cost { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.trav-book { padding: 12px 16px 14px; border-top: 1px solid var(--edge); background: var(--card-2); }
+.trav-book .btn { width: 100%; }
+.trav-book .fine { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.5; text-align: center; }
 .opts { margin-top: 16px; border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card); }
 .opts > summary { padding: 14px 16px; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; list-style: none; }
 .opts > summary::-webkit-details-marker { display: none; }
@@ -573,8 +599,11 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
             </div>
         </details>
 
-        <section class="leg" id="legOut" aria-labelledby="legOutH"></section>
-        <section class="leg hidden" id="legBack" aria-labelledby="legBackH"></section>
+        <section id="planView" aria-label="The plan"></section>
+        <details class="opts hidden" id="options">
+            <summary>Other windows and what they cost</summary>
+            <div id="optionsBody"></div>
+        </details>
 
         <div class="share" id="shareBox"></div>
     </section>

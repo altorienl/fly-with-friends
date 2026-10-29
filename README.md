@@ -165,10 +165,18 @@ is 42m", because a two-person spread was being measured against a three-person f
 "tightest is 8m", which reads as the app second-guessing its own answer. It now reads
 "8m is possible for $126 more", which is the actual decision.
 
-**One page, both legs.** Flipping between tabs to compare your own outbound against your own
-return is exactly the friction this exists to remove, so there are no tabs: "Getting there"
-and "Getting home" stack, each with its own window, time band, ladder and plan. The
-round-trip total sits above both, and one button copies the entire trip for the group chat.
+**One card per person, both legs, one button.** The results are a single view: the trip
+total, then the two landing windows as timelines, then one card per traveller containing
+their outbound, their return, their total and a single booking link. Splitting a person's
+trip across two scrolling sections with a booking link in each was the thing that made it
+hard to read.
+
+The booking link opens a round-trip search for that person's own route, with the two chosen
+times printed beneath it so they know which rows to pick. There is no URL that pre-selects
+two specific one-way flights, which is the honest ceiling of a tool that cannot sell a seat.
+
+The cost ladders are still there, folded into "Other windows and what they cost" — they are
+a tuning control, not the answer.
 
 **The trip, not the leg.** The optimiser solves each leg separately, but nobody buys a
 leg — they buy a trip. Each leg keeps its own chosen row so both can be priced at once.

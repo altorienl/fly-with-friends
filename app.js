@@ -501,7 +501,9 @@ function legBreakdown(leg) {
 
     var rows = {};
     plan.included.forEach(function (id) {
-        rows[id] = { cost: plan.picks[id].cost, option: plan.picks[id].option, inWindow: true };
+        var base = ctx.solo && ctx.solo[id] != null ? ctx.solo[id] : null;
+        rows[id] = { cost: plan.picks[id].cost, option: plan.picks[id].option, inWindow: true,
+                     premium: base == null ? 0 : Math.round(plan.picks[id].cost - base) };
     });
     (plan.excluded || []).forEach(function (x) {
         var fallback = ctx.soloOpen[x.id];
@@ -587,8 +589,8 @@ function render() {
     renderStopPills();
     renderCapPills();
     renderRecPills();
-    renderLegs();
-    renderPerPerson();
+    renderPlanView();
+    renderOptions();
     renderShare();
 }
 
@@ -702,31 +704,6 @@ function bandRow(leg) {
         + '</div></div>';
 }
 
-function renderLegs() {
-    var prevLeg = state.leg, prevC = C;
-
-    [['outbound', 'legOut', 'legOutH'], ['return', 'legBack', 'legBackH']].forEach(function (cfg) {
-        var leg = cfg[0], host = el(cfg[1]);
-        if (leg === 'return' && !hasReturn()) { host.className = 'leg hidden'; host.innerHTML = ''; return; }
-
-        state.leg = leg;
-        C = compute(leg);
-        if (!C) { host.className = 'leg hidden'; host.innerHTML = ''; return; }
-        if (thGet() === null && C.ladder) thSet(recommendedIn(C));
-
-        var when = leg === 'outbound' ? state.q.dep : state.q.ret;
-        host.className = 'leg';
-        host.innerHTML = '<div class="leg-head"><h2 id="' + cfg[2] + '">'
-            + (leg === 'outbound' ? 'Getting there' : 'Getting home') + '</h2>'
-            + '<span class="when">' + esc(when || '') + '</span></div>'
-            + verdictHtml() + planHtml()
-            + '<details class="opts"><summary>Other windows and what they cost</summary>'
-            + bandRow(leg) + boardHtml() + '</details>';
-    });
-
-    state.leg = prevLeg;
-    C = prevC;
-}
 
 function renderStepPrefs() {
     var cap = el('sCap');
@@ -796,103 +773,6 @@ function renderRecPills() {
     }).join('');
 }
 
-function verdictHtml() {
-    var v = { innerHTML: '' };
-    if (!C.prep.complete) {
-        var s = C.subset;
-        var cut = C.prep.missing.filter(function (id) { return (C.prep.dropped || {})[id] > 0; });
-        if (cut.length) {
-            v.innerHTML = '<span class="k">These filters cannot work for everyone</span>'
-                + '<div class="verdict-big mono">' + esc(cut.map(name).join(', ')) + '</div>'
-                + '<span class="tag bad">' + (cut.length === 1 ? 'has' : 'have')
-                + ' no flights that ' + filterText() + '</span>'
-                + '<div class="note">There is no plan that includes '
-                + (cut.length === 1 ? 'them' : 'them all') + ' on these filters. Loosen one above and '
-                + 'the whole group comes back.'
-                + (s && s.included.length
-                    ? ' Without ' + esc(cut.map(name).join(', ')) + ', the rest can '
-                      + legVerb() + ' within ' + FWF.fmtGap(s.summary.spread) + ' for ' + money(s.cost) + '.'
-                    : '')
-                + '</div>';
-            return '<div class="panel">' + v.innerHTML + '</div>';
-        }
-        if (s && s.included.length) {
-            v.innerHTML = '<span class="k">Best achievable</span>'
-                + '<div class="verdict-big mono">' + seatsOf(s.included)
-                + '<span class="u">of ' + seatsAll() + ' travelling</span></div>'
-                + '<span class="tag bad">Not everyone fits</span>'
-                + '<div class="note">' + esc(s.included.map(name).join(', ')) + ' can ' + legVerb()
-                + ' within ' + FWF.fmtGap(s.summary.spread) + ' for <strong>' + money(s.cost)
-                + '</strong>. ' + esc(s.excluded.map(function (x) { return name(x.id); }).join(', '))
-                + ' cannot, on these filters.</div>';
-        } else v.innerHTML = '<div class="note">No plan to show for this leg.</div>';
-        return '<div class="panel">' + v.innerHTML + '</div>';
-    }
-
-    var t = C.tight;
-    var sel0 = selectedPlan();
-    var everyone = sel0 && (!sel0.excluded || !sel0.excluded.length);
-    var shownSpread = sel0 ? sel0.spread : t.spread;
-
-    /* A subset spread and a whole-group floor are not comparable, so a subset
-     * plan is labelled by how many it covers rather than by a window figure
-     * that reads tighter than the group's own best. */
-    /* The tag used to read as the app second-guessing its own answer -- "20m
-     * apart" then "tightest is 8m" with no reason for the gap. State the trade
-     * in money, which is the only thing that makes the choice make sense. */
-    var tightest = everyone && C.ladder
-        ? C.ladder.rows.filter(function (r) { return r.feasible; })[0] : null;
-    var tighterCost = tightest && tightest.result ? tightest.result.cost - (sel0 ? sel0.cost : 0) : 0;
-
-    var html = '<span class="k">' + (everyone
-            ? (state.leg === 'outbound' ? 'Everyone lands within' : 'Everyone leaves within')
-            : 'Only part of the group') + '</span>'
-        + '<div class="verdict-big mono">'
-        + (everyone
-            ? FWF.fmtGap(shownSpread) + '<span class="u">of each other</span>'
-            : seatsOf(sel0.included) + '<span class="u">of ' + seatsAll() + ' travelling</span>')
-        + '</div>'
-        + '<span class="tag ' + (!everyone ? 'bad'
-            : shownSpread === t.spread ? 'good' : 'info') + '">'
-        + (!everyone
-            ? 'Everyone together needs ' + FWF.fmtGap(t.spread)
-            : shownSpread === t.spread
-                ? 'As close as this group can get'
-                : FWF.fmtGap(t.spread) + ' is possible for ' + money(tighterCost) + ' more')
-        + '</span>';
-
-    if (C.band || C.maxStops != null) {
-        var dropped = C.ids.reduce(function (n, id) { return n + ((C.prep.dropped || {})[id] || 0); }, 0);
-        html += '<div class="note">Showing only flights that ' + filterText()
-            + (dropped ? ', setting aside ' + dropped + ' other option' + (dropped === 1 ? '' : 's') : '') + '.</div>';
-    }
-
-    if (C.target) {
-        var base = C.ladder.baseline;
-        var sel = selectedPlan();
-        var shown = sel ? sel.cost : C.target.cost;
-        var prem = shown - base;
-        html += '<div class="split">'
-            + '<div><span class="k">This plan</span><div class="v mono">' + money(shown) + '</div></div>'
-            + '<div><span class="k">Scattered</span><div class="v mono">' + money(base) + '</div></div>'
-            + '<div><span class="k">Cost of together</span><div class="v mono" style="color:var(--accent)">'
-            + (prem > 0 ? '+' + money(prem) : money(0)) + '</div></div>'
-            + (C.anyTime != null
-                ? '<div><span class="k">Cost of your filters</span><div class="v mono" style="color:var(--accent)">'
-                  + (base - C.anyTime > 0 ? '+' + money(base - C.anyTime) : money(0)) + '</div></div>' : '')
-            + '</div>'
-            + whoPays(selectedPlan());
-    } else if (C.subset) {
-        var sub = C.subset;
-        html += '<div class="note"><strong>No combination gets all ' + seatsAll() + ' within '
-            + SET.target + ' minutes.</strong> Best achievable is <strong>' + seatsOf(sub.included)
-            + ' of ' + seatsAll() + '</strong> within ' + FWF.fmtGap(sub.summary.spread)
-            + ' for ' + money(sub.cost) + '. Outside: ' + esc(sub.excluded.map(function (x) {
-                return name(x.id) + ' (+' + FWF.fmtGap(x.gapMinutes) + ')';
-            }).join(', ')) + '.</div>';
-    }
-    return '<div class="panel">' + html + '</div>';
-}
 
 function seatsOf(ids) {
     return (ids || []).reduce(function (n, id) {
@@ -1069,6 +949,17 @@ function airlineSite(o) {
     return null;
 }
 
+/* One action per person, not one per leg. A Google Flights round-trip search
+ * with both dates is the only single link that covers both ways -- there is no
+ * URL that pre-selects two specific one-way flights. The card prints the two
+ * times so they know which rows to pick when they land there. */
+function tripBookUrl(origin, dest, dep, ret, seats) {
+    var q = 'Flights from ' + origin + ' to ' + dest + ' on ' + dep
+        + (ret ? ' returning ' + ret : '')
+        + (seats > 1 ? ' ' + seats + ' passengers' : '');
+    return 'https://www.google.com/travel/flights?q=' + encodeURIComponent(q);
+}
+
 function bookUrl(o, seats) {
     /* Route, date and carrier, built at click time. booking_token is not used:
      * live responses carried none at all, and its lifetime is undocumented even
@@ -1079,45 +970,6 @@ function bookUrl(o, seats) {
     return 'https://www.google.com/travel/flights?q=' + encodeURIComponent(q);
 }
 
-/* "If I'm Fran, what do I pay?" -- the question the group total never answered.
- * One row per party, both legs, including bags, with the seat count applied. */
-function renderPerPerson() {
-    var host = el('perPerson');
-    if (!TRIP || !C) { host.className = 'panel hidden'; return; }
-
-    var rows = C.ids.map(function (id, i) {
-        var t = C.travelers.filter(function (x) { return x.id === id; })[0];
-        var pp = TRIP.perPerson[id];
-        if (!t || !pp || pp.total == null) return '';
-        var idx = state.q.parties.map(function (x) { return x.id; }).indexOf(id);
-        var apart = !pp.outInWindow || !pp.backInWindow;
-        return '<div class="pp' + (apart ? ' apart' : '') + '">'
-            + '<div class="ava" aria-hidden="true" style="background:' + partyColor(idx < 0 ? 0 : idx) + '">'
-            + esc(partyInitials(state.q.parties[idx] || { name: t.name }, idx < 0 ? 0 : idx)) + '</div>'
-            + '<div class="pp-main"><div class="pp-name">' + esc(t.name)
-            + (t.seats > 1 ? ' <span class="badge seats">' + t.seats + ' seats</span>' : '')
-            + (apart ? ' <span class="badge out">not in the window</span>' : '') + '</div>'
-            + '<div class="pp-sub mono">' + (pp.back != null
-                ? money(pp.out) + ' out + ' + money(pp.back) + ' back'
-                : money(pp.out) + ' one way')
-            + (t.seats > 1 ? ' · ' + money(Math.round(pp.total / t.seats)) + ' each' : '') + '</div></div>'
-            + '<div class="pp-v mono">' + money(pp.total) + '</div></div>';
-    }).join('');
-
-    host.className = 'panel';
-    host.innerHTML = '<span class="k">What each person pays</span>'
-        + '<div class="pp-list">' + rows + '</div>'
-        + '<div class="pp-total"><span class="k">Everyone, '
-        + (TRIP.back != null ? 'round trip' : 'one way') + '</span>'
-        + '<span class="mono">' + money(TRIP.total) + '</span></div>'
-        + '<div class="pp-note">'
-        + (TRIP.back != null
-            ? 'Priced as two one-ways, which is usually the cheaper way to buy when people '
-              + 'are coming from different cities — book each leg separately. '
-            : '')
-        + 'Bags are an assumption where Google publishes no price. '
-        + 'Fares move — confirm on the airline before paying.</div>';
-}
 
 /* A block you can paste into the group chat. The decision happens there, not
  * here, and until now the app handed the organiser a screenful of numbers and no
@@ -1185,6 +1037,147 @@ function chatBlock() {
     return lines.join('\n');
 }
 
+function windowStrip(leg, b, label) {
+    if (!b) return '';
+    var prevLeg = state.leg, prevC = C;
+    state.leg = leg; C = b.ctx;
+
+    var picks = {};
+    var included = [], excluded = [];
+    b.ctx.ids.forEach(function (id) {
+        var r = b.rows[id];
+        if (!r) return;
+        if (r.inWindow) { picks[id] = { option: r.option, cost: r.cost }; included.push(id); }
+        else excluded.push({ id: id, gapMinutes: r.gap, nearest: r.option });
+    });
+
+    var tight = b.ctx.tight;
+    var allIn = excluded.length === 0;
+    var tightestRow = b.ctx.ladder
+        ? b.ctx.ladder.rows.filter(function (r) { return r.feasible; })[0] : null;
+    var more = (allIn && tightestRow && tightestRow.result)
+        ? tightestRow.result.cost - b.inWindowTotal : 0;
+
+    var html = '<div class="win"><div class="win-head">'
+        + '<span class="t">' + label + '</span>'
+        + '<span class="s">' + (allIn
+            ? 'all within ' + FWF.fmtGap(b.spread)
+            : seatsOf(included) + ' of ' + seatsAll() + ' within ' + FWF.fmtGap(b.spread))
+        + '</span></div>'
+        + timeline(picks, included, excluded)
+        + (allIn && tight && b.spread > tight.spread && more > 0
+            ? '<div class="win-note">' + FWF.fmtGap(tight.spread)
+              + ' is possible for <span class="more">' + money(more) + ' more</span> — see other windows below.</div>'
+            : '')
+        + (!allIn
+            ? '<div class="win-note" style="color:var(--bad)">'
+              + esc(excluded.map(function (x) { return name(x.id); }).join(', '))
+              + ' cannot make this window. The closest the whole group can get is '
+              + (tight ? FWF.fmtGap(tight.spread) : 'not possible on these filters') + '.</div>'
+            : '')
+        + '</div>';
+
+    state.leg = prevLeg; C = prevC;
+    return html;
+}
+
+function hopRow(dir, r, leg) {
+    if (!r) return '';
+    var o = r.option;
+    var code = (o.airlines || [])[0] || '';
+    var fb = code.split(/\s+/).map(function (w) { return w[0]; }).join('').slice(0, 2).toUpperCase();
+    var logo = o.airline_logo
+        ? '<img class="pax-logo" src="' + esc(o.airline_logo) + '" alt="" '
+          + 'onerror="this.outerHTML=\'<div class=&quot;pax-fb&quot;>' + esc(fb) + '</div>\'">'
+        : '<div class="pax-fb">' + esc(fb) + '</div>';
+    var showMin = leg === 'outbound' ? o.arriveMin : o.departMin;
+    return '<div class="hop"><span class="hop-dir">' + dir + '</span>' + logo
+        + '<div class="hop-main"><div class="hop-route">' + esc(o.from) + ' &rarr; ' + esc(o.to)
+        + '</div><div class="hop-meta">' + esc((o.airlines || []).join(', ')) + ' · '
+        + (o.stops === 0 ? 'nonstop' : o.stops + ' stop') + ' · ' + FWF.fmtGap(o.duration_minutes)
+        + (r.inWindow ? '' : ' · <span style="color:var(--bad)">outside the window</span>') + '</div></div>'
+        + '<div class="hop-right"><div class="hop-time mono">'
+        + (leg === 'outbound' ? 'lands ' : 'leaves ') + clock(showMin) + '</div>'
+        + '<div class="hop-cost mono">' + money(r.cost)
+        + (r.premium > 0 ? ' <span style="color:var(--warn)">+' + money(r.premium) + '</span>' : '')
+        + '</div></div></div>';
+}
+
+function travellerCard(id, i) {
+    var t = C.travelers.filter(function (x) { return x.id === id; })[0];
+    var pp = TRIP.perPerson[id];
+    if (!t || !pp) return '';
+    var o = TRIP.legOut.rows[id];
+    var b = TRIP.legBack ? TRIP.legBack.rows[id] : null;
+    var idx = state.q.parties.map(function (x) { return x.id; }).indexOf(id);
+    var apart = !pp.outInWindow || !pp.backInWindow;
+    var origin = o ? o.option.from : (t.origins[0] || '');
+
+    return '<div class="trav' + (apart ? ' apart' : '') + '">'
+        + '<div class="trav-top">'
+        + '<div class="ava" aria-hidden="true" style="background:' + partyColor(idx < 0 ? 0 : idx) + '">'
+        + esc(partyInitials(state.q.parties[idx] || { name: t.name }, idx < 0 ? 0 : idx)) + '</div>'
+        + '<div><div class="trav-name">' + esc(t.name)
+        + (t.seats > 1 ? ' <span class="badge seats">' + t.seats + ' seats</span>' : '')
+        + (apart ? ' <span class="badge out">not in the window</span>' : '') + '</div></div>'
+        + '<div class="trav-tot mono">' + money(pp.total)
+        + '<span>' + (t.seats > 1 ? money(Math.round(pp.total / t.seats)) + ' each' : 'all in') + '</span></div>'
+        + '</div>'
+        + hopRow('Out', o, 'outbound')
+        + (b ? hopRow('Back', b, 'return') : '')
+        + '<div class="trav-book">'
+        + '<a class="btn primary" style="display:block;text-align:center;text-decoration:none" href="'
+        + tripBookUrl(origin, state.q.dest, state.q.dep, state.q.ret || null, t.seats)
+        + '" target="_blank" rel="noopener">Book ' + esc(t.name) + '&rsquo;s trip &rarr;</a>'
+        + '<div class="fine">Opens a '
+        + (state.q.ret ? 'round-trip' : 'one-way') + ' search for ' + esc(origin) + '&ndash;'
+        + esc(state.q.dest) + '. Pick the '
+        + (o ? clock(o.option.arriveMin) + ' arrival' : 'flight')
+        + (b ? ' and the ' + clock(b.option.departMin) + ' departure' : '') + '.'
+        + (airlineSite(o ? o.option : {})
+            ? ' Or go direct: <a href="' + esc(airlineSite(o.option).url) + '" target="_blank" rel="noopener">'
+              + esc(airlineSite(o.option).name) + '</a>.' : '')
+        + '</div></div></div>';
+}
+
+function renderPlanView() {
+    var host = el('planView');
+    if (!TRIP || !C) { host.innerHTML = ''; return; }
+
+    var html = '<div class="plan-head"><div class="t">The plan</div>'
+        + '<div class="s">' + (TRIP.allClustered ? 'everyone together' : 'not everyone fits') + '</div></div>';
+
+    html += windowStrip('outbound', TRIP.legOut, 'Landing together');
+    if (TRIP.legBack) html += windowStrip('return', TRIP.legBack, 'Leaving together');
+
+    html += C.ids.map(travellerCard).join('');
+
+    html += '<div class="total"><span class="k">Everyone, '
+        + (TRIP.back != null ? 'round trip' : 'one way')
+        + (SET.priceDisplay === 'fare' ? ' · fares only' : ' · incl. bags') + '</span>'
+        + '<span class="v mono">' + money(TRIP.total) + '</span></div>';
+
+    host.innerHTML = html;
+}
+
+/* The ladders stay available, folded, for people who want to retune. */
+function renderOptions() {
+    var host = el('options'), body = el('optionsBody');
+    if (!TRIP) { host.className = 'opts hidden'; return; }
+    var prevLeg = state.leg, prevC = C;
+    var out = '';
+    [['outbound', 'Landing together'], ['return', 'Leaving together']].forEach(function (cfg) {
+        if (cfg[0] === 'return' && !hasReturn()) return;
+        state.leg = cfg[0]; C = compute(cfg[0]);
+        if (!C) return;
+        out += '<div class="leg-head"><h2>' + cfg[1] + '</h2></div>'
+            + bandRow(cfg[0]) + boardHtml();
+    });
+    state.leg = prevLeg; C = prevC;
+    host.className = 'opts';
+    body.innerHTML = out;
+}
+
 function renderShare() {
     var host = el('shareBox');
     if (!TRIP) { host.innerHTML = ''; return; }
@@ -1213,70 +1206,6 @@ function renderShare() {
     });
 }
 
-function planHtml() {
-    if (!C.prep.complete && !(C.subset && C.subset.included.length)) return '';
-    if (!C.prep.complete) thSet('subset');
-
-    var plan = selectedPlan();
-    if (!plan) return '';
-    var picks = plan.picks, included = plan.included, excluded = plan.excluded || [];
-    var spread = plan.spread, cost = plan.cost, row = !plan.subset;
-
-    var seats = included.reduce(function (n, id) {
-        return n + (C.travelers.filter(function (t) { return t.id === id; })[0] || {}).seats;
-    }, 0);
-
-    var html = '<div class="plan-head"><div class="t">' + (row ? 'The plan' : 'Best achievable') + '</div>'
-        + '<div class="s">' + seats + ' ' + (state.leg === 'outbound' ? 'on the ground' : 'wheels up')
-        + ' within ' + FWF.fmtGap(spread) + '</div></div>';
-
-    html += timeline(picks, included, excluded);
-
-    var known = 0, assumed = 0;
-    included.forEach(function (id) {
-        var t = C.travelers.filter(function (x) { return x.id === id; })[0];
-        var b = FWF.allInCost(picks[id].option, t, { assumedCheckedBagFee: APP.bagFee, assumedCarryOnFee: APP.carryOnFee });
-        if (b.bagFee > 0) { if (b.estimated) assumed++; else known++; }
-    });
-    C.allAssumed = assumed > 0 && known === 0;
-    if (C.allAssumed && SET.priceDisplay !== 'fare') {
-        html += '<div class="notice warn" style="margin-bottom:10px"><b>No bag prices published.</b> '
-            + 'Google returns only “checked baggage for a fee”, so ' + money(APP.bagFee)
-            + ' per checked bag is assumed for everyone. Same assumption on every option, so it moves the '
-            + 'totals but not which plan wins.</div>';
-    }
-
-    included.slice().sort(function (a, b) {
-        return picks[a].option.clusterMin - picks[b].option.clusterMin;
-    }).forEach(function (id) { html += paxRow(id, picks[id], false); });
-    excluded.forEach(function (x) { html += paxRow(x.id, { option: x.nearest }, true, x.gapMinutes); });
-
-    /* Calling this a GROUP total while somebody is excluded is exactly the
-     * "wrong number, not a partial one" failure guarded against elsewhere: the
-     * excluded party's fare is not in it, so say whose and how much. */
-    var partial = excluded.length > 0;
-    var seatsIn = included.reduce(function (n, id) {
-        return n + (C.travelers.filter(function (t) { return t.id === id; })[0] || {}).seats;
-    }, 0);
-    var seatsAll = C.travelers.reduce(function (n, t) { return n + t.seats; }, 0);
-
-    /* Scoped deliberately: this is the cost of the people in the window on this
-     * leg, not the trip. The trip figure is at the top and covers everybody. */
-    html += '<div class="total' + (partial ? ' partial' : '') + '">'
-        + '<span class="k">' + (partial
-            ? seatsIn + ' of ' + seatsAll + ' in this window'
-            : 'Everyone, this leg')
-        + (SET.priceDisplay === 'fare' ? ' · fares only' : ' · incl. bags') + '</span>'
-        + '<span class="v mono">' + money(cost) + '</span></div>';
-
-    if (partial) {
-        html += '<div class="total-note">' + esc(excluded.map(function (x) { return name(x.id); }).join(', '))
-            + ' ' + (excluded.length === 1 ? 'is' : 'are') + ' not in that figure. '
-            + 'The trip total at the top includes ' + (excluded.length === 1 ? 'them' : 'them all') + '.</div>';
-    }
-
-    return html;
-}
 
 /* Each party's share of the premium: what this plan costs them minus what they
  * would have paid flying whenever they liked. One group total hides the fact
