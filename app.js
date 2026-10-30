@@ -312,7 +312,20 @@ function blankQuery() {
         parties: [newParty(0), newParty(1), newParty(2)]
     };
 }
-function partyLabel(p, i) { return (p.name || '').trim() || ('Flight ' + (i + 1)); }
+/* Names arrive however somebody typed them on a phone, which is usually
+ * lowercase, and they are then printed as headings, in the group-chat block and
+ * in an email subject. Only the first letter of each word is raised -- the rest
+ * is left exactly as typed, so "McDonald" and an all-caps "NICK" both survive,
+ * and "jim / gary" becomes "Jim / Gary" because the separator is not a letter. */
+function titleCase(str) {
+    return String(str).replace(/(^|[^\p{L}\p{N}'])(\p{L})/gu, function (m, pre, ch) {
+        return pre + ch.toUpperCase();
+    });
+}
+function partyLabel(p, i) {
+    var n = (p.name || '').trim();
+    return n ? titleCase(n) : ('Flight ' + (i + 1));
+}
 
 /* Close enough to call it one departure: you can share a ride, or at least wait
  * for each other. The same line the plan heading uses to decide whether to raise
@@ -1927,14 +1940,18 @@ function renderChoices() {
                          * and the arrows move inside it. */
                         + ' tabindex="' + (on ? '0' : '-1') + '"' : '')
                 + '><span class="m-main">'
-                + '<span class="m-n">' + esc(m.name) + '</span>'
-                + '<span class="m-s">' + esc(matchWhy(m, ms)) + '</span>'
+                + '<span class="m-n">' + esc(many ? m.name : 'The trip') + '</span>'
+                + '<span class="m-s">'
+                + esc(many ? matchWhy(m, ms)
+                    : 'One plan covers it \u2014 cheapest, closest and least flying are the same flights')
+                + '</span>'
                 + '</span><span class="m-right">'
                 + '<span class="m-v mono">' + money(m.total) + '</span>'
                 /* Only under the selected total. It is a can-everyone-afford-
                  * this check on the trip being shown, not a fifth number to
                  * rank the others by -- it tracks the total anyway. */
-                + (on ? '<span class="m-e mono">' + money(m.topPer) + ' each at most</span>' : '')
+                + (on ? '<span class="m-e mono">' + money(m.topPer) + ' each at most</span>'
+                      : many ? '<span class="m-pick">Choose</span>' : '')
                 + '</span></' + tag + '>';
         }).join('')
         + '</div>';
@@ -2443,6 +2460,13 @@ function planOf(ctx, th) {
         /* Not in the kept rows because it was dominated; still a valid window. */
         res = FWF.minCostAtWindow(ctx.prep, th, ctx.costFn);
     }
+    /* Last resort, and it cannot fail: prep.complete means every party has an
+     * option, so the unconstrained window always has a plan. Reaching here means
+     * the caller asked for a window nothing fits -- or asked with null, which
+     * recommendedIn returns when no ladder row is feasible. Showing the group
+     * their flights with no window is right; showing them an empty screen is
+     * not. */
+    if (!res) res = FWF.minCostAtWindow(ctx.prep, FWF.INF, ctx.costFn);
     if (!res) return null;
     return { picks: res.picks, included: ctx.ids.slice(), excluded: [],
              spread: res.spread, cost: res.cost, subset: false };
@@ -2839,6 +2863,18 @@ function tripHeadline() {
  * result, the link, then the detail -- and the detail is what gets dropped if
  * the group is large enough to overflow. The link always survives, and the link
  * is the whole plan. */
+/* The email is links and one price. Nothing else.
+ *
+ * "the email to everyone should provide the links and just total price not the
+ * break outs" -- and he is right: a per-person fare table is something you read,
+ * and nobody reads an email about a trip they have not agreed to yet. What every
+ * recipient needs is the one number the group is deciding on and the one link
+ * that books their own seat. The full plan lives behind the trip link for anyone
+ * who wants it.
+ *
+ * mailto has no agreed length limit and clients truncate silently somewhere
+ * around two thousand characters, so the per-person links are trimmed before the
+ * trip link, which is the last thing that can ever go. */
 var MAILTO_MAX = 1800;
 function emailUrl() {
     var a = AIRPORTS.get(state.q.dest);
@@ -2846,21 +2882,36 @@ function emailUrl() {
     var subject = where + ', ' + prettyRange(state.q.dep, state.q.ret)
         + ' \u2014 ' + tripHeadline().toLowerCase();
 
-    var link = shareUrl();
-    var head = [tripHeadline() + '.', '', where + ' \u00b7 '
-        + prettyRange(state.q.dep, state.q.ret) + ' \u00b7 ' + money(TRIP.total)
-        + (hasReturn() ? ' round trip' : ' one way') + ' for ' + seatsAll() + '.', ''];
-    var tail = ['', 'Everyone\u2019s flights, and the Book buttons:', link];
+    var head = [
+        tripHeadline() + '.',
+        '',
+        where + ' \u00b7 ' + prettyRange(state.q.dep, state.q.ret),
+        money(TRIP.total) + (hasReturn() ? ' round trip' : ' one way')
+            + ' for ' + seatsAll() + ', all in.',
+        ''
+    ];
+    var tail = ['', 'The whole plan, and what each person pays:', shareUrl()];
 
-    var detail = chatBlock().split('\n');
-    /* Drop the block's own first three lines: the headline and the destination
-     * are already the first thing in the email, and its trailing link is the
-     * one in the tail. */
-    detail = detail.slice(3, -1);
-    var body = head.concat(detail).concat(tail).join('\n');
-    while (body.length > MAILTO_MAX && detail.length) {
-        detail = detail.slice(0, -1);
-        body = head.concat(detail, ['  \u2026']).concat(tail).join('\n');
+    /* One line per person: their name and the link that books their flights. */
+    var links = [];
+    C.ids.forEach(function (id) {
+        var t = C.travelers.filter(function (x) { return x.id === id; })[0];
+        var o = TRIP.legOut && TRIP.legOut.rows[id];
+        var b = TRIP.legBack && TRIP.legBack.rows[id];
+        if (!t || !o) return;
+        var chosen = [];
+        if (o.option) chosen.push(o.option);
+        if (b && b.option) chosen.push(b.option);
+        var origin = o.option ? o.option.from : (t.origins[0] || '');
+        links.push(t.name + ' \u2014 ' + tripBookUrl(origin, state.q.dest,
+            state.q.dep, state.q.ret || null, t.seats, chosen));
+    });
+    if (links.length) links.unshift('Book your own seat:', '');
+
+    var body = head.concat(links).concat(tail).join('\n');
+    while (body.length > MAILTO_MAX && links.length > 2) {
+        links = links.slice(0, -1);
+        body = head.concat(links, ['  \u2026']).concat(tail).join('\n');
     }
     if (body.length > MAILTO_MAX) body = head.concat(tail).join('\n');
     return 'mailto:?subject=' + encodeURIComponent(subject)

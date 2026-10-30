@@ -347,7 +347,16 @@ a { color: var(--accent); }
     transition: background .15s, border-color .15s; }
 .win-alt button:active { background: var(--card); }
 
-.win-alt button:focus-visible, .mrow:focus-visible {
+.win-alt button:focus-visible, /* The rows are radio buttons and were reading as text, so nobody knew the other
+   plans were tappable. Unselected rows now carry an explicit word where the
+   selected row carries its per-person figure, and the whole row gets a pressed
+   surface -- the cheapest honest affordance that does not add an element. */
+.mrow { cursor: pointer; transition: background .15s; }
+.mrow:not(.on):active { background: var(--card); }
+.m-pick { font-size: var(--t-2); font-weight: 600; color: var(--accent); }
+.mrow.on .m-pick { display: none; }
+
+.mrow:focus-visible {
     outline: 2px solid var(--brand-line); outline-offset: 2px;
 }
 
@@ -567,7 +576,10 @@ a { color: var(--accent); }
 .party-who { font-size: var(--t-3); color: var(--muted); padding-bottom: var(--s3); line-height: var(--lh-snug); }
 
 .party { border-top: 1px solid var(--edge); padding: var(--s3) 0 var(--s4); }
-.party-top { display: grid; grid-template-columns: 32px minmax(0,1fr) auto; gap: var(--s3); align-items: center; }
+/* Four columns, because there are four children: avatar, name, seat stepper and
+   the remove button. At three the remove button wrapped to an implicit second
+   row and sat on its own under the name, which read as a stray glyph. */
+.party-top { display: grid; grid-template-columns: 32px minmax(0,1fr) auto auto; gap: var(--s3); align-items: center; }
 .ava { width: 32px; height: 32px; border-radius: var(--r-pill); flex-shrink: 0; display: grid; place-items: center; font-size: var(--t-2); font-weight: 600; color: var(--on-party); }
 /* An avatar with no initial in it is a slot, not a person: three filled discs
  * with nothing written in them read as three things still loading. A ring says
