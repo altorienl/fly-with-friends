@@ -585,6 +585,10 @@ function validate() {
 
 /* -------------------------------------------------------------- search */
 
+/* Returns a promise that settles once the result (or the failure) has been
+ * rendered, so a caller that changed part of the query can put it back when the
+ * search did not land. It never rejects: every failure path ends in
+ * state.error, which is what callers read. */
 function doSearch() {
     readNames();
 
@@ -596,7 +600,7 @@ function doSearch() {
         /* The notice lives at the top of the page; on a phone the button that
          * triggered it is at the bottom, so the message was simply off-screen. */
         el('nErr').scrollIntoView({ block: 'center', behavior: 'smooth' });
-        return;
+        return Promise.resolve();
     }
 
     /* Only now drop the cards with no airport, so ids, totals and the plan all
@@ -608,7 +612,7 @@ function doSearch() {
     writeHash();
 
     var tv = travelers().filter(function (t) { return t.origins.length; });
-    fetch(API + '/search', {
+    return fetch(API + '/search', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             dest: [state.q.dest], depart: state.q.dep, ret: state.q.ret || null,
@@ -1115,17 +1119,127 @@ function filterText() {
 }
 
 function renderResHead() {
+    /* If the month's allowance ran out while the field was open -- the budget
+     * is refreshed in the background -- take the field away rather than leave
+     * one that cannot do anything. */
+    if (destEditing && BUDGET && BUDGET.exhausted) destEditClose(false);
     var q = state.q, a = AIRPORTS.get(q.dest);
     var seats = travelers().reduce(function (n, t) { return n + t.seats; }, 0);
-    el('resT').textContent = (a ? a.city : q.dest) + ' · ' + seats + ' travelling';
+    var city = a ? a.city : q.dest;
+    /* The city is the control, not a label. It drops back to plain text when a
+     * new search could not run anyway -- one is already in flight, or the
+     * month's allowance is gone and the notice above already says so -- because
+     * a tap that leads nowhere is worse than no tap at all. */
+    el('resT').innerHTML = (canRetarget()
+            ? '<button class="dest-btn" id="destBtn" aria-label="Change destination, currently '
+                + esc(city) + '">' + esc(city) + '</button>'
+            : esc(city))
+        + ' · ' + seats + ' travelling';
     var gen = DATA.generated_at ? new Date(DATA.generated_at) : null;
     var hrs = gen ? Math.round((Date.now() - gen.getTime()) / 3600000) : null;
-    var cls = DATA.sample ? 'fresh-sample'
+    /* Mid-retarget the title already reads as the new city, so the status line
+     * has to say the fares underneath are not it yet. The freshness chip is
+     * where this screen already keeps "how much should I trust this", so the
+     * word goes there rather than into a line of its own. */
+    var cls = state.busy ? 'fresh-sample'
+        : DATA.sample ? 'fresh-sample'
         : hrs == null ? 'fresh-mid' : hrs < 6 ? 'fresh-ok' : hrs < 24 ? 'fresh-mid' : 'fresh-old';
-    var word = DATA.sample ? 'example data'
+    var word = state.busy ? 'searching…'
+        : DATA.sample ? 'example data'
         : hrs == null ? 'unknown age' : hrs < 1 ? 'fares just now' : 'fares ' + hrs + 'h old';
     el('resS').innerHTML = esc(prettyRange(q.dep, q.ret))
         + ' &nbsp;<span class="fresh"><span class="dot ' + cls + '"></span>' + esc(word) + '</span>';
+}
+
+/* ------------------------------------------------- retarget the trip */
+
+/* Typing a different city in the header is a whole new search: one per party
+ * per leg, so eight people on a round trip is sixteen. It is deliberately not
+ * gated behind a confirmation -- the owner's line is upgrade rather than
+ * ration, and a group searching hard is the point of the thing. What it is
+ * gated behind is intent: opening the field costs nothing and Escape puts it
+ * back, so a thumb that brushes the header has spent nothing. The spend
+ * happens only when an airport is chosen from the list. */
+var destEditing = false, destEditAc = null, destEditErr = false;
+
+function canRetarget() {
+    return !state.busy && !(BUDGET && BUDGET.exhausted);
+}
+
+function destEditOpen() {
+    if (!canRetarget() || destEditing) return;
+    destEditing = true;
+    var a = AIRPORTS.get(state.q.dest);
+    el('resTitle').classList.add('hidden');
+    el('resEdit').classList.remove('hidden');
+    var inp = el('resDest');
+    /* Focused empty, then filled: the autocomplete opens its list on focus when
+     * the field has text, and a list whose only entry is where you are already
+     * going is noise. Filled and selected means the first keystroke replaces
+     * it, which is what "type another city in here" means. */
+    inp.value = '';
+    inp.focus();
+    inp.value = a ? a.code : (state.q.dest || '');
+    inp.select();
+}
+
+function destEditClose(refocus) {
+    if (!destEditing) return;
+    destEditing = false;
+    if (destEditAc) destEditAc.close();
+    el('resEdit').classList.add('hidden');
+    el('resTitle').classList.remove('hidden');
+    if (destEditErr) {
+        /* The closed-airport note belonged to the field. Abandoning the edit
+         * takes it with it rather than leaving the results sitting under a red
+         * banner about a city nobody is going to. */
+        destEditErr = false;
+        state.error = null;
+        render();
+    }
+    /* Focus was inside a field that is now gone, so it has to be put back on
+     * the thing that opened it or a keyboard user lands at the top of the page. */
+    if (refocus) { var b = el('destBtn'); if (b) b.focus(); }
+}
+
+function retargetDest(a) {
+    /* The autocomplete commits on mousedown and again on click, because a
+     * keyboard Enter and a VoiceOver double-tap only emit the latter -- so a
+     * mouse pick arrives twice and the second arrival must not buy a second
+     * search. By then the first one is already in flight. */
+    if (state.busy) return;
+    /* A closed airport is still a known airport, so validate() waves it through
+     * and the request would spend a search per party per leg to come back with
+     * nothing -- doSearch already strips closed airports from the origins for
+     * exactly that reason. Step 1 answers this with the note and the
+     * alternates; this is the same answer, on the error line the app already
+     * owns, with the field left open so the next guess is one keystroke away. */
+    if (a.closed) {
+        destEditErr = true;
+        state.error = a.note + (a.alternates.length ? ' Try ' + a.alternates.join(', ') + '.' : '');
+        render();
+        el('resDest').focus();
+        return;
+    }
+    /* Picking the city you are already in is not a search. */
+    if (a.code === state.q.dest) { destEditClose(true); return; }
+
+    var prev = state.q.dest;
+    destEditErr = false;
+    destEditClose(false);
+    state.error = null;
+    state.q.dest = a.code;
+    doSearch().then(function () {
+        if (!state.error) return;
+        /* The search failed, so everything below the header still belongs to the
+         * old city. Putting the destination back is the difference between "that
+         * did not work" and a screen quietly claiming to be somewhere it is not.
+         * doSearch only clears the chosen rows on success, so the plan on screen
+         * is still the one that matches this destination. */
+        state.q.dest = prev;
+        writeHash();
+        render();
+    });
 }
 
 /* Nobody thinks in 24-hour clock times when they are picking a flight -- they
@@ -2753,6 +2867,31 @@ el('dest').addEventListener('input', function () {
     if (!AIRPORTS.isKnown(state.q.dest) || el('dest').value.indexOf(state.q.dest) !== 0) state.q.dest = '';
     el('destHint').className = 'hint';
     el('destHint').textContent = 'Airport code or city — try “cabo”';
+});
+
+/* The same autocomplete, the same rule: a destination is one airport, because a
+ * group landing at three airports is not landing together. */
+destEditAc = attachAc(el('resDest'), el('resDestAc'), retargetDest, { noMetros: true });
+
+/* #resT is rebuilt on every render, so the city button cannot hold its own
+ * listener. */
+document.addEventListener('click', function (ev) {
+    if (ev.target.closest && ev.target.closest('#destBtn')) destEditOpen();
+});
+el('resDest').addEventListener('keydown', function (ev) {
+    /* Escape abandons the edit outright, without a search. The autocomplete's
+     * own handler has already shut the list by the time this runs; stopping
+     * propagation keeps the key from reaching the page-level handlers. */
+    if (ev.key === 'Escape') { ev.stopPropagation(); destEditClose(true); }
+});
+el('resDest').addEventListener('blur', function () {
+    /* Tapping away is the other way to mean "never mind". The delay matches the
+     * grace period the autocomplete gives its own list, so a tap on a
+     * suggestion still lands -- that path clears destEditing first, so this
+     * only fires on an edit that was genuinely abandoned. */
+    setTimeout(function () {
+        if (destEditing && document.activeElement !== el('resDest')) destEditClose(false);
+    }, 200);
 });
 
 fillForm();

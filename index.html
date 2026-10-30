@@ -337,6 +337,29 @@ section { animation: stepIn .2s var(--ease); }
 .res-title .t { font-size: var(--t-4); font-weight: 600; letter-spacing: var(--tr-4); }
 .res-title .s { font-size: var(--t-2); color: var(--muted); margin-top: 4px; }
 
+/* Changing where everyone is going: the city in the title is the control.
+ * The dotted rule marks exactly the word that can change and stops at it, so
+ * the seat count and the dates stay plainly what they are. No caption -- an
+ * underlined word in a title is already the oldest "this one is editable"
+ * idiom there is, and a sentence explaining it would be louder than the
+ * control. The hit box is grown by a pseudo-element the way .gear does it:
+ * 44px under the thumb, nothing added to the eye. */
+.dest-btn {
+    position: relative; font: inherit; letter-spacing: inherit; color: inherit;
+    padding: 0; border: 0; background: none; vertical-align: baseline;
+    text-decoration: underline dotted var(--edge-2);
+    text-decoration-thickness: 1px; text-underline-offset: 4px;
+}
+.dest-btn::after { content: ''; position: absolute; left: -6px; right: -6px; top: 50%; height: 44px; transform: translateY(-50%); }
+.dest-btn:active { color: var(--accent); }
+.dest-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 3px; }
+/* Positioning context for the suggestions, which hang below the field and span
+ * the rest of the header row. */
+.res-edit { position: relative; flex: 1 1 auto; min-width: 0; }
+/* 16px, not a type token: below 16 iOS Safari zooms the page when the field
+ * takes focus, and the header would jump under the thumb. */
+.res-edit .inp { min-height: 44px; padding: 8px 12px; font-size: 16px; box-shadow: none; }
+
 .fresh { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-2); color: var(--muted); }
 .dot { width: 7px; height: 7px; border-radius: var(--r-pill); flex-shrink: 0; }
 .dot.fresh-ok { background: var(--good); animation: breathe 2.4s ease-in-out infinite; }
@@ -801,7 +824,17 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
     <section id="s4" class="hidden" tabindex="-1" aria-label="Flight plan">
         <div class="res-head">
             <button class="icon-btn" id="back4" aria-label="Change trip">&larr;</button>
-            <div class="res-title"><div class="t" id="resT"></div><div class="s" id="resS"></div></div>
+            <div class="res-title" id="resTitle"><div class="t" id="resT"></div><div class="s" id="resS"></div></div>
+            <!-- Takes the title's place in the same row, so retargeting the trip
+                 happens where the destination is written rather than three
+                 screens back. Hidden until the city in the title is tapped. -->
+            <div class="res-edit hidden" id="resEdit">
+                <input class="inp" id="resDest" placeholder="Airport or city" maxlength="26"
+                       autocapitalize="characters" autocomplete="off" enterkeyhint="search"
+                       role="combobox" aria-expanded="false" aria-controls="resDestAc"
+                       aria-autocomplete="list" aria-label="Change destination">
+                <div class="ac" id="resDestAc" role="listbox" aria-label="Matching airports"></div>
+            </div>
         </div>
         <!-- The plan comes first: it is the thing the app exists to produce, and
              burying it under a total and three prices made the answer the last
