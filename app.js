@@ -1775,7 +1775,7 @@ function hopRow(dir, r, leg, id, seats) {
          * reads as a fee to add on. It is not: it is already inside the fare.
          * A tester added it to their own total for every traveller. */
         + (r.premium > 0
-            ? '<div class="hop-prem">incl. ' + money(r.premium) + ' to land with the group</div>'
+            ? '<div class="hop-prem">incl. ' + money(r.premium) + ' to land together</div>'
             : '')
         + '</div></div>';
 }
@@ -2230,7 +2230,7 @@ function settingsSheet() {
     var gen = DATA && DATA.generated_at ? new Date(DATA.generated_at) : null;
 
     openSheet('<h2 id="sheetTitle">Settings</h2><div class="sub">Kept on this device. No account, no sign-in.</div>'
-        + '<div class="grp"><span class="k">Which one am I</span><div class="pills">'
+        + '<div class="grp"><span class="k">Which one is you</span><div class="pills">'
         + people.map(function (p, i) { return pill(SET.meId === p.id, 'meId', p.id, p.name); }).join('')
         + pill(!SET.meId, 'meId', '', 'Not set')
         + '</div><div class="tip">Highlights your row everywhere.</div></div>'
@@ -2241,11 +2241,11 @@ function settingsSheet() {
         + pill(SET.theme === 'system', 'theme', 'system', 'System')
         + '</div></div>'
 
-        + '<div class="grp"><span class="k">How close is close enough</span><div class="pills">'
+        + '<div class="grp"><span class="k">Landing window</span><div class="pills">'
         + [15, 30, 45, 60].map(function (n) { return pill(SET.target === n, 'target', n, n + ' min'); }).join('')
         + '</div><div class="tip">The window everyone has to land inside for the trip to count as working.</div></div>'
 
-        + '<div class="grp"><span class="k">What everyone is bringing</span><div class="pills">'
+        + '<div class="grp"><span class="k">Bags</span><div class="pills">'
         + '<button class="pill' + (SET.bags.carry_on > 0 ? ' on' : '') + '" data-bag="carry_on">Carry-on</button>'
         + '<button class="pill' + (SET.bags.checked > 0 ? ' on' : '') + '" data-bag="checked">Checked bag</button>'
         + '</div><div class="tip">Applied to everyone so totals stay comparable. Where Google publishes no fee, '
