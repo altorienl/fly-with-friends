@@ -29,6 +29,8 @@ var SHIFTS = {}, shiftBusy = false, shiftErr = null;
 var TRIP_ID = null, savingTrip = false;
 var state = {
     step: 1, leg: 'outbound', recommend: 'value',
+    /* Whether the exact landing-time pickers have been revealed. */
+    bandExact: false,
     /* One chosen row per leg: a round trip is two decisions, and pricing the
      * whole trip means holding both at once. */
     th: { outbound: null, return: null },
@@ -78,11 +80,25 @@ function applyTheme() {
 function newParty(i) {
     return { id: 'p' + i + Math.random().toString(36).slice(2, 5), name: '', seats: 1, airports: [] };
 }
+/* Links shared before a field existed restore without it, so anything the UI
+ * mutates in place has to be backfilled rather than assumed. */
+function migrateQuery(q) {
+    if (!q) return q;
+    if (!Array.isArray(q.avoid)) q.avoid = [];
+    if (!Array.isArray(q.parties)) q.parties = [];
+    return q;
+}
+
 function blankQuery() {
     return {
         dest: '', dep: '', ret: '',
         band: { outbound: { from: '', to: '' }, return: { from: '', to: '' } },
         maxStops: null, maxPremium: null,
+        /* Normalised carrier names nobody in the group will fly. Applied in the
+         * browser against options we already hold, so changing it is instant and
+         * costs no searches -- sending it to the provider instead would make
+         * every different selection a fresh paid search for the same trip. */
+        avoid: [],
         /* Landing together is the point of this. Leaving together only means
          * sharing a ride to the airport, and forcing the return into a window
          * makes the optimiser pick absurd flights home to hit a departure time.
@@ -128,7 +144,14 @@ function rulesSummary(p) {
 function partyInitials(p, i) {
     var n = (p.name || '').trim();
     if (!n) return String(i + 1);
-    return n.split(/\s+/).map(function (w) { return w[0]; }).join('').slice(0, 2).toUpperCase();
+    /* One booking often covers two people, so names arrive as "Jim / Gary" or
+     * "Mum & Dad". Taking the first character of every whitespace-separated
+     * token made the separator an initial and drew avatars reading "J/".
+     * Splitting on the separators themselves keeps this right for any script,
+     * which a letters-only character class would not. */
+    var toks = n.split(/[\s/,&+·|\-–—.]+/).filter(function (w) { return w.length; });
+    if (!toks.length) return String(i + 1);
+    return toks.slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase();
 }
 function partyColor(i) { return COLORS[i % COLORS.length]; }
 
@@ -185,6 +208,21 @@ function compute(leg) {
                 blocked.push({ id: id, rule: 'stops', best: all });
                 kept = [];
             } else if (all.length) relaxed.push(id);
+        }
+
+        /* Carriers the group refuses. Unlike the stops preference this is never
+         * relaxed on anybody's behalf: quietly booking somebody onto the airline
+         * they just told us to avoid is the single worst thing this screen could
+         * do. If it empties a party we say so and let them choose. */
+        var avoid = state.q.avoid || [];
+        if (avoid.length && kept.length) {
+            var flyable = kept.filter(function (o) {
+                return !(o.airlines || []).some(function (nm) {
+                    return avoid.indexOf(normAirline(nm)) > -1;
+                });
+            });
+            if (flyable.length) kept = flyable;
+            else { blocked.push({ id: id, rule: 'airline' }); kept = []; }
         }
 
         /* A 7h18m one-stop beating a 2h43m nonstop because it saved $45 is the
@@ -587,17 +625,20 @@ function doSearch() {
 function loadDemo() {
     fetch('flights.json', { cache: 'no-store' }).then(function (r) { return r.json(); })
         .then(function (sample) {
-            state.q = {
-                dest: 'PIT', dep: '2027-02-12', ret: '2027-02-15',
-                band: { outbound: { from: '', to: '' }, return: { from: '', to: '' } },
-                maxStops: null,
-                parties: [
-                    { id: 'alex', name: 'Alex', seats: 1, airports: ['SFO', 'OAK', 'SJC'] },
-                    { id: 'sam', name: 'Sam', seats: 2, airports: ['ORD'] },
-                    { id: 'jo', name: 'Jo', seats: 1, airports: ['ATL'] },
-                    { id: 'ray', name: 'Ray', seats: 1, airports: ['DEN'] }
-                ]
-            };
+            /* Built from blankQuery so the example cannot drift from the real
+             * thing. It had already lost avoid, maxDetour, clusterReturn and
+             * maxPremium by being a hand-written literal, and the first of
+             * those threw the moment anyone touched the airline filter. */
+            state.q = blankQuery();
+            state.q.dest = 'PIT';
+            state.q.dep = '2027-02-12';
+            state.q.ret = '2027-02-15';
+            state.q.parties = [
+                { id: 'alex', name: 'Alex', seats: 1, airports: ['SFO', 'OAK', 'SJC'] },
+                { id: 'sam', name: 'Sam', seats: 2, airports: ['ORD'] },
+                { id: 'jo', name: 'Jo', seats: 1, airports: ['ATL'] },
+                { id: 'ray', name: 'Ray', seats: 1, airports: ['DEN'] }
+            ];
             DATA = { generated_at: sample.generated_at, currency: sample.currency,
                      sample: true, trips: { query: sample.trips['pit-feb'] }, errors: [] };
             state.error = null; thReset(); state.leg = 'outbound';
@@ -919,7 +960,6 @@ function render() {
     renderCapPills();
     renderRecPills();
     renderPlanView();
-    renderOptions();
     renderShifts();
     renderShare();
 }
@@ -976,7 +1016,13 @@ function renderNotices() {
 
     var sh = el('nShort');
     if (state.step === 4 && C && C.prep && !C.prep.complete) {
-        var blocked = C.prep.missing.filter(function (id) { return (C.prep.dropped || {})[id] > 0; });
+        /* A party emptied by the airline filter has flights, just none we are
+         * allowed to offer -- so it belongs with "can't meet your filters", not
+         * with "no flights found", which would read as a search failure. */
+        var byRule = (C.blocked || []).map(function (b) { return b.id; });
+        var blocked = C.prep.missing.filter(function (id) {
+            return (C.prep.dropped || {})[id] > 0 || byRule.indexOf(id) > -1;
+        });
         var none = C.prep.missing.filter(function (id) { return blocked.indexOf(id) === -1; });
         var bits = [];
         if (blocked.length) {
@@ -1011,6 +1057,7 @@ function filterText() {
     if (C.maxStops === 0) bits.push('are nonstop');
     else if (C.maxStops != null) bits.push('have at most ' + C.maxStops + ' stop');
     if (C.cap != null) bits.push('cost them no more than ' + money(C.cap) + ' over their own cheapest');
+    if ((state.q.avoid || []).length) bits.push('avoid ' + avoidedNames().join(', '));
     return bits.join(' and ');
 }
 
@@ -1036,24 +1083,6 @@ function renderFreeNote() {
     } else f.className = 'free hidden';
 }
 
-/* Both legs on one page. Flipping tabs to compare your own outbound against your
- * own return is the friction this app exists to remove, so each leg renders its
- * own window, band, ladder and plan, stacked. */
-function bandRow(leg) {
-    var b = bandFor(leg);
-    return '<div class="filters" role="group" aria-label="Time window">'
-        + '<span class="k">' + (leg === 'outbound' ? 'Land between' : 'Leave between') + '</span>'
-        + '<div class="row2" style="margin-top:8px">'
-        + '<input class="inp" type="time" data-bleg="' + leg + '" data-bend="from" value="' + esc(b.from || '')
-        + '" aria-label="Earliest ' + (leg === 'outbound' ? 'landing' : 'departure') + ' time">'
-        + '<span class="sep">and</span>'
-        + '<input class="inp" type="time" data-bleg="' + leg + '" data-bend="to" value="' + esc(b.to || '')
-        + '" aria-label="Latest ' + (leg === 'outbound' ? 'landing' : 'departure') + ' time">'
-        + '<button class="pill" data-bclear="' + leg + '">any</button>'
-        + '</div></div>';
-}
-
-
 function renderStepPrefs() {
     var cap = el('sCap');
     if (cap) {
@@ -1066,8 +1095,8 @@ function renderStepPrefs() {
     }
     var rec = el('sRec');
     if (rec) {
-        rec.innerHTML = [{ k: 'value', l: 'Best value' }, { k: 'tightest', l: 'Closest possible' },
-                         { k: 'target', l: 'Cheapest under ' + SET.target + 'm' }]
+        rec.innerHTML = [{ k: 'value', l: 'Best value' }, { k: 'tightest', l: 'Together at any cost' },
+                         { k: 'target', l: 'Cheapest within ' + SET.target + 'm' }]
             .map(function (x) {
                 var on = state.recommend === x.k;
                 return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
@@ -1076,7 +1105,47 @@ function renderStepPrefs() {
     }
 }
 
+/* Nobody thinks in 24-hour clock times when they are picking a flight -- they
+ * think "morning", or "not the middle of the night". Two blank time pickers
+ * asked for precision the group does not have yet, so these fill them in. The
+ * band itself is unchanged: a preset is a shortcut to the same from/to pair,
+ * which keeps one mechanism to reason about and leaves the exact inputs
+ * meaningful for the case that actually needs them, like a villa check-in. */
+var BAND_PRESETS = [
+    { k: 'any',   l: 'Any time',   from: '',      to: ''      },
+    { k: 'morn',  l: 'Morning',    from: '05:00', to: '12:00' },
+    { k: 'aft',   l: 'Afternoon',  from: '12:00', to: '18:00' },
+    { k: 'eve',   l: 'Evening',    from: '18:00', to: '23:00' },
+    { k: 'noLate', l: 'Not late night', from: '06:00', to: '23:00' }
+];
+
+function presetFor(band) {
+    var f = (band && band.from) || '', t = (band && band.to) || '';
+    for (var i = 0; i < BAND_PRESETS.length; i++) {
+        if (BAND_PRESETS[i].from === f && BAND_PRESETS[i].to === t) return BAND_PRESETS[i].k;
+    }
+    return 'exact';
+}
+
+function renderBandPresets() {
+    var host = el('sBandPre');
+    if (!host) return;
+    var cur = presetFor(state.q.band.outbound);
+    host.innerHTML = BAND_PRESETS.map(function (x) {
+        var on = cur === x.k;
+        return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
+            + '" data-bpre="' + x.k + '">' + esc(x.l) + '</button>';
+    }).join('')
+        + '<button class="pill' + (cur === 'exact' ? ' on' : '') + '" role="radio"'
+        + ' aria-checked="' + (cur === 'exact') + '" data-bpre="exact">Exact times</button>';
+    /* Once revealed the pickers stay put, so typing a time never makes the
+     * field you are editing disappear under you. */
+    var box = el('sBandExact');
+    if (box) box.className = (cur === 'exact' || state.bandExact) ? 'row2' : 'row2 hidden';
+}
+
 function renderStepStops() {
+    renderBandPresets();
     var host = el('sStops');
     if (!host) return;
     renderStepPrefs();
@@ -1089,6 +1158,7 @@ function renderStepStops() {
 }
 
 function renderStopPills() {
+    renderAirlinePills();
     var o = [{ v: 0, l: 'Nonstop' }, { v: 1, l: 'Up to 1 stop' }, { v: null, l: 'Any' }];
     el('stopPills').setAttribute('role', 'radiogroup');
     el('stopPills').setAttribute('aria-label', 'Maximum stops');
@@ -1099,11 +1169,73 @@ function renderStopPills() {
     }).join('');
 }
 
+/* The display names of the carriers currently being avoided, for the sentence
+ * that explains why somebody has no flights. */
+function avoidedNames() {
+    var all = carriersInResults(), out = [];
+    (state.q.avoid || []).forEach(function (k) {
+        var hit = all.filter(function (c) { return c.key === k; })[0];
+        out.push(hit ? hit.name : k);
+    });
+    return out;
+}
+
+function renderAirlinePills() {
+    var host = el('airlinePills');
+    if (!host) return;
+    var carriers = carriersInResults();
+    /* Nothing to choose between with a single carrier on the route. */
+    if (carriers.length < 2) { host.className = 'pills airlines hidden'; return; }
+    host.className = 'pills airlines';
+
+    var present = {};
+    carriers.forEach(function (c) { if (c.alliance) present[c.alliance] = true; });
+    var shown = ALLIANCES.filter(function (a) { return present[a.k]; });
+    var avoiding = (state.q.avoid || []).length;
+
+    host.innerHTML = '<span class="k">Airlines</span>'
+        + '<div class="air-row">'
+        + carriers.map(function (c) {
+            var off = isAvoided(c.name);
+            return '<button class="pill air' + (off ? ' off' : '') + '" data-air="' + esc(c.key)
+                + '" aria-pressed="' + off + '"'
+                + ' title="' + esc(off ? 'Allow ' + c.name : 'Avoid ' + c.name) + '">'
+                + esc(c.name) + '<span class="air-n">' + c.n + '</span></button>';
+        }).join('')
+        + '</div>'
+        /* Alliances, because "only the one I have status with" is the common
+         * version of this request and naming twenty carriers by hand is not a
+         * thing anybody will do on a phone. */
+        + (shown.length ? '<div class="air-row alli">'
+            + shown.map(function (a) {
+                return '<button class="pill alli-b" data-alli="' + a.k + '">Only ' + esc(a.name)
+                    + '</button><button class="qm" data-qm="' + a.k + '" aria-expanded="false"'
+                    + ' aria-label="Which airlines are in ' + esc(a.name) + '">?</button>';
+            }).join('')
+            + (avoiding ? '<button class="pill alli-b clear" data-air-clear="1">Allow all</button>' : '')
+            + '</div>'
+            + shown.map(function (a) {
+                /* Membership moves between alliances, so this prints what we
+                 * actually believe rather than asking anyone to trust it. The
+                 * ones on this route are marked; the rest are context. */
+                return '<div class="qm-pop hidden" id="qm-' + a.k + '">'
+                    + '<b>' + esc(a.name) + '</b>'
+                    + '<div class="qm-list">' + a.members.map(function (m) {
+                        var here = carriers.filter(function (c) { return c.key === normAirline(m); }).length > 0;
+                        return '<span' + (here ? ' class="here"' : '') + '>' + esc(m) + '</span>';
+                    }).join('') + '</div>'
+                    + '<div class="qm-f">Bold carriers fly this route. '
+                    + 'Picking one alliance avoids everything outside it.</div></div>';
+            }).join('')
+            : (avoiding ? '<div class="air-row alli">'
+                + '<button class="pill alli-b clear" data-air-clear="1">Allow all</button></div>' : ''));
+}
+
 function renderCapPills() {
     var o = [{ v: null, l: 'No limit' }, { v: 50, l: '$50' }, { v: 100, l: '$100' }, { v: 200, l: '$200' }];
     el('capPills').setAttribute('role', 'radiogroup');
     el('capPills').setAttribute('aria-label', 'Limit on what one traveller pays extra');
-    el('capPills').innerHTML = '<span class="k">Nobody pays more than</span>' + o.map(function (x) {
+    el('capPills').innerHTML = '<span class="k">Cap on one person&rsquo;s extra</span>' + o.map(function (x) {
         var on = state.q.maxPremium === x.v;
         return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
             + '" data-cap="' + (x.v === null ? '' : x.v) + '">' + x.l + '</button>';
@@ -1111,8 +1243,8 @@ function renderCapPills() {
 }
 
 function renderRecPills() {
-    var o = [{ k: 'value', l: 'Best value' }, { k: 'tightest', l: 'Closest possible' },
-             { k: 'target', l: 'Cheapest under ' + SET.target + 'm' }];
+    var o = [{ k: 'value', l: 'Best value' }, { k: 'tightest', l: 'Together at any cost' },
+             { k: 'target', l: 'Cheapest within ' + SET.target + 'm' }];
     el('recPills').setAttribute('role', 'radiogroup');
     el('recPills').setAttribute('aria-label', 'Which plan to put forward');
     el('recPills').innerHTML = '<span class="k">Optimise for</span>' + o.map(function (x) {
@@ -1215,60 +1347,86 @@ function recommendedIn(ctx) {
     return best.threshold;
 }
 
-function boardHtml() {
-    if (!C.prep.complete || !C.ladder) return '';
-    var rec = recommendedIn(C);
-    if (thGet() === null) thSet(rec);
+/* ------------------------------------------------------------ airlines
 
-    var html = '';
-    if (!C.target && C.subset) {
-        var s = C.subset;
-        html += '<button class="brow' + (thGet() === 'subset' ? ' on' : '') + '" data-threshold="subset">'
-            + '<span><span class="w">' + seatsOf(s.included) + ' of ' + seatsAll()
-            + ' within ' + SET.target + 'm</span>'
-            + (rec === 'subset' ? '<span class="rec">recommended</span>' : '') + '</span>'
-            + '<span class="c mono">' + money(s.cost) + '</span>'
-            + '<span class="a mono">' + FWF.fmtGap(s.summary.spread) + '</span>'
-            + '<span class="d mono dim" title="Not comparable: covers fewer people">n/a</span></button>';
-    }
+ * Alliance membership, so a group can say "only the one I have status with"
+ * without naming twenty carriers by hand. Kept as names rather than IATA codes
+ * because that is what the search results carry on every option, whereas codes
+ * only arrive on a fresh search.
+ *
+ * Membership moves: SAS left Star Alliance in August 2024 and joined SkyTeam the
+ * next day, and Alaska has been oneworld since 2021. Both are wrong in a lot of
+ * older lists, which is exactly why the tooltip prints the members -- somebody
+ * filtering for their status carrier should be able to see what we believe. */
+var ALLIANCES = [
+    { k: 'star', name: 'Star Alliance', members: [
+        'United', 'Air Canada', 'Lufthansa', 'Swiss', 'Austrian', 'Brussels Airlines',
+        'TAP Air Portugal', 'Turkish Airlines', 'LOT', 'Croatia Airlines', 'Aegean',
+        'Air China', 'Air India', 'Air New Zealand', 'ANA', 'All Nippon Airways',
+        'Asiana', 'Singapore Airlines', 'Thai', 'EVA Air', 'Shenzhen Airlines',
+        'Avianca', 'Copa', 'Ethiopian', 'EgyptAir', 'South African Airways'] },
+    { k: 'sky', name: 'SkyTeam', members: [
+        'Delta', 'Air France', 'KLM', 'Virgin Atlantic', 'ITA Airways', 'Air Europa',
+        'Aeromexico', 'Aerolineas Argentinas', 'Korean Air', 'China Eastern',
+        'China Airlines', 'Xiamen Air', 'Vietnam Airlines', 'Garuda Indonesia',
+        'Saudia', 'Middle East Airlines', 'Kenya Airways', 'TAROM', 'SAS'] },
+    { k: 'one', name: 'oneworld', members: [
+        'American', 'Alaska', 'British Airways', 'Iberia', 'Finnair', 'Qatar Airways',
+        'Cathay Pacific', 'Japan Airlines', 'Malaysia Airlines', 'Qantas',
+        'Fiji Airways', 'Oman Air', 'Royal Air Maroc', 'Royal Jordanian',
+        'SriLankan Airlines'] }
+];
 
-    var bad = C.ladder.rows.filter(function (r) { return !r.feasible; });
-    if (bad.length) {
-        var lo = bad[0].threshold, hi = bad[bad.length - 1].threshold;
-        html += '<div class="brow off"><span class="w">'
-            + (lo === hi ? 'Within ' + lo + ' min' : 'Within ' + lo + '–' + hi + ' min')
-            + '</span><span class="none">nothing covers everyone</span></div>';
-    }
-
-    html += C.ladder.rows.filter(function (r) { return r.feasible; }).map(function (r) {
-        var label = r.threshold === FWF.INF ? 'Any time' : 'Within ' + r.threshold + ' min';
-        var sel = r.threshold === thGet();
-        var spoken = label + ', ' + money(r.result.cost) + ' total, '
-            + FWF.fmtGap(r.result.spread) + ' apart'
-            + (r.delta > 0 ? ', ' + money(r.delta) + ' more than the cheapest' : ', the cheapest option');
-        return '<button class="brow' + (sel ? ' on' : '') + '" role="listitem"'
-            + (sel ? ' aria-current="true"' : '') + ' aria-label="' + esc(spoken) + '"'
-            + ' data-threshold="' + r.threshold + '">'
-            + '<span><span class="w">' + label + '</span>'
-            + (r.threshold === rec ? '<span class="rec">recommended</span>' : '') + '</span>'
-            + '<span class="c mono">' + money(r.result.cost) + '</span>'
-            + '<span class="a mono">' + FWF.fmtGap(r.result.spread) + '</span>'
-            + '<span class="d mono ' + (r.delta > 0 ? 'up' : '') + '">'
-            + (r.delta > 0 ? '+' + money(r.delta) : '—') + '</span></button>';
-    }).join('');
-
-    return '<div class="board">'
-        + '<div class="bhead"><span class="k">Window</span><span class="k">Group</span>'
-        + '<span class="k">Actual</span><span class="k">vs min</span></div>'
-        + '<div role="list">' + html + '</div></div>';
+/* "Delta Air Lines", "Delta" and "DELTA" are one carrier. Only a trailing
+ * Airlines/Airways is stripped, never a leading "Air" -- doing that collapses
+ * Air China (Star) and China Airlines (SkyTeam) into the same key, which would
+ * put a traveller on the wrong alliance entirely. */
+function normAirline(n) {
+    return String(n == null ? '' : n).toLowerCase().replace(/[^a-z0-9]/g, '')
+        .replace(/(airlines|airways|airline|airlrs)$/, '');
 }
 
-/* Airline booking entry points. Deliberately NOT prefilled deep links: those
- * formats are undocumented, change without notice, and several carriers block
- * anything that looks automated -- a link that lands on an empty search is
- * worse than one that works. Google Flights stays primary because it is
- * prefilled and its own page carries the airline's book button; this is the
- * second tap for people who would rather buy direct. */
+var ALLIANCE_OF = {};
+ALLIANCES.forEach(function (a) {
+    a.members.forEach(function (m) { ALLIANCE_OF[normAirline(m)] = a.k; });
+});
+function allianceOf(airlineName) { return ALLIANCE_OF[normAirline(airlineName)] || null; }
+
+/* Every carrier appearing in the current results, most options first, so the
+ * filter offers what is actually bookable instead of a list of every airline on
+ * earth. Counted across both legs: a carrier you refuse to fly home on is one
+ * you refuse to fly out on. */
+function carriersInResults() {
+    if (!DATA || !DATA.trips) return [];
+    var seen = {};
+    Object.keys(DATA.trips).forEach(function (tid) {
+        var trip = DATA.trips[tid] || {};
+        ['outbound', 'return'].forEach(function (leg) {
+            var byParty = trip[leg] || {};
+            Object.keys(byParty).forEach(function (pid) {
+                (byParty[pid] || []).forEach(function (o) {
+                    (o.airlines || []).forEach(function (nm) {
+                        var k = normAirline(nm);
+                        if (!k) return;
+                        if (!seen[k]) seen[k] = { key: k, name: nm, n: 0, alliance: allianceOf(nm) };
+                        seen[k].n++;
+                    });
+                });
+            });
+        });
+    });
+    return Object.keys(seen).map(function (k) { return seen[k]; })
+        .sort(function (a, b) { return b.n - a.n || a.name.localeCompare(b.name); });
+}
+
+function isAvoided(nm) { return (state.q.avoid || []).indexOf(normAirline(nm)) > -1; }
+
+/* Airline home pages, for people who would rather buy direct. Deliberately NOT
+ * per-carrier deep links: every airline has its own undocumented format and
+ * several block anything that looks automated, so these go to the front door
+ * and say so. Google Flights stays primary because we CAN pin an exact
+ * itinerary there (see tfsEncode) and its page carries the airline's own book
+ * button anyway. */
 var AIRLINE_SITES = {
     'United': 'https://www.united.com/en/us/book-flight/united-reservations',
     'American': 'https://www.aa.com/booking/find-flights',
@@ -1303,6 +1461,7 @@ var AIRLINE_SITES = {
     'Norse Atlantic': 'https://flynorse.com/',
     'Play': 'https://www.flyplay.com/'
 };
+
 
 function airlineSite(o) {
     var names = o.airlines || [];
@@ -1613,7 +1772,6 @@ function travellerCard(id, i) {
     var chosen = [];
     if (o && o.option) chosen.push(o.option);
     if (b && b.option) chosen.push(b.option);
-    var deep = chosen.length ? deepLink(chosen, t.seats) : null;
 
     return '<div class="trav' + (apart ? ' apart' : '') + '">'
         + '<div class="trav-top">'
@@ -1631,18 +1789,6 @@ function travellerCard(id, i) {
         + '<a class="btn primary" style="display:block;text-align:center;text-decoration:none" href="'
         + esc(tripBookUrl(origin, state.q.dest, state.q.dep, state.q.ret || null, t.seats, chosen))
         + '" target="_blank" rel="noopener">Book ' + esc(t.name) + '&rsquo;s trip &rarr;</a>'
-        + '<div class="fine">'
-        + (deep
-            ? 'Opens these exact flights on Google Flights, ready to book'
-              + (o ? ' &mdash; the ' + clock(o.option.arriveMin) + ' arrival' : '')
-              + (b ? ' and the ' + clock(b.option.departMin) + ' departure' : '') + '.'
-            : 'Opens a ' + (state.q.ret ? 'round-trip' : 'one-way') + ' search for ' + esc(origin)
-              + '&ndash;' + esc(state.q.dest) + '. Pick the '
-              + (o ? clock(o.option.arriveMin) + ' arrival' : 'flight')
-              + (b ? ' and the ' + clock(b.option.departMin) + ' departure' : '') + '.')
-        + (airlineSite(o ? o.option : {})
-            ? ' Or go direct: <a href="' + esc(airlineSite(o.option).url) + '" target="_blank" rel="noopener">'
-              + esc(airlineSite(o.option).name) + '</a>.' : '')
         + '</div></div></div>';
 }
 
@@ -1678,23 +1824,11 @@ function renderPlanView() {
     host.innerHTML = html;
 }
 
-/* The ladders stay available, folded, for people who want to retune. */
-function renderOptions() {
-    var host = el('options'), body = el('optionsBody');
-    if (!TRIP) { host.className = 'opts hidden'; return; }
-    var prevLeg = state.leg, prevC = C;
-    var out = '';
-    [['outbound', 'Landing together'], ['return', 'Leaving together']].forEach(function (cfg) {
-        if (cfg[0] === 'return' && !hasReturn()) return;
-        state.leg = cfg[0]; C = compute(cfg[0]);
-        if (!C) return;
-        out += '<div class="leg-head"><h2>' + cfg[1] + '</h2></div>'
-            + bandRow(cfg[0]) + boardHtml();
-    });
-    state.leg = prevLeg; C = prevC;
-    host.className = 'opts';
-    body.innerHTML = out;
-}
+/* The window ladder used to live here, folded, as a table of every threshold
+ * and its cost. It was removed: the choice strip above prices the same decision
+ * in three rows people actually read, its "land between" control duplicated the
+ * one on the when step, and a second table of the same numbers is how somebody
+ * loses the thread of what this screen is telling them. */
 
 /* "What if it's cheaper the next day?" -- the obvious question, and SerpApi has
  * no flexible-date window, so each alternative date is a full set of searches.
@@ -1782,6 +1916,29 @@ function runShiftScan() {
     });
 }
 
+/* Nearby-date search is the one feature with a hard marginal cost: SerpApi has
+ * no flexible-date window, so every alternative day is a full set of searches
+ * for the whole group. That makes it the natural first paid feature, so it is
+ * held back rather than given away and taken back later.
+ *
+ * Drawn rather than set in an emoji font: the glyph should match the type and
+ * the palette, and a system emoji renders as a different colour and weight on
+ * every platform. Inherits currentColor so it works in both themes. */
+function lockIcon(px) {
+    var n = px || 13;
+    return '<svg class="lk" width="' + n + '" height="' + n + '" viewBox="0 0 24 24"'
+        + ' fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"'
+        + ' stroke-linejoin="round" aria-hidden="true" focusable="false">'
+        + '<rect x="4" y="10.5" width="16" height="11" rx="2.5"></rect>'
+        + '<path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"></path></svg>';
+}
+
+/* Unlocked per device. There is no paid tier yet, so this is how the feature
+ * stays testable without being on for everyone. */
+function shiftsUnlocked() {
+    try { return localStorage.getItem('fwf_unlock_dates') === '1'; } catch (e) { return false; }
+}
+
 function renderShifts() {
     var host = el('shifts');
     if (!TRIP || !state.q || DATA.sample) { host.className = 'shifts hidden'; return; }
@@ -1793,6 +1950,14 @@ function renderShifts() {
     var done = cands.filter(function (c) { return SHIFTS[shiftKey(c)]; });
     if (!done.length) {
         var n = shiftCost();
+        if (!shiftsUnlocked()) {
+            host.innerHTML = '<button class="btn wide locked" id="shiftLock" aria-disabled="true">'
+                + lockIcon(14) + '<span>Is another day cheaper?</span></button>'
+                + '<div class="share-note">Not available yet. Checking nearby dates means searching '
+                + 'them all over again, so it is coming as a paid extra rather than something that '
+                + 'quietly spends the month\'s searches.</div>';
+            return;
+        }
         host.innerHTML = '<button class="btn wide" id="shiftBtn"' + (shiftBusy ? ' disabled' : '') + '>'
             + (shiftBusy ? 'Checking…' : 'Is another day cheaper?') + '</button>'
             + '<div class="share-note">Checks the day before and after. Costs <b>' + n
@@ -2114,6 +2279,13 @@ function aboutSheet() {
 document.addEventListener('click', function (ev) {
     var tgt = ev.target;
     if (tgt.closest('#shiftBtn')) { runShiftScan(); return; }
+    if (tgt.closest('#shiftLock')) {
+        state.error = null;
+        el('shifts').querySelector('.share-note').innerHTML =
+            'Coming as a paid extra. Every nearby date is a fresh search for everybody, '
+            + 'so it is the one thing here that genuinely costs money to run.';
+        return;
+    }
     if (tgt.closest('#gearBtn')) { settingsSheet(); return; }
     if (tgt.closest('#aboutBtn')) { aboutSheet(); return; }
     if (tgt.id === 'sheetClose' || tgt.id === 'scrim') { closeSheet(); return; }
@@ -2125,7 +2297,8 @@ document.addEventListener('click', function (ev) {
 
     var t = tgt.closest && tgt.closest('[data-threshold],[data-rec],[data-set],[data-bag],'
         + '[data-stops],[data-cap],[data-choice],[data-clusterback],[data-seats],'
-        + '[data-rmparty],[data-addair],[data-rmair]');
+        + '[data-rmparty],[data-addair],[data-rmair],[data-air],[data-alli],'
+        + '[data-air-clear],[data-qm]');
     if (!t) return;
     var card = t.closest('.party');
     var p = card ? party(card.getAttribute('data-pid')) : null;
@@ -2166,6 +2339,37 @@ document.addEventListener('click', function (ev) {
         var raw = t.getAttribute('data-stops');
         state.q.maxStops = raw === '' ? null : +raw;
         thReset(); renderStepStops(); writeHash(); render();
+    } else if (t.hasAttribute('data-air')) {
+        /* Toggle one carrier. No re-search: we filter options already in hand. */
+        var key = t.getAttribute('data-air');
+        var at = state.q.avoid.indexOf(key);
+        if (at > -1) state.q.avoid.splice(at, 1); else state.q.avoid.push(key);
+        thReset(); writeHash(); render();
+    } else if (t.hasAttribute('data-alli')) {
+        /* "Only this alliance" = avoid every carrier on the route outside it.
+         * Expressed as exclusions so there is one mechanism to reason about,
+         * and so a carrier that appears later is not silently let in. */
+        var want = t.getAttribute('data-alli');
+        state.q.avoid = carriersInResults()
+            .filter(function (c) { return c.alliance !== want; })
+            .map(function (c) { return c.key; });
+        thReset(); writeHash(); render();
+    } else if (t.hasAttribute('data-air-clear')) {
+        state.q.avoid = [];
+        thReset(); writeHash(); render();
+    } else if (t.hasAttribute('data-qm')) {
+        var pop = el('qm-' + t.getAttribute('data-qm'));
+        if (pop) {
+            var open = pop.className.indexOf('hidden') > -1;
+            /* One open at a time: these are tall on a phone. */
+            Array.prototype.forEach.call(document.querySelectorAll('.qm-pop'), function (x) {
+                x.className = 'qm-pop hidden';
+            });
+            Array.prototype.forEach.call(document.querySelectorAll('.qm'), function (x) {
+                x.setAttribute('aria-expanded', 'false');
+            });
+            if (open) { pop.className = 'qm-pop'; t.setAttribute('aria-expanded', 'true'); }
+        }
     } else if (t.hasAttribute('data-threshold')) {
         var v = t.getAttribute('data-threshold');
         var sect = t.closest('.leg');
@@ -2334,7 +2538,7 @@ function syncDateBounds() {
 
 function fillForm() {
     var a = AIRPORTS.get(state.q.dest);
-    el('dest').value = a ? a.code + ' — ' + a.city : (state.q.dest || '');
+    el('dest').value = a ? a.code : (state.q.dest || '');
     el('dep').value = state.q.dep || '';
     el('ret').value = state.q.ret || '';
     syncDateBounds();
@@ -2385,7 +2589,15 @@ el('back2').addEventListener('click', function () { showStep(1); });
 el('back3').addEventListener('click', function () { showStep(2); });
 el('back4').addEventListener('click', function () { showStep(3); });
 el('go').addEventListener('click', function () { if (!state.busy) doSearch(); });
-el('demo').addEventListener('click', loadDemo);
+/* The example button is gone: the first screen should ask for a destination,
+ * not offer a detour around it. The example itself stays reachable at ?demo=1,
+ * because it renders every screen in the app without spending a search. */
+if (/[?&]demo=1\b/.test(location.search)) loadDemo();
+/* ?unlock=dates turns the nearby-date search on for this device and remembers
+ * it, so the feature can be used and tested before there is anything to buy. */
+if (/[?&]unlock=dates\b/.test(location.search)) {
+    try { localStorage.setItem('fwf_unlock_dates', '1'); } catch (e) {}
+}
 el('newBtn').addEventListener('click', function () {
     state.q = blankQuery(); DATA = null; state.error = null; thReset();
     history.replaceState(null, '', location.pathname);
@@ -2427,8 +2639,27 @@ document.addEventListener('keydown', function (ev) {
 
 function applyStepBand() {
     state.q.band.outbound = { from: el('sFrom').value, to: el('sTo').value };
+    renderBandPresets();
     thReset();
 }
+document.addEventListener('click', function (ev) {
+    var n = ev.target.closest && ev.target.closest('[data-bpre]');
+    if (!n) return;
+    var k = n.getAttribute('data-bpre');
+    if (k === 'exact') {
+        state.bandExact = true;
+        renderBandPresets();
+        if (el('sFrom')) el('sFrom').focus();
+        return;
+    }
+    var pre = BAND_PRESETS.filter(function (x) { return x.k === k; })[0];
+    if (!pre) return;
+    state.bandExact = false;
+    if (el('sFrom')) el('sFrom').value = pre.from;
+    if (el('sTo')) el('sTo').value = pre.to;
+    applyStepBand();
+    renderBandPresets();
+});
 if (el('sFrom')) el('sFrom').addEventListener('change', applyStepBand);
 if (el('sTo')) el('sTo').addEventListener('change', applyStepBand);
 
@@ -2445,7 +2676,7 @@ applyTheme();
 
 var sharedId = tripIdFromHash();
 var shared = readHash();
-state.q = (shared && shared.q && shared.q.parties) ? shared.q : blankQuery();
+state.q = migrateQuery((shared && shared.q && shared.q.parties) ? shared.q : blankQuery());
 if (shared && shared.v) {
     /* Adopt the sender's reading of the trip so both people see one number. */
     var v = shared.v;
@@ -2464,7 +2695,10 @@ if (shared && shared.v) {
 
 attachAc(el('dest'), el('destAc'), function (a) {
     state.q.dest = a.code;
-    el('dest').value = a.code + ' — ' + a.city;
+    /* The code only. The hint directly below already spells out the city and
+     * the airport name, so repeating it here bought nothing and overflowed the
+     * field at any city name longer than "Cabo". */
+    el('dest').value = a.code;
     if (a.closed) {
         el('destHint').className = 'hint bad';
         el('destHint').textContent = a.note + (a.alternates.length ? ' Try ' + a.alternates.join(', ') + '.' : '');
@@ -2513,7 +2747,7 @@ if (sharedId) {
             TRIP_ID = null; render(); return;
         }
         var pay = res.body.payload || {};
-        if (pay.q && pay.q.parties) state.q = pay.q;
+        if (pay.q && pay.q.parties) state.q = migrateQuery(pay.q);
         if (pay.v) {
             var v = pay.v;
             if (v.target) SET.target = v.target;

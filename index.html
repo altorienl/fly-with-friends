@@ -403,6 +403,41 @@ section { animation: stepIn .2s var(--ease); }
 .pill.on { border-color: var(--brand); color: var(--accent); background: var(--accent-dim); }
 .pills .k { margin-right: 4px; }
 
+/* Locked feature: readable, clearly not tappable, and not greyed out so far
+ * that it reads as broken. */
+.btn.locked { display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    color: var(--muted); border-style: dashed; background: transparent; cursor: default; }
+.btn.locked .lk { opacity: .9; }
+.btn.locked:active { transform: none; }
+
+/* Airline filter. The carrier chips wrap onto their own rows rather than
+ * sharing the pill row, because on a busy route there are a dozen of them. */
+.pills.airlines { display: block; }
+.air-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.pill.air { display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; }
+.pill.air .air-n { font-size: 10px; font-weight: 700; color: var(--muted); opacity: .75;
+    background: var(--bg); border-radius: 999px; padding: 2px 6px; min-width: 18px; text-align: center; }
+/* Struck through, not just dimmed: "off" has to survive being glanced at. */
+.pill.air.off { color: var(--muted); opacity: .5; text-decoration: line-through;
+    border-style: dashed; background: transparent; }
+.pill.air.off .air-n { text-decoration: none; }
+.air-row.alli { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--edge); gap: 4px; }
+.pill.alli-b { padding: 8px 12px; font-size: 11px; }
+.pill.alli-b.clear { margin-left: auto; color: var(--accent); border-color: var(--brand); }
+.qm { width: 26px; height: 26px; min-height: 26px; margin-right: 8px; flex: none;
+    border: 1px solid var(--edge); border-radius: 50%; background: var(--card);
+    color: var(--muted); font-size: 12px; font-weight: 800; line-height: 1; }
+.qm[aria-expanded="true"] { border-color: var(--brand); color: var(--accent); background: var(--accent-dim); }
+.qm-pop { margin-top: 10px; padding: 12px 14px; border: 1px solid var(--edge);
+    border-radius: var(--r-md); background: var(--bg); font-size: 12px; }
+.qm-pop > b { display: block; margin-bottom: 8px; font-size: 12px; }
+.qm-list { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); }
+.qm-list span { white-space: nowrap; }
+/* The carriers actually flying this route, which is the only part that can
+ * change what the filter does today. */
+.qm-list span.here { color: var(--text); font-weight: 700; }
+.qm-f { margin-top: 9px; font-size: 11px; color: var(--muted); opacity: .85; }
+
 .filters { background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-md); padding: 16px; margin-bottom: 16px; box-shadow: var(--lift); }
 .row2 { display: flex; align-items: center; gap: 8px; }
 .row2 .inp { flex: 1 1 0; min-width: 0; }
@@ -574,16 +609,20 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
 
 <header class="brand">
     <div class="brand-left">
-        <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+        <!-- The 2023 mark, drawn with round-capped strokes so the torsos stay
+             separate at 34px instead of fusing into one blob. Same geometry as
+             icon-512.png, scaled; keep the two in step if either changes. -->
+        <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
             <defs><linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" stop-color="#ffd23f"/><stop offset="1" stop-color="#f59300"/>
+                <stop offset="0" stop-color="#FFC800"/><stop offset="1" stop-color="#FF9400"/>
             </linearGradient></defs>
-            <rect width="64" height="64" rx="15" fill="url(#bg1)"/>
-            <g fill="#fff">
-                <circle cx="23" cy="19" r="6.4"/><circle cx="41" cy="19" r="6.4"/>
-                <rect x="8" y="28.4" width="48" height="5.6" rx="2.8"/>
-                <path d="M17.8 34h4.6l-3 17.6a2.2 2.2 0 1 1-4.3-.7zM23.8 34h4.6l2.6 16.9a2.2 2.2 0 1 1-4.3.7z"/>
-                <path d="M35.8 34h4.6l-3 17.6a2.2 2.2 0 1 1-4.3-.7zM41.8 34h4.6l2.6 16.9a2.2 2.2 0 1 1-4.3.7z"/>
+            <rect width="512" height="512" rx="114" fill="url(#bg1)"/>
+            <g fill="none" stroke="#fff" stroke-width="33" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="180" cy="143" r="32" fill="#fff" stroke="none"/>
+                <circle cx="332" cy="143" r="32" fill="#fff" stroke="none"/>
+                <path d="M68 201 H444"/>
+                <path d="M180 201 V278 M180 278 L122 410 M180 278 L234 410"/>
+                <path d="M332 201 V278 M332 278 L278 410 M332 278 L390 410"/>
             </g>
         </svg>
         <h1 class="brand-name">Fly with Friends</h1>
@@ -620,9 +659,6 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
         <div class="nav">
             <button class="btn primary wide" id="to2">Next: when</button>
         </div>
-        <div style="text-align:center;margin-top:14px">
-            <button class="btn ghost" id="demo">See an example first</button>
-        </div>
     </section>
 
     <!-- step 2 -->
@@ -646,12 +682,14 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
 
         <div class="field" role="group" aria-labelledby="sBandLbl">
             <span class="k" id="sBandLbl">What time should everyone land? <span style="text-transform:none;letter-spacing:0">optional</span></span>
-            <div class="row2">
+            <div class="pills" id="sBandPre" role="radiogroup" aria-label="Rough landing time"></div>
+            <div class="row2 hidden" id="sBandExact">
                 <input class="inp" id="sFrom" type="time" aria-label="Earliest landing time">
                 <span class="sep">and</span>
                 <input class="inp" id="sTo" type="time" aria-label="Latest landing time">
             </div>
-            <div class="party-note">Villa check-in, a booked shuttle, or just not landing at 2am. You can change this later for free.</div>
+            <div class="party-note">Most people only know roughly. Pick a part of the day, or set exact
+                times if something is booked. You can change this later for free.</div>
         </div>
 
         <div class="field">
@@ -662,10 +700,9 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
         </div>
 
         <div class="field">
-            <span class="k">Nobody pays more than their share by</span>
+            <span class="k">Cap on one person&rsquo;s extra</span>
             <div class="pills" id="sCap" role="radiogroup" aria-label="Limit on what one traveller pays extra"></div>
-            <div class="party-note">Landing together usually costs one person more than the rest —
-                normally whoever is furthest away. This stops that going too far.</div>
+            <div class="party-note">Landing together usually costs one person more than the rest, normally whoever is furthest away. This caps how much.</div>
         </div>
 
         <div class="field">
@@ -708,6 +745,7 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
             <summary>Adjust the search</summary>
             <div class="filters">
                 <div class="pills" id="stopPills"></div>
+                <div class="pills airlines" id="airlinePills"></div>
                 <div class="pills" id="capPills"></div>
                 <div class="pills" id="recPills"></div>
                 <div class="free hidden" id="freeNote"></div>
@@ -715,10 +753,6 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
         </details>
 
         <section id="planView" aria-label="The plan"></section>
-        <details class="opts hidden" id="options">
-            <summary>Other windows and what they cost</summary>
-            <div id="optionsBody"></div>
-        </details>
 
         <div class="shifts hidden" id="shifts" aria-live="polite"></div>
         <div class="share" id="shareBox"></div>
