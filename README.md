@@ -165,32 +165,29 @@ is 42m", because a two-person spread was being measured against a three-person f
 "tightest is 8m", which reads as the app second-guessing its own answer. It now reads
 "8m is possible for $126 more", which is the actual decision.
 
-**A budget ceiling, as a number.** Not "roughly what people want to spend", which is how one
-person suggests Mykonos while another was thinking Myrtle Beach. Set a per-person all-in
-figure and every option is priced against the *worst-off* traveller, never a group average —
-an average hides exactly the person who cannot afford it. Where nothing fits, the app says so
-and names who sets the floor: *"nothing keeps everyone under $250 each; the best anyone can do
-is $501, set by Alex — raise the number, or that person flies from somewhere else."*
-
 **Nonstop is a preference, not a rule.** This was a behaviour bug, not a missing feature:
 asking for nonstop used to eliminate every plan for everyone if a single person flying from a
 smaller city had no nonstop. Now the preference is applied per traveller — honoured where it
 exists, relaxed only for whoever cannot meet it, and stated plainly: *"Alex had no nonstop
 option, so a connection was allowed rather than dropping the plan."*
 
-**The decision is at the top, not folded away.** The first person to use this who had not
-built it said "that's expensive, why can't it show me the cheapest and the time difference,
-I'd wait longer for a cheaper flight". The app already knew all of that and had buried it in
-a collapsed panel. Three named choices now sit directly under the total, priced across both
-legs at once:
+**Cheapest first, then what closeness costs.** Two people used this before it read properly.
+One said "that's expensive, why can't it show me the cheapest and the time difference". The
+other found the best deal only by opening the filter panel — "it wasn't apparent". Both were
+asking for the same thing: the floor, stated plainly, with the premium measured from it.
 
 ```
-As close as possible          15m apart      $2,322   +$432
-A bit more spread out         20m apart      $2,161   +$271   ← selected
-Cheapest, however far apart   7h 25m apart   $1,890   cheapest
+Cheapest                  7h 25m apart   $501 each at most   $1,890   the floor
+A bit closer              20m apart      $530 each at most   $2,161   +$271 to land together
+As close as they can get  15m apart      $577 each at most   $2,322   +$432 to land together
 ```
 
-One tap sets both legs. Computing the trade was never the hard part; showing it was.
+Reading down from the floor answers "why am I paying more than that" without opening
+anything. One tap sets both legs. Computing the trade was never the hard part; showing it was.
+
+A per-person budget ceiling was built and then removed: it asked the user to supply a number
+the app could just as well derive, and flagging rows as over-budget said less than simply
+showing the cheapest with the premium next to it.
 
 **One card per person, both legs, one button.** The results are a single view: the trip
 total, then the two landing windows as timelines, then one card per traveller containing

@@ -78,7 +78,7 @@ function blankQuery() {
     return {
         dest: '', dep: '', ret: '',
         band: { outbound: { from: '', to: '' }, return: { from: '', to: '' } },
-        maxStops: null, maxPremium: null, budget: null,
+        maxStops: null, maxPremium: null,
         parties: [newParty(0), newParty(1), newParty(2)]
     };
 }
@@ -601,16 +601,10 @@ function tripChoices() {
     if (knee && knee.th !== tight.th && knee.th !== cheap.th) out.push(knee);
     if (cheap.th !== tight.th) out.push(cheap);
 
-    /* If a ceiling is set, the tightest window that actually fits it is the most
-     * useful row on the page, so it earns a place of its own. */
-    if (state.q.budget) {
-        var fits = l.filter(function (r) { return r.topPer <= state.q.budget; })[0];
-        if (fits && !out.some(function (r) { return r.th === fits.th; })) {
-            out.splice(1, 0, fits);
-            fits.isFit = true;
-        }
-    }
-    return out;
+    /* Cheapest first. It is the floor every other row is a premium on, and
+     * reading down from it answers "why am I paying more than that" without
+     * anyone having to open a filter panel to find it. */
+    return out.reverse();
 }
 
 function renderChoices() {
@@ -618,46 +612,26 @@ function renderChoices() {
     var c = tripChoices();
     if (!c || c.length < 2) { host.className = 'choices hidden'; return; }
 
-    var cheapest = c[c.length - 1];
+    /* Find it by price, not by position -- the list order changed once already. */
+    var cheapest = c.reduce(function (a, b) { return b.total < a.total ? b : a; });
     var cur = state.th.outbound;
 
-    /* Flagging every row as over-budget without saying so is a puzzle. State the
-     * gap and who sets it, because that is the decision: raise the number, or
-     * one person flies from somewhere else. */
-    var budgetNote = '';
-    if (state.q.budget) {
-        var best = c.reduce(function (a, b) { return b.topPer < a.topPer ? b : a; });
-        if (best.topPer > state.q.budget) {
-            var who = best.topId ? (C.travelers.filter(function (t) { return t.id === best.topId; })[0] || {}).name : null;
-            budgetNote = '<div class="budget-note">Nothing keeps everyone under <strong>'
-                + money(state.q.budget) + '</strong> each. The best anyone can do is <strong>'
-                + money(best.topPer) + '</strong>'
-                + (who ? ', set by ' + esc(who) : '')
-                + ' — raise the number, or that person flies from somewhere else.</div>';
-        }
-    }
-
     host.className = 'choices';
-    host.innerHTML = '<span class="k">How close, and what it costs</span>' + budgetNote
+    host.innerHTML = '<span class="k">The cheapest, and what landing together costs</span>'
         + c.map(function (r, i) {
             var on = cur === r.th;
             var extra = r.total - cheapest.total;
-            var over = state.q.budget && r.topPer > state.q.budget;
-            var label = r.isFit ? 'Closest that fits ' + money(state.q.budget) + ' each'
-                : i === 0 ? 'As close as possible'
-                : (r.th === cheapest.th ? 'Cheapest, however far apart' : 'A bit more spread out');
-            return '<button class="choice' + (on ? ' on' : '') + (over ? ' over' : '') + '" data-choice="'
+            var label = r.th === cheapest.th ? 'Cheapest'
+                : i === c.length - 1 ? 'As close as they can get'
+                : 'A bit closer';
+            return '<button class="choice' + (on ? ' on' : '') + '" data-choice="'
                 + (r.th === FWF.INF ? 'Infinity' : r.th) + '" aria-pressed="' + on + '">'
                 + '<span class="c-l">' + label + '</span>'
                 + '<span class="c-w mono">' + FWF.fmtGap(r.worst) + ' apart'
-                + (state.q.budget
-                    ? '<br><span class="c-fit ' + (over ? 'over' : '') + '">'
-                      + money(r.topPer) + ' each at most'
-                      + (over ? ' · over by ' + money(r.topPer - state.q.budget) : ' · fits')
-                      + '</span>'
-                    : '') + '</span>'
+                + '<br><span class="c-fit">' + money(r.topPer) + ' each at most</span></span>'
                 + '<span class="c-p mono">' + money(r.total)
-                + (extra > 0 ? '<em>+' + money(extra) + '</em>' : '<em>cheapest</em>') + '</span>'
+                + (extra > 0 ? '<em>+' + money(extra) + ' to land together</em>' : '<em>the floor</em>')
+                + '</span>'
                 + '</button>';
         }).join('');
 }
@@ -1261,7 +1235,6 @@ function travellerCard(id, i) {
     var apart = !pp.outInWindow || !pp.backInWindow;
     var origin = o ? o.option.from : (t.origins[0] || '');
     var each = t.seats > 1 ? Math.round(pp.total / t.seats) : pp.total;
-    var overBudget = !!(state.q.budget && each > state.q.budget);
 
     return '<div class="trav' + (apart ? ' apart' : '') + '">'
         + '<div class="trav-top">'
@@ -1270,11 +1243,8 @@ function travellerCard(id, i) {
         + '<div><div class="trav-name">' + esc(t.name)
         + (t.seats > 1 ? ' <span class="badge seats">' + t.seats + ' seats</span>' : '')
         + (apart ? ' <span class="badge out">not in the window</span>' : '') + '</div></div>'
-        + '<div class="trav-tot mono' + (overBudget ? ' over' : '') + '">' + money(pp.total)
-        + '<span' + (overBudget ? ' class="over"' : '') + '>'
-        + (overBudget ? money(each - state.q.budget) + ' over budget'
-            : t.seats > 1 ? money(each) + ' each' : 'all in')
-        + '</span></div>'
+        + '<div class="trav-tot mono">' + money(pp.total)
+        + '<span>' + (t.seats > 1 ? money(each) + ' each' : 'all in') + '</span></div>'
         + '</div>'
         + hopRow('Out', o, 'outbound')
         + (b ? hopRow('Back', b, 'return') : '')
@@ -1700,7 +1670,6 @@ function fillForm() {
     el('dest').value = a ? a.code + ' — ' + a.city : (state.q.dest || '');
     el('dep').value = state.q.dep || '';
     el('ret').value = state.q.ret || '';
-    if (el('sBudget')) el('sBudget').value = state.q.budget == null ? '' : state.q.budget;
     syncDateBounds();
     fillBand();
 }
@@ -1770,12 +1739,6 @@ function applyStepBand() {
     state.q.band.outbound = { from: el('sFrom').value, to: el('sTo').value };
     thReset();
 }
-if (el('sBudget')) el('sBudget').addEventListener('change', function () {
-    var v = parseFloat(el('sBudget').value);
-    state.q.budget = isFinite(v) && v > 0 ? v : null;
-    thReset();
-    if (state.step === 4) render();
-});
 if (el('sFrom')) el('sFrom').addEventListener('change', applyStepBand);
 if (el('sTo')) el('sTo').addEventListener('change', applyStepBand);
 
