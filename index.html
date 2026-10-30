@@ -363,10 +363,27 @@ a { color: var(--accent); }
 
 /* The rows are radio buttons and were reading as text, so nobody knew the other
    plans were tappable. Unselected rows carry an explicit word where the selected
-   row carries its per-person figure, and the whole row gets a pressed surface --
-   the cheapest honest affordance that does not add an element. */
-.mrow { cursor: pointer; transition: background .15s; }
-.mrow:not(.on):active { background: var(--card); }
+   row carries its per-person figure, and the whole row answers a press with a
+   surface -- the cheapest honest affordance that does not add an element.
+ *
+ * The surface is an inset pseudo-element, not the row's own background. A row
+ * with no horizontal padding, tinted edge to edge, runs straight into the
+ * hairlines above and below it with no margin at all: it reads as a rendering
+ * artefact rather than as something being pressed, and the three rules that
+ * accumulated here -- hover, active, and a second active at a different colour
+ * -- were fighting over which flat rectangle to draw. One surface now, lifted
+ * off the hairlines, bled slightly past the text so the type sits inside it
+ * rather than on its edge, and rounded, because nothing else on this screen
+ * that responds to a finger has a square corner. */
+.mrow { cursor: pointer; position: relative; }
+.mrow::before {
+    content: ''; position: absolute; z-index: 0;
+    inset: 4px calc(var(--s2) * -1);
+    border-radius: var(--r-sm); background: transparent;
+    transition: background .22s var(--ease);
+}
+/* Above the surface, so it is a backdrop and not an overlay. */
+.mrow > * { position: relative; z-index: 1; }
 /* The word is the affordance, not its colour. One "Choose" per unselected row
    means this multiplies with the match count the same way the Book button
    multiplies with the traveller count, and amber that repeats stops meaning
@@ -847,14 +864,6 @@ a { color: var(--accent); }
 .win-head.hero .t { font-size: var(--t-2); font-weight: 500; color: var(--muted); margin-bottom: var(--s1); }
 .win-head.hero .r { font-size: var(--t-6); font-weight: 600; letter-spacing: var(--tr-6);
     line-height: var(--lh-tight); font-variant-numeric: tabular-nums; text-wrap: balance; }
-/* What the closeness cost, per person. The caption to the hero, not a second
-   hero: same size, weight and colour as the .t line above it, so the display
-   number stays the only thing on the screen set large. --muted is 8.27:1 on the
-   dark page and 6.95:1 on the light one, both clear of 4.5:1 for 13px body.
-   No colour of its own -- the amber family is spoken for ten times over on this
-   screen, and a warning colour would make a $46 fare read as an error. */
-.win-head.hero .c { font-size: var(--t-2); font-weight: 400; color: var(--muted);
-    margin-top: var(--s2); line-height: var(--lh-text); text-wrap: pretty; }
 .win-note { font-size: var(--t-2); color: var(--muted); margin-top: 8px; line-height: var(--lh-text); }
 
 .trav { border-top: 1px solid var(--edge); padding: var(--s4) 0 var(--s2); }
@@ -937,8 +946,6 @@ a { color: var(--accent); }
 .tstate { border-top: 1px solid var(--edge); padding-top: var(--s4); margin-bottom: var(--s2); }
 .tst-line { font-size: var(--t-3); color: var(--muted); line-height: var(--lh-text); }
 .tst-line b { font-weight: 600; color: var(--text); }
-.tst-ask { margin-bottom: var(--s3); }
-.tst-ask .k { display: block; font-size: var(--t-2); color: var(--muted); margin-bottom: var(--s2); }
 .opts { margin-top: var(--s5); border-top: 1px solid var(--edge); }
 .opts > summary { padding: var(--s4) 0; font-size: var(--t-3); font-weight: 500; color: var(--muted); cursor: pointer; list-style: none; }
 .opts > summary::-webkit-details-marker { display: none; }
@@ -1270,7 +1277,7 @@ footer .sep { color: var(--faint); margin: 0 8px; }
     .stepper button:hover:not(:disabled) { background: var(--card-2); color: var(--text); }
     .add-air:hover { border-color: var(--edge-2); color: var(--text); }
     /* the row lifts out of the list rather than flooding edge to edge */
-    .mrow:hover:not(.on) { background: var(--card-2); }
+    .mrow:hover:not(.on)::before { background: var(--card-2); }
 }
 
 .pill:active, .add-air:active, .chip button:active,
@@ -1281,7 +1288,7 @@ footer .sep { color: var(--faint); margin: 0 8px; }
 /* Not a scale: a full-bleed row that shrinks pulls away from the hairlines
  * above and below it and reads as a glitch. A surface flash is what the other
  * full-width rows in this app already answer a press with. */
-.mrow:active:not(.on) { background: var(--card-2); }
+.mrow:active:not(.on)::before { background: var(--card-2); }
 
 /* Every target the finger can land on answers it. Without these the calendar,
  * the airport list, the date field and the disclosure rows were the only parts
@@ -1301,8 +1308,7 @@ footer .sep { color: var(--faint); margin: 0 8px; }
 .chip button, .party-x, .stepper button, footer button, .datefield, .cal-nav, .qm {
     transition-duration: .22s;
 }
-.mrow { transition: background .22s var(--ease); }
-.mrow:active { transition-duration: .06s; }
+.mrow:active::before { transition-duration: .06s; }
 .btn:active, .pill:active, .icon-btn:active, .choice:active, .gear:active,
 .add-air:active, .chip button:active, .party-x:active,
 .stepper button:active, footer button:active, .datefield:active, .cal-nav:active, .qm:active {

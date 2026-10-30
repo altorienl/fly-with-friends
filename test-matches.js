@@ -320,6 +320,41 @@ console.log('\n-- the invariants the names promise, over generated groups --');
         + Math.round(easeCost[Math.floor(easeCost.length / 2)] || 0));
 }());
 
+/* --------------------------------------- the quoted total is current */
+
+console.log('\n-- the cards re-price when the trip changes --');
+(function () {
+    /* "fly home seperately is interesting bc if you hit it you cant see the new
+     * price reflected anywhere" -- the cards quoted the trip with the old way
+     * home. MATCHES was cleared nowhere: computed once on load and served from
+     * the memo for the rest of the session, so every filter on the screen had
+     * the same bug. It renders perfectly and the numbers are simply stale,
+     * which is the only failure mode of this feature nobody can see. */
+    load(F.groups[1]);
+    ctx.state.q.clusterReturn = true;
+    var together = ctx.tripMatches().map(function (m) { return m.key + ':' + m.total; });
+    /* Exactly what render() does every pass. */
+    ctx.MATCHES = null; ctx.returnTh = {};
+    ctx.state.q.clusterReturn = false;
+    var apart = ctx.tripMatches().map(function (m) { return m.key + ':' + m.total; });
+    check('flying home separately changes every quoted total',
+          together.join() !== apart.join(),
+          'together ' + together.join(' ') + '\n          apart     ' + apart.join(' '));
+    check('and it changes them downward, by the saving the button promises',
+          apart.every(function (x, i) {
+              return +x.split(':')[1] <= +together[i].split(':')[1];
+          }), apart.join(' '));
+
+    /* The memo exists because tripMatches() is called more than once per pass.
+     * Asserted against the source because render() needs a DOM this suite does
+     * not build -- and the bug was exactly a missing line in render(), so a
+     * test that cannot see render() is a test that would have passed. */
+    var r = src.slice(src.indexOf('function render() {'), src.indexOf('function renderGear('));
+    check('render() clears the match memo every pass', /MATCHES = null;/.test(r));
+    check('...alongside the other per-pass memos it is grouped with',
+          /returnTh = \{\};[\s\S]{0,800}?MATCHES = null;[\s\S]{0,80}?C = compute\(\);/.test(r));
+}());
+
 /* ------------------------------------- no two rows may read the same */
 
 console.log('\n-- every row on a screen says something different --');

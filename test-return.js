@@ -175,21 +175,28 @@ eq('nobody changes planes for it', reg.stops, 0);
 eq('nobody spends a minute longer in the air for it', reg.mins, 0);
 
 console.log('\n-- what the screen says, in each of the three states --');
-[['true', true, 'Leaving together', 'Costs $23 more than flying home separately, which would spread the group',
-  'Fly home separately, save $23', '0'],
- ['false', false, 'Flying home', 'Each on their own flight home, as asked',
-  'Leave together for $23', '1']
+/* These asserted a sentence -- "Costs $23 more than flying home separately,
+ * which would spread the group over 11 hours 10 minutes" -- sitting directly
+ * above a button that said "Fly home separately, save $23". Two statements of
+ * one trade, longest first: "lets remove this ... i want least amount of words
+ * as possible". The trade is now on the control alone, so what these check is
+ * that the control still carries the whole of it and the prose is gone. */
+[['true', true, 'Leaving together', 'Fly home separately, save $23', '0'],
+ ['false', false, 'Flying home', 'Leave together for $23', '1']
 ].forEach(function (cse) {
     seat(DEMO, sample.trips['pit-feb'], cse[1]);
     var b = T.legBreakdown('return');
     var html = T.windowStrip('return', b), t = text(html);
     check('clusterReturn=' + cse[0] + ': heading is "' + cse[2] + '"',
           t.indexOf(cse[2]) === 0, t.slice(0, 80));
-    check('clusterReturn=' + cse[0] + ': states the trade', t.indexOf(cse[3]) > -1, t);
     check('clusterReturn=' + cse[0] + ': the alternative carries its price',
-          t.indexOf(cse[4]) > -1, t);
+          t.indexOf(cse[3]) > -1, t);
     eq('clusterReturn=' + cse[0] + ': and the button moves to the other state',
-       (/data-clusterback="([^"]*)"/.exec(html) || [])[1], cse[5]);
+       (/data-clusterback="([^"]*)"/.exec(html) || [])[1], cse[4]);
+    /* No sentence restating what the button already says. */
+    check('clusterReturn=' + cse[0] + ': no prose above the control',
+          t.indexOf('Costs ') === -1 && t.indexOf('would spread') === -1
+          && t.indexOf('own flight home') === -1 && t.indexOf('for the same money') === -1, t);
 });
 /* The sentence the owner rejected, and the link with no price on it, are gone. */
 seat(DEMO, sample.trips['pit-feb']);

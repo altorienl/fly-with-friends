@@ -85,7 +85,10 @@ var SHIFTS = {}, shiftBusy = false, shiftErr = null;
 var TRIP_ID = null, savingTrip = false;
 /* Who in this trip has said they bought their ticket. Party id -> 'booked'.
  * Read from the trip, never computed, and sanitised on the way in. */
-var MARKS = {}, markBusy = null, markErr = null, marksAt = 0;
+/* markErrId, because until somebody claims a card every card carries a mark
+ * control: a single shared error string printed the same failure under all four
+ * of them. */
+var MARKS = {}, markBusy = null, markErr = null, markErrId = null, marksAt = 0;
 /* Bumped by every search and by starting a new trip, so a response that belongs
  * to a trip nobody is looking at any more can be identified and dropped. */
 var searchGen = 0;
@@ -1230,7 +1233,7 @@ function doSearch() {
          * nobody in the group has seen. Carrying somebody's "booked" across
          * would be the app asserting a purchase against flights that may not be
          * the ones they bought. */
-        SHIFTS = {}; shiftErr = null; TRIP_ID = null; MARKS = {}; markErr = null;
+        SHIFTS = {}; shiftErr = null; TRIP_ID = null; MARKS = {}; markErr = null; markErrId = null;
         thReset(); state.leg = 'outbound';
         /* Remember who went, now that a real search has confirmed they are a
          * real group. Written after DATA is set so saveGroup can tell the
@@ -1595,7 +1598,7 @@ function postMark(pid, next) {
     if (!TRIP_ID || markBusy) return;
     if (partyIds().indexOf(pid) < 0) return;
     if (next !== 'booked' && next !== 'looking') return;
-    markBusy = pid; markErr = null;
+    markBusy = pid; markErr = null; markErrId = pid;
     render();
     fetch(API + '/trip/' + TRIP_ID + '/mark', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1680,19 +1683,13 @@ function renderTripState() {
     var waiting = ids.filter(function (id) { return MARKS[id] !== 'booked'; });
     var html = '';
 
-    /* Asked once, inline, only on a trip that arrived from somebody else --
-     * because there it is not a preference, it is the question the document
-     * needs answered before it can say anything about you. Settings keeps the
-     * same control for changing the answer. Choosing costs nothing; it is the
-     * mark underneath that costs a write. */
-    if (TRIP_ID && !meParty() && people.length > 1) {
-        html += '<div class="tst-ask"><span class="k">Which one are you?</span>'
-            + '<div class="pills">'
-            + people.map(function (t) {
-                return '<button class="pill" data-me="' + esc(t.id) + '">' + esc(t.name) + '</button>';
-            }).join('')
-            + '</div></div>';
-    }
+    /* "Which one are you?" used to be asked here, as a row of name pills above
+     * the plan, and it was a form to fill in before the screen would say
+     * anything -- asked before the reader had seen a single flight, and answered
+     * with initials that do not distinguish two people whose names start with
+     * the same letter. The question is now never asked: the control that needs
+     * the answer is on the cards, and tapping yours IS the answer. Settings
+     * still holds it for changing your mind. */
 
     var said = '';
     if (booked.length) {
@@ -2731,6 +2728,13 @@ function render() {
      * sets it summarises change whenever a filter does. */
     returnTh = {};
     PICKED_PLAN = null;
+    /* Cleared with the rest of the per-pass memos. It was not, so the matches
+     * were computed once on load and never again: "Fly home separately, save
+     * $20" moved the plan and the itineraries underneath it, and the three
+     * totals above them went on quoting the trip with the old way home. Every
+     * filter on the screen had the same problem -- stops, airlines, the band,
+     * a seat count -- because every one of them changes what a match costs. */
+    MATCHES = null;
     C = compute();
     renderNotices();
     renderGear();
@@ -3685,21 +3689,20 @@ function chatBlock() {
     return lines.join('\n');
 }
 
-/* The block that says which way home the app took, what it cost, and how to
- * have the other one.
+/* The way home offers the other answer, priced. Nothing else.
  *
- * It replaces "Each on their own best flight home." plus a "Leave together
- * instead" link, which failed in two ways at once: it described the outcome as
- * a kindness rather than a trade, and it put the alternative in a link with no
- * price on it, which is the fine print somebody skips on the way to deciding
- * the app got it wrong. Every sentence here carries a number the reader can
- * check against the dots above it, and the button says what taking it does.
+ * It used to say it in a sentence first -- "Costs $20 more than flying home
+ * separately, which would spread the group over 15 hours 49 minutes." -- and
+ * then repeat the number on the button underneath. Two statements of one fact,
+ * and the longer one came first: "i want least amount of words as possible".
+ * Every number that sentence carried is either on the button or in the heading
+ * directly above the dots, so the sentence was the only part that could go
+ * without taking a fact with it.
  *
- * Returns the note only -- the heading above it already states the spread, so
- * none of these repeat it. */
+ * Returns the control only. */
 function returnNote(b, allIn) {
-    /* With somebody outside the window the honest sentence is the one about who
-     * cannot make it, which the strip prints directly below this. */
+    /* With somebody outside the window the honest thing on screen is the line
+     * about who cannot make it, which the strip prints directly below this. */
     if (!allIn) return '';
     var ch = returnChoice(b.ctx), w = ch.ways;
     if (!w.floor) return '';
@@ -3722,56 +3725,23 @@ function returnNote(b, allIn) {
          * which happens when the cheap flights were already in one bank. */
         if (apart.spread === b.spread) return '';
         var extra = Math.round(b.inWindowTotal - apart.cost);
-        return '<div class="win-note">'
-            + (extra > 0
-                ? 'Costs ' + money(extra) + ' more than flying home separately, which would '
-                  + 'spread the group over ' + gapWords(apart.spread) + '.'
-                  + btn('0', 'Fly home separately, save ' + money(extra))
-                : 'Costs nothing extra. Flying home separately would spread the group over '
-                  + gapWords(apart.spread) + ' for the same money.'
-                  + btn('0', 'Fly home separately anyway'))
-            + '</div>';
+        return btn('0', extra > 0 ? 'Fly home separately, save ' + money(extra)
+                                  : 'Fly home separately');
     }
 
-    /* Both remaining cases are flying home separately, and both have to name the
-     * price of the other way rather than imply there is not one. */
+    /* Both remaining cases are flying home separately, and both have to carry
+     * the price of the other way rather than imply there is not one. */
     var reach = w.together !== FWF.INF ? { th: w.together } : w.reach;
-    if (!reach) {
-        return '<div class="win-note">Each on their own flight home. No window gets the '
-            + 'group out together without putting somebody on a materially worse flight '
-            + 'than they would take alone.</div>';
-    }
+    /* No window gets the group out together without putting somebody on a
+     * materially worse flight than they would take alone. There is no
+     * alternative to offer, so there is no control -- and the heading above the
+     * dots already states how far apart the group leaves. */
+    if (!reach) return '';
     var tog = FWF.minCostAtWindow(b.ctx.prep, reach.th, b.ctx.costFn);
     if (!tog) return '';
     var cost = Math.round(tog.cost - b.inWindowTotal);
-
-    if (ch.how === 'priced-out') {
-        /* Two different reasons land here and they deserve different sentences.
-         * Either leaving together is affordable but asks somebody to fly worse,
-         * or it is simply dear. Naming which, and who, is the difference between
-         * a decision and a refusal. */
-        var asks = reach.asks;
-        var who = asks && asks.who ? name(asks.who) : null;
-        var askTxt = '';
-        if (asks && who) {
-            if (asks.stops > 0) {
-                askTxt = ' and puts ' + esc(who) + ' on a connection';
-            } else if (asks.mins > 0) {
-                askTxt = ' and gives ' + esc(who) + ' ' + gapWords(asks.mins) + ' more in the air';
-            }
-        }
-        return '<div class="win-note">Each on their own flight home. Getting everyone out '
-            + 'within ' + gapWords(tog.spread) + ' of each other'
-            + (cost > 0 ? ' costs ' + money(cost) + ' more' : ' costs nothing extra')
-            + askTxt + '.'
-            + btn('any', cost > 0 ? 'Leave together for ' + money(cost) : 'Leave together')
-            + '</div>';
-    }
-    return '<div class="win-note">Each on their own flight home, as asked. Leaving together '
-        + 'would put everyone within ' + gapWords(tog.spread) + ' of each other'
-        + (cost > 0 ? ' for ' + money(cost) + ' more.' : ' for the same money.')
-        + btn('1', cost > 0 ? 'Leave together for ' + money(cost) : 'Leave together')
-        + '</div>';
+    return btn(ch.how === 'priced-out' ? 'any' : '1',
+               cost > 0 ? 'Leave together for ' + money(cost) : 'Leave together');
 }
 
 function windowStrip(leg, b, label) {
@@ -3816,23 +3786,13 @@ function windowStrip(leg, b, label) {
     var measure = loose ? gapWords(b.spread) + ' apart'
         : allIn ? withinEachOther(b.spread)
         : seatsOf(included) + ' of ' + seatsAll() + ' within ' + gapWords(b.spread);
-    /* And what it cost the person it cost most, which is the second fact on the
-     * screen and the only other one Google Flights cannot print. It is a line
-     * inside the hero, not a block of its own: the hero still states one fact at
-     * display size and this is its caption, the same subordinate relationship
-     * .t already has above it.
-     *
-     * Only under the arrival hero. The way home prices itself in returnNote and
-     * a second money sentence per leg is two apologies for one trip.
-     *
-     * Only when everybody made the window, because only then has the headline
-     * claimed anything to put a price on -- and when somebody did not, the red
-     * line naming them is the most important thing here and must not have a
-     * dollar figure competing with it.
-     *
-     * Silent below $40 a seat, and silent when the closeness was free. See
-     * costOfCloseness for where $40 comes from and why it is not a taste. */
-    var cost = (hero && allIn) ? costOfCloseness(b.ctx, b.rows, included) : null;
+    /* "N paid $92 more than flying whenever they liked" used to sit here, under
+     * the hero, as its caption. It was the sentence no other product could
+     * write -- and it was still a sentence, under a headline, above a timeline,
+     * above a priced control: "i want least amount of words as possible". The
+     * premium it reported is on the person's own card, beside their fare, as
+     * "incl. $92 to land together", which is where somebody checking their own
+     * number is already looking. */
     var html = '<div class="win">'
         + (hero
             ? '<div class="win-head hero"><div class="t">' + esc(label) + '</div>'
@@ -3841,11 +3801,6 @@ function windowStrip(leg, b, label) {
                * word: 536px at 393px wide, which gave the page 159px of
                * horizontal scroll. Measured, not guessed. */
               + '<div class="r">' + esc(measure).replace(/(\d) /g, '$1\u00a0') + '</div>'
-              + (cost
-                  ? '<div class="c">' + esc(name(cost.id)) + ' paid ' + money(cost.each)
-                    + (cost.seats > 1 ? ' a seat' : '')
-                    + ' more than flying whenever they liked.</div>'
-                  : '')
               + '</div>'
             : '<div class="win-head"><span class="t">' + esc(label) + '</span>'
               + '<span class="s">' + esc(measure) + '</span></div>')
@@ -3962,15 +3917,31 @@ function travellerCard(id, i) {
      * moment sharing creates the document, the control appears under the hand
      * that is already on this card. */
     var booked = MARKS[id] === 'booked';
-    var mine = SET.meId === id;
+    /* meParty(), not SET.meId: a device that has answered for its own group
+     * carries an id that means nothing on somebody else's trip, and matching it
+     * raw would leave every card unclaimable -- mine false for all of them and
+     * the "nobody has claimed one yet" branch closed by a stale setting. */
+    var me = meParty();
+    var mine = !!me && me.id === id;
     var saving = markBusy === id;
-    var control = (mine && TRIP_ID)
+    /* Until somebody on this device has claimed a card, every card offers it,
+     * and the tap that marks one is also the tap that says which one you are.
+     * That is strictly less to do than answering a question first and then
+     * pressing the button it unlocked, and it is one fewer thing on the screen.
+     * After that the control is only ever on your own row, because marking
+     * somebody ELSE booked is the single thing a group trip must not let
+     * whoever holds the link do -- it is the version of this feature that lies
+     * about money. */
+    var canMark = TRIP_ID && (mine || !me);
+    var control = canMark
         ? '<button class="mark-btn' + (booked ? ' on' : '') + '" data-mark="' + esc(id)
           + '" data-to="' + (booked ? 'looking' : 'booked') + '"'
           + (saving ? ' disabled aria-busy="true"' : '') + '>'
-          + (saving ? 'Saving…' : booked ? 'Not booked after all' : 'I’ve booked this')
+          + (saving ? 'Saving…' : booked ? 'Not booked after all'
+              : mine ? 'I’ve booked this' : 'I’m ' + esc(t.name) + ' — booked')
           + '</button>'
-          + (markErr && !markBusy ? '<div class="fine bad">' + esc(markErr) + '</div>' : '')
+          + (markErr && !markBusy && markErrId === id
+              ? '<div class="fine bad">' + esc(markErr) + '</div>' : '')
         : '';
 
     return '<div class="trav' + (apart ? ' apart' : '') + (booked ? ' booked' : '') + '">'
@@ -4391,66 +4362,6 @@ function premiumFor(id, pick) {
  * once had a pruned baseline, because pruning moves a party away from being
  * the worst-off rather than towards it. */
 
-/* The floor is borrowed, not invented. compute() calls a fare difference worth
- * acting on at max(40 a seat, 18% of the fare) -- the budget-fare rule's own
- * margin, whichever of the two is larger -- and will not move anybody onto a
- * different flight for less. A screen has no business editorialising about an
- * amount its own optimiser would ignore, so this is the same pair of numbers.
- * Below it the sentence is true and pointless, which is the definition of
- * noise: measured over 144 real plans -- eight option sets, five settings
- * apiece, every rung of each ladder -- a floor of zero prints on 106 of them,
- * 74%, which is often enough to read as furniture. This one speaks on 44%.
- *
- * The relative half only ever makes it say LESS, and it earns its place on
- * long-haul: on a $690 transatlantic baseline the flat $40 would print "$55
- * more than flying whenever they liked", which is 8% of the ticket and not
- * news. Over 152 plans the two halves disagree four times, all four of them
- * that same case. */
-var CLOSENESS_FLOOR = 40;
-var CLOSENESS_FLOOR_PCT = 0.18;
-
-/* There is no second, louder register, and that was tested rather than assumed.
- * whoPays() escalated at a 60% share and the same rule was built here and put on
- * screen: "Sam paid $90 a seat more than flying whenever they liked - most of
- * what that cost." It wrapped to two lines, the dash landed at the head of the
- * second one reading as a bullet, and "that" had no antecedent where it broke.
- * Set against the same plan stating only the figure, the clause added nothing:
- * $156 reads as $156 without being told it is a lot. Who else is paying is on
- * the cards below, per person, exactly, which is the right place for it.
- *
- * The case this screen really does have to raise its voice for -- somebody who
- * cannot make the window at all -- already has a red line naming them, and this
- * sentence yields the floor to it by staying silent whenever anyone is left
- * out. One sentence, one shape, every time it appears. */
-
-/* Reads rows[id].premium rather than calling premiumFor() again. They compute
- * the same difference, but rows[].premium is the number hopRow() prints on that
- * person's Depart line as "incl. $180 to land together", so taking it from
- * there is what makes the headline and the card provably the same figure --
- * divided by that booking's seats, which the card itself already states as
- * "$400 for 2". A second evaluation of the same formula is how the per-person
- * cards and the headline total came to disagree by $600 once already. */
-function costOfCloseness(ctx, rows, included) {
-    if (!ctx || !ctx.solo || !included || !included.length) return null;
-    var top = null;
-    included.forEach(function (id) {
-        var r = rows[id];
-        /* Excluded rows carry no premium -- they are priced from soloOpen, on a
-         * flight the group did not choose -- so there is nothing to attribute. */
-        if (!r || !r.inWindow || !(r.premium > 0)) return;
-        var t = ctx.travelers.filter(function (x) { return x.id === id; })[0];
-        var seats = Math.max(1, (t && t.seats) || 1);
-        var each = r.premium / seats;
-        /* Their own baseline, per seat, so the floor can be read against the
-         * size of the fare it is a premium on. */
-        var base = ctx.solo[id] != null ? ctx.solo[id] / seats : 0;
-        if (!top || each > top.each) top = { id: id, each: each, base: base, seats: seats };
-    });
-    if (!top) return null;
-    if (top.each < Math.max(CLOSENESS_FLOOR, top.base * CLOSENESS_FLOOR_PCT)) return null;
-    return { id: top.id, each: Math.round(top.each), seats: top.seats };
-}
-
 function paxRow(id, pick, out, gap) {
     var t = C.travelers.filter(function (x) { return x.id === id; })[0];
     var o = pick.option;
@@ -4805,7 +4716,15 @@ document.addEventListener('click', function (ev) {
      * against the roster rather than trusted -- data-* attributes are the one
      * place a rendering bug turns into a request for somebody else's row. */
     var mk = tgt.closest && tgt.closest('[data-mark]');
-    if (mk) { postMark(mk.getAttribute('data-mark'), mk.getAttribute('data-to')); return; }
+    if (mk) {
+        var who = mk.getAttribute('data-mark');
+        /* Validated against the roster for the same reason postMark is: a
+         * data-* attribute is the one place a rendering bug turns into a write
+         * against somebody else's row. */
+        if (!meParty() && partyIds().indexOf(who) > -1) { SET.meId = who; saveSet(); renderGear(); }
+        postMark(who, mk.getAttribute('data-to'));
+        return;
+    }
     var me = tgt.closest && tgt.closest('[data-me]');
     if (me) {
         var pick = me.getAttribute('data-me');
@@ -5232,7 +5151,7 @@ function newTrip() {
     state.q = blankQuery();
     if (keep) state.q.parties = keep;
     DATA = null; state.error = null; thReset();
-    TRIP_ID = null; MARKS = {}; markErr = null; markBusy = null;
+    TRIP_ID = null; MARKS = {}; markErr = null; markErrId = null; markBusy = null;
     /* basePath, not pathname: leaving /t/<id> in the address bar would mean a
      * reload re-opened the trip somebody had just closed. */
     history.replaceState(null, '', basePath());
