@@ -1,0 +1,22 @@
+<!DOCTYPE html><meta charset="utf-8">
+<body style="margin:0">
+<iframe id="f" src="index.html" style="width:1280px;height:900px;border:0"></iframe>
+<pre id="dump" style="font:11px monospace;white-space:pre-wrap"></pre>
+<script>
+function d(){ return document.getElementById('f').contentDocument; }
+function W(){ return document.getElementById('f').contentWindow; }
+setTimeout(function(){
+  var w=W();
+  var captured=[];
+  try{ Object.defineProperty(w.navigator,'clipboard',{value:{writeText:function(t){captured.push(t);return Promise.resolve();}},configurable:true}); }catch(e){ captured.push('DEFPROP FAIL '+e); }
+  var oec=w.document.execCommand; w.document.execCommand=function(c){ if(c==='copy'){ var ta=w.document.querySelector('textarea'); if(ta) captured.push('[execCommand]\n'+ta.value); } return true; };
+  d().getElementById('demo').click();
+  setTimeout(function(){
+    var btns=[].slice.call(d().querySelectorAll('button')).filter(function(b){return /Copy the whole trip/.test(b.textContent);});
+    if(btns[0]) btns[0].click();
+    setTimeout(function(){
+      document.getElementById('dump').textContent = 'CAPTURED:\n'+captured.join('\n---\n')+'\n\nSHAREBOX NOW:\n'+d().getElementById('shareBox').innerText;
+    }, 900);
+  }, 1300);
+}, 1500);
+</script>

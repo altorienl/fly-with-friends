@@ -175,6 +175,54 @@ section { animation: stepIn .2s var(--ease); }
 .ac-item.closed .ac-code { color: var(--bad); }
 .ac-item.closed .ac-city { color: var(--muted); }
 
+/* ---------------- date picker ---------------- */
+.datefield {
+    display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px;
+    padding: 12px 16px; border: 1px solid var(--edge); border-radius: var(--r-md);
+    background: var(--card); box-shadow: var(--sunk); text-align: left;
+    font-size: 16px; font-weight: 600;
+    transition: border-color .15s, box-shadow .15s;
+}
+.datefield svg { width: 19px; height: 19px; flex-shrink: 0; color: var(--muted); }
+.datefield #dateLabel { flex: 1; min-width: 0; }
+.datefield .caret { color: var(--faint); font-size: 11px; }
+.datefield.empty #dateLabel { color: var(--faint); font-weight: 500; }
+.datefield[aria-expanded="true"] { border-color: var(--brand); box-shadow: 0 0 0 3px var(--accent-dim); }
+
+.cal {
+    margin-top: 10px; background: var(--card); border: 1px solid var(--edge-2);
+    border-radius: var(--r-lg); box-shadow: var(--pop); padding: 16px; overflow: hidden;
+}
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.cal-nav { width: 40px; height: 40px; border-radius: var(--r-pill); display: grid; place-items: center; font-size: 17px; color: var(--muted); }
+.cal-nav:disabled { opacity: .25; cursor: default; }
+.cal-title { font-size: 15px; font-weight: 700; }
+.cal-months { display: grid; gap: 28px; }
+@media (min-width: 620px) { .cal-months.two { grid-template-columns: 1fr 1fr; } }
+.cal-mon { font-size: 13px; font-weight: 700; text-align: center; margin-bottom: 10px; }
+.cal-dow, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.cal-dow span { font-size: 11px; font-weight: 600; color: var(--faint); text-align: center; padding-bottom: 6px; }
+.cal-cell { position: relative; display: grid; place-items: center; height: 42px; }
+/* the band sits behind the day, with rounded caps at each end of the range */
+.cal-cell.mid::before, .cal-cell.start::before, .cal-cell.end::before {
+    content: ''; position: absolute; inset: 4px 0; background: var(--accent-dim);
+}
+.cal-cell.start::before { left: 50%; border-radius: var(--r-pill) 0 0 var(--r-pill); }
+.cal-cell.end::before { right: 50%; border-radius: 0 var(--r-pill) var(--r-pill) 0; }
+.cal-cell.start.end::before { display: none; }
+.cal-d {
+    position: relative; width: 38px; height: 38px; border-radius: var(--r-pill);
+    display: grid; place-items: center; font-family: 'JetBrains Mono', monospace;
+    font-size: 14px; font-variant-numeric: tabular-nums; color: var(--text);
+}
+.cal-d:disabled { color: var(--faint); opacity: .45; cursor: default; }
+.cal-d.on { background: var(--brand); color: var(--brand-ink); font-weight: 700; }
+.cal-d.today:not(.on) { box-shadow: inset 0 0 0 1px var(--edge-2); }
+.cal-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--edge); }
+.cal-hint { font-size: 12px; color: var(--muted); }
+.cal-acts { display: flex; align-items: center; gap: 8px; }
+.cal-clear { font-size: 13px; font-weight: 700; color: var(--accent); padding: 12px 10px; }
+
 /* ---------------- party cards ---------------- */
 .party { background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-md); padding: 12px 16px 16px; margin-bottom: 12px; box-shadow: var(--lift); }
 .party-top { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
@@ -567,8 +615,18 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
             <h2 id="h-s2">When?</h2>
             <p id="s2sub">Leave the return blank for a one-way.</p>
         </div>
-        <div class="field"><label class="k" for="dep">Depart</label><input class="inp" id="dep" type="date"></div>
-        <div class="field"><label class="k" for="ret">Return <span style="text-transform:none;letter-spacing:0">optional</span></label><input class="inp" id="ret" type="date"></div>
+        <div class="field">
+            <span class="k">Dates</span>
+            <button class="datefield" id="dateBtn" aria-haspopup="dialog" aria-expanded="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                    <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/>
+                </svg>
+                <span id="dateLabel">When are you going?</span>
+                <span class="caret" aria-hidden="true">▾</span>
+            </button>
+            <input type="hidden" id="dep"><input type="hidden" id="ret">
+            <div class="cal hidden" id="cal" role="dialog" aria-modal="false" aria-label="Choose dates"></div>
+        </div>
 
         <div class="field" role="group" aria-labelledby="sBandLbl">
             <span class="k" id="sBandLbl">What time should everyone land? <span style="text-transform:none;letter-spacing:0">optional</span></span>

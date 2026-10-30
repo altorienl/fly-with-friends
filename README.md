@@ -27,6 +27,38 @@ index.html  ->  worker/  ->  SerpApi            optimizer.js
  the form      key + cache    Google Flights     all maths, client-side
 ```
 
+### Surviving being shared
+
+The Worker is public and unauthenticated, so the exposure is not the API key — that lives
+only as a Cloudflare secret and never reaches the browser — it is the 250-search allowance.
+An audit found two holes that meant the existing limits were not limits at all:
+
+- **The per-IP cap counted requests, not searches.** One request for eight people on a round
+  trip is sixteen billed searches, so 12 requests/hour was 192 searches/hour from a single
+  address that never rotated. Caps are now counted in searches.
+- **The global cap was not enforced under concurrency.** Read-modify-write on KV is
+  last-write-wins, so parallel requests all read the same total, all passed the check, and
+  all spent. Budget is now *reserved* before the provider is called and refunded if the call
+  fails, which narrows the window from a multi-second round trip to one KV hop. A Durable
+  Object is the actual fix and is the next thing to build.
+
+Also closed: `currency` went unvalidated into both the cache key and the upstream URL; dates
+were regex-checked but unbounded, making an unlimited supply of guaranteed cache misses
+(`9999-99-99` passed); origin lists were unsorted, so `["SFO","OAK"]` and `["OAK","SFO"]`
+were the same search paid for twice; `POST /trip` accepted any JSON, and the free tier allows
+only 1,000 KV writes a day shared with the budget counters; and the provider was
+client-selectable, which let a caller choose which paid API to spend.
+
+There is now a `SEARCH_ENABLED=off` variable that stops new searches from the dashboard in
+seconds without a redeploy, while cached results and shared links keep working.
+
+Still outstanding before posting this anywhere with real traffic: **Cloudflare Turnstile**.
+Everything above raises the cost of draining the allowance from one curl loop to rotating a
+few IPv6 /64s, which is an afternoon's work for anyone who cares. Turnstile is the only
+control that costs an attacker something. Note also that WAF and rate-limiting rules do not
+apply here at all: `workers.dev` is Cloudflare's zone, not ours, so every protection is code
+until the Worker sits on a custom domain.
+
 ### Cost, and why the cache is the product
 
 **The free tier is 250 searches/month, and a 4-person round trip costs 8 of them.** That is

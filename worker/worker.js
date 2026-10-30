@@ -20,16 +20,80 @@ const DUFFEL_ENDPOINT = 'https://api.duffel.com/air/offer_requests?return_offers
 
 const LIMITS = {
   monthly: 230,      // of SerpApi's 250, leaving headroom for manual scans
-  daily: 24,         // spreads the month out instead of burning it in one day
-  perIpHourly: 12,
+  daily: 40,         // a burst brake, not a day-long lockout (see globalHourly)
+  globalHourly: 14,  // one abuser now costs everyone an hour, not a whole day
+  /* Counted in SEARCHES, not requests. One request for eight people on a round
+   * trip is sixteen searches, so a request-based cap was never a cap on the
+   * scarce thing: twelve such requests was 192 searches from one address. */
+  perIpHourly: 16,
+  perIpDaily: 24,
+  perIpRequestsHourly: 60,
+  perIpTripWrites: 5,
   cacheTtlSeconds: 60 * 60 * 24,   // a day; fares do not move enough to matter
   maxTravelers: 8,
   optionsPerLeg: 25,
+  tripTtlSeconds: 60 * 60 * 24 * 30,   // a shared trip stays openable for a month
+  tripBytesMax: 256 * 1024,            // a real 8-person round trip is ~150KB
+  maxDaysAhead: 330,                   // past Google's horizon a search buys nothing
 };
+
+const CURRENCIES = new Set(['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'MXN']);
+
+/* Requests from a browser always carry Origin, so it can be required rather
+ * than failed open. This stops a hostile page and the copy-paste attacker; it
+ * is no defence at all against curl, which types whatever it likes. */
+function originOk(request, env) {
+  const o = request.headers.get('Origin') || '';
+  if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o)) return true;
+  const allowed = (env.ALLOWED_ORIGINS || '').split(',').map(x => x.trim()).filter(Boolean);
+  return allowed.length ? allowed.includes(o) : true;   // unset: permissive until deployed
+}
+
+/* An exact IP is free to an attacker -- a phone gets a new one by toggling
+ * airplane mode, and a single IPv6 allocation holds 18 quintillion addresses.
+ * The /64 is the smallest block an ISP hands one customer, so rotating inside
+ * it buys nothing. */
+function ipBucket(request) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!ip.includes(':')) return ip;
+  const [lead, tail] = ip.split('::');
+  const left = lead ? lead.split(':') : [];
+  const right = tail ? tail.split(':') : [];
+  const full = tail === undefined
+    ? left
+    : [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill('0'), ...right];
+  return full.slice(0, 4).map(h => h.replace(/^0+(?=.)/, '').toLowerCase()).join(':') + '::/64';
+}
+
+/* Every field that reaches a cache key is attacker-controllable, and an
+ * unbounded key space means an unbounded supply of guaranteed cache misses.
+ * Sorting origins also fixes a bug aimed at real users: ["SFO","OAK"] and
+ * ["OAK","SFO"] are one search that was being paid for twice. */
+function normalize(body) {
+  const clean = a => [...new Set((a || []).map(x => String(x).toUpperCase().slice(0, 3)))].sort().slice(0, 4);
+  body.dest = clean(body.dest);
+  for (const t of (body.travelers || [])) {
+    if (!t) continue;
+    t.origins = clean(t.origins);
+    const seats = Number((t.bags && t.bags.carry_on) || 0);
+    if (t.bags) t.bags.carry_on = isFinite(seats) ? Math.min(9, Math.max(0, Math.floor(seats))) : 0;
+  }
+  body.currency = CURRENCIES.has(body.currency) ? body.currency : 'USD';
+  return body;
+}
+
+/* A regex is not a date: 9999-99-99 passes one. */
+function realDateInWindow(sIso) {
+  const t = Date.parse(sIso + 'T00:00:00Z');
+  if (!isFinite(t)) return false;
+  if (new Date(t).toISOString().slice(0, 10) !== sIso) return false;
+  const days = (t - Date.now()) / 86400000;
+  return days > -2 && days < LIMITS.maxDaysAhead;
+}
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
@@ -220,6 +284,11 @@ async function duffelSearch(env, params) {
 
 const monthKey = () => 'budget:' + new Date().toISOString().slice(0, 7);
 const dayKey = () => 'budget:' + new Date().toISOString().slice(0, 10);
+const hourKey = () => 'budget:h:' + new Date().toISOString().slice(0, 13);
+const ipHourKey = b => 'rl:h:' + b + ':' + new Date().toISOString().slice(0, 13);
+const ipDayKey = b => 'rl:d:' + b + ':' + new Date().toISOString().slice(0, 10);
+const ipReqKey = b => 'rq:' + b + ':' + new Date().toISOString().slice(0, 13);
+const tripWriteKey = b => 'tw:' + b + ':' + new Date().toISOString().slice(0, 10);
 
 async function counter(env, key) {
   const v = await env.FWF.get(key);
@@ -227,7 +296,7 @@ async function counter(env, key) {
 }
 
 async function bump(env, key, by, ttl) {
-  const next = (await counter(env, key)) + by;
+  const next = Math.max(0, (await counter(env, key)) + by);
   await env.FWF.put(key, String(next), { expirationTtl: ttl });
   return next;
 }
@@ -313,7 +382,13 @@ function validate(body) {
     return 'Destination must be a 3-letter airport code.';
   }
   if (!date.test(body.depart || '')) return 'Departure date must be YYYY-MM-DD.';
+  if (!realDateInWindow(body.depart)) {
+    return 'That departure date is in the past or further out than airlines have published.';
+  }
   if (body.ret && !date.test(body.ret)) return 'Return date must be YYYY-MM-DD.';
+  if (body.ret && !realDateInWindow(body.ret)) {
+    return 'That return date is further out than airlines have published.';
+  }
   if (body.ret && body.ret < body.depart) return 'Return date is before the departure date.';
 
   for (const t of body.travelers) {
@@ -328,19 +403,26 @@ async function handleSearch(request, env) {
   let body;
   try { body = await request.json(); } catch (e) { return json({ error: 'Malformed request.' }, 400); }
 
+  normalize(body);
   const invalid = validate(body);
   if (invalid) return json({ error: invalid }, 400);
 
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const ipKey = 'rl:' + ip + ':' + new Date().toISOString().slice(0, 13);
-  if ((await counter(env, ipKey)) >= LIMITS.perIpHourly) {
-    return json({ error: 'Too many searches from this address. Try again in an hour.' }, 429);
+  const bucket = ipBucket(request);
+
+  /* A loose request guard so the endpoint is not a free KV-read amplifier,
+   * separate from the search caps below which count the scarce thing. */
+  if ((await counter(env, ipReqKey(bucket))) >= LIMITS.perIpRequestsHourly) {
+    return json({ error: 'Too many requests from this network. Try again in an hour.' }, 429);
   }
+  await bump(env, ipReqKey(bucket), 1, 60 * 60 * 2);
 
   /* Provider resolution: an explicit request wins, then the PROVIDER var in
    * wrangler.toml, then SerpApi. Per-request selection is what lets the same
    * route be run through both and compared. */
-  const provider = body.provider || env.PROVIDER || 'serpapi';
+  /* Not client-selectable: provider is part of the cache key, so letting a
+   * caller choose doubles the cost of every route by requesting both. */
+  const provider = (env.ALLOW_PROVIDER_OVERRIDE === 'on' && body.provider)
+    || env.PROVIDER || 'serpapi';
   if (provider !== 'serpapi' && provider !== 'duffel') {
     return json({ error: 'Unknown provider "' + provider + '".' }, 400);
   }
@@ -368,7 +450,9 @@ async function handleSearch(request, env) {
     }
   }
 
-  const [used, usedToday] = await Promise.all([counter(env, monthKey()), counter(env, dayKey())]);
+  const [used, usedToday, usedHour] = await Promise.all([
+    counter(env, monthKey()), counter(env, dayKey()), counter(env, hourKey()),
+  ]);
 
   /* Two people flying from the same city are the same search. Because jobs run in
    * parallel they would both miss the cache and both be billed, so collapse them
@@ -398,6 +482,37 @@ async function handleSearch(request, env) {
     return json({ error: 'Today\'s search budget is used up. Cached searches still work, '
       + 'and more become available tomorrow.', budget, exhausted: 'day' }, 429);
   }
+  if (toSpend > 0 && usedHour + toSpend > LIMITS.globalHourly) {
+    return json({ error: 'Too many searches across everyone in the last hour. '
+      + 'Cached searches still work; try again shortly.', budget, exhausted: 'hour' }, 429);
+  }
+
+  /* Per network, counted in searches. A cache-only request costs nothing here,
+   * so reopening a shared link is free -- which is the behaviour we want. */
+  const [ipHour, ipDay] = await Promise.all([
+    counter(env, ipHourKey(bucket)), counter(env, ipDayKey(bucket)),
+  ]);
+  if (toSpend > 0 && ipHour + toSpend > LIMITS.perIpHourly) {
+    return json({ error: 'Too many searches from this network. Try again in an hour.', budget }, 429);
+  }
+  if (toSpend > 0 && ipDay + toSpend > LIMITS.perIpDaily) {
+    return json({ error: 'This network has used its searches for today.', budget }, 429);
+  }
+
+  /* Reserve before calling the provider. Read-modify-write on KV is
+   * last-write-wins, so checking and then spending across a multi-second
+   * provider round trip let parallel requests all pass the same check. This
+   * shrinks that window to a single KV hop; it does not close it. A Durable
+   * Object is the real fix and is the next thing to build. */
+  if (toSpend > 0) {
+    await Promise.all([
+      bump(env, monthKey(), toSpend, 60 * 60 * 24 * 40),
+      bump(env, dayKey(), toSpend, 60 * 60 * 36),
+      bump(env, hourKey(), toSpend, 60 * 60 * 2),
+      bump(env, ipHourKey(bucket), toSpend, 60 * 60 * 2),
+      bump(env, ipDayKey(bucket), toSpend, 60 * 60 * 26),
+    ]);
+  }
 
   const searched = await Promise.all(uniqueSearches.map(async u => {
     try {
@@ -418,14 +533,19 @@ async function handleSearch(request, env) {
   }
   const spentTotal = searched.reduce((n, u) => n + u.spent, 0);
 
+  /* Refund whatever was reserved but never actually billed -- transport
+   * failures and provider errors are not charged by SerpApi. */
   const spent = spentTotal;
-  if (spent > 0) {
+  const refund = toSpend - spent;
+  if (refund > 0) {
     await Promise.all([
-      bump(env, monthKey(), spent, 60 * 60 * 24 * 40),
-      bump(env, dayKey(), spent, 60 * 60 * 36),
+      bump(env, monthKey(), -refund, 60 * 60 * 24 * 40),
+      bump(env, dayKey(), -refund, 60 * 60 * 36),
+      bump(env, hourKey(), -refund, 60 * 60 * 2),
+      bump(env, ipHourKey(bucket), -refund, 60 * 60 * 2),
+      bump(env, ipDayKey(bucket), -refund, 60 * 60 * 26),
     ]);
   }
-  await bump(env, ipKey, 1, 60 * 60 * 2);
 
   const trips = { query: { outbound: {}, return: {} } };
   const insights = { outbound: {}, return: {} };
@@ -440,6 +560,7 @@ async function handleSearch(request, env) {
     generated_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
     currency, provider, sample: false, trips, insights, errors,
     budget: { ...budget, used: used + spent, usedToday: usedToday + spent },
+    provider_errors: errors.length,
     searches_made: spent,
     distinct_routes: uniqueSearches.length,
     cached: spent === 0,
@@ -449,7 +570,61 @@ async function handleSearch(request, env) {
 /* Exported so the parsers and validator can be tested directly -- the bag parser
  * here must stay in step with the Python one in .github/scripts/scan.py, and
  * test-worker.js checks exactly that. */
-export const _internals = { parseBags, validate, extractOptions, extractInsights, cacheKey, LIMITS,
+/* ------------------------------------------------------------ shared trips */
+
+/* Sharing used to mean re-running the whole search on the recipient's device:
+ * free for 24 hours from cache, then billed again, and billed once more for
+ * every person in the group chat who opened it late. Saving the finished trip
+ * instead makes a shared link cost exactly one KV read, forever -- which is
+ * both the efficiency and the only honest way to hand this to a group. */
+function tripId() {
+  const a = new Uint8Array(6);
+  crypto.getRandomValues(a);
+  return Array.from(a, b => 'abcdefghijkmnopqrstuvwxyz23456789'[b % 33]).join('');
+}
+
+async function saveTrip(request, env) {
+  let body;
+  try { body = await request.text(); } catch (e) { return json({ error: 'Malformed request.' }, 400); }
+  if (!body || body.length > LIMITS.tripBytesMax) {
+    return json({ error: 'Trip too large to share.' }, 413);
+  }
+
+  /* Shape, not just syntax. This namespace holds trips; without a shape check
+   * it is free storage for whatever anyone cares to post, and the free tier
+   * allows only 1,000 KV writes a day -- shared with the budget counters and
+   * the search cache, so filling it stops the accounting working. */
+  let trip;
+  try { trip = JSON.parse(body); } catch (e) { return json({ error: 'Malformed trip.' }, 400); }
+  if (!trip || trip.v !== 1 || !trip.data || typeof trip.data.trips !== 'object') {
+    return json({ error: 'Not a trip.' }, 400);
+  }
+
+  const bucket = ipBucket(request);
+  const wkey = tripWriteKey(bucket);
+  if ((await counter(env, wkey)) >= LIMITS.perIpTripWrites) {
+    return json({ error: 'Too many shared trips from this network today.' }, 429);
+  }
+
+  const id = tripId();
+  /* tripId is ~30 bits, and put() overwrites silently. */
+  if (await env.FWF.get('trip:' + id)) return json({ error: 'Please try sharing again.' }, 503);
+
+  await env.FWF.put('trip:' + id, body, { expirationTtl: LIMITS.tripTtlSeconds });
+  await bump(env, wkey, 1, 60 * 60 * 26);
+  return json({ id, expires_in_days: Math.round(LIMITS.tripTtlSeconds / 86400) });
+}
+
+async function readTrip(id, env) {
+  if (!/^[a-z2-9]{6,12}$/.test(id || '')) return json({ error: 'Not a trip id.' }, 400);
+  const raw = await env.FWF.get('trip:' + id, { cacheTtl: 300 });
+  if (!raw) return json({ error: 'That trip has expired or never existed.' }, 404);
+  return new Response(raw, {
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300', ...CORS },
+  });
+}
+
+export const _internals = { parseBags, validate, extractOptions, extractInsights, cacheKey, LIMITS, tripId,
                             duffelBags, parseIsoDuration, extractDuffelOptions, localStamp };
 
 export default {
@@ -458,15 +633,48 @@ export default {
 
     const path = new URL(request.url).pathname;
 
-    if (path === '/budget') {
-      const [used, usedToday] = await Promise.all([counter(env, monthKey()), counter(env, dayKey())]);
-      return json({ used, limit: LIMITS.monthly, usedToday, dailyLimit: LIMITS.daily,
-                    resetsAt: monthResetsAt() });
+    if (path === '/budget' && request.method === 'GET') {
+      const [used, usedToday] = await Promise.all([
+        env.FWF.get(monthKey(), { cacheTtl: 60 }).then(v => (v ? +v : 0)),
+        env.FWF.get(dayKey(), { cacheTtl: 60 }).then(v => (v ? +v : 0)),
+      ]);
+      return new Response(JSON.stringify({ used, limit: LIMITS.monthly, usedToday,
+          dailyLimit: LIMITS.daily, resetsAt: monthResetsAt() }), {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60', ...CORS },
+      });
+    }
+
+    /* Writes are gated on Origin; reads are not, so a shared link keeps working
+     * from anywhere -- including a messaging app's in-page browser. */
+    if (request.method === 'POST' && !originOk(request, env)) {
+      return json({ error: 'This endpoint only serves the Fly with Friends app.' }, 403);
+    }
+
+    if (path === '/trip' && request.method === 'POST') {
+      try { return await saveTrip(request, env); }
+      catch (err) { return json({ error: 'Could not save trip: ' + err.message }, 500); }
+    }
+
+    if (path.startsWith('/trip/') && request.method === 'GET') {
+      try { return await readTrip(path.slice(6), env); }
+      catch (err) { return json({ error: 'Could not load trip: ' + err.message }, 500); }
     }
 
     if (path === '/search' && request.method === 'POST') {
+      /* A plain variable so searching can be switched off from the dashboard in
+       * seconds, without a redeploy, while cached results and shared links keep
+       * working. */
+      if (env.SEARCH_ENABLED === 'off') {
+        return json({ error: 'New searches are paused right now. Shared links and '
+          + 'recent searches still work.' }, 503);
+      }
       try { return await handleSearch(request, env); }
-      catch (err) { return json({ error: 'Search failed: ' + err.message }, 500); }
+      catch (err) {
+        /* Provider errors name account and plan state, so they are logged and
+         * not returned. */
+        console.log('search failed:', err && err.message);
+        return json({ error: 'Search failed. Try again shortly.' }, 500);
+      }
     }
 
     return json({ error: 'Not found' }, 404);

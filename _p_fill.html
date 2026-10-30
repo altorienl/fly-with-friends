@@ -1,0 +1,21 @@
+<!doctype html><html><body style="margin:0">
+<iframe id="f" src="/index.html" style="width:390px;height:2200px;border:0"></iframe>
+<script>
+const w=ms=>new Promise(r=>setTimeout(r,ms));
+const type=async(W,inp,s)=>{inp.focus();inp.value='';for(const c of s){inp.value+=c;inp.dispatchEvent(new W.Event('input',{bubbles:true}));await w(40);}};
+f.onload=async()=>{
+  const d=f.contentDocument, W=f.contentWindow;
+  await w(500);
+  await type(W,d.getElementById('dest'),'nash'); await w(250);
+  d.querySelectorAll('#destAc .ac-item')[1].click(); await w(200);
+  d.getElementById('to2').click(); await w(600);
+  d.querySelector('#cal [data-cal="1"]').click(); await w(300);
+  const pick=v=>[...d.querySelectorAll('#cal [data-day]')].find(b=>b.getAttribute('data-day')===v);
+  pick('2026-11-13').click(); await w(250); pick('2026-11-16').click(); await w(250);
+  d.getElementById('to3').click(); await w(600);
+  d.getElementById('addParty').click(); await w(400);
+  // open the first card's airport picker
+  d.querySelectorAll('#parties .add-air')[0].click(); await w(600);
+  document.title='opened';
+};
+</script></body></html>

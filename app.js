@@ -25,6 +25,8 @@ var COLORS = ['#ffb300', '#4ade80', '#38bdf8', '#c084fc', '#fb923c', '#f472b6', 
 var DATA = null, SET = null, BUDGET = null, C = null, TRIP = null;
 /* Alternative dates, keyed "dep|ret". Each entry is a whole searched trip. */
 var SHIFTS = {}, shiftBusy = false, shiftErr = null;
+/* Short id for the saved trip, once it has been shared. */
+var TRIP_ID = null, savingTrip = false;
 var state = {
     step: 1, leg: 'outbound', recommend: 'value',
     /* One chosen row per leg: a round trip is two decisions, and pricing the
@@ -436,7 +438,7 @@ function doSearch() {
         if (res.body.budget) BUDGET = res.body.budget;
         if (!res.ok) { state.error = res.body.error || 'Search failed.'; render(); return; }
         DATA = res.body;
-        SHIFTS = {}; shiftErr = null;
+        SHIFTS = {}; shiftErr = null; TRIP_ID = null;
         thReset(); state.leg = 'outbound';
         showStep(4); render();
     }).catch(function (e) {
@@ -488,6 +490,11 @@ function writeHash() {
         history.replaceState(null, '', '#s=' + enc);
     } catch (e) {}
 }
+function tripIdFromHash() {
+    var m = /[#&]t=([a-z2-9]{4,16})/.exec(location.hash || '');
+    return m ? m[1] : null;
+}
+
 function readHash() {
     var m = /[#&]s=([^&]+)/.exec(location.hash || '');
     if (!m) return null;
@@ -498,10 +505,27 @@ function readHash() {
     } catch (e) { return null; }
 }
 function shareUrl() {
+    if (TRIP_ID) return location.origin + location.pathname + '#t=' + TRIP_ID;
     try {
         return location.origin + location.pathname + '#s='
             + btoa(unescape(encodeURIComponent(JSON.stringify(hashPayload())))).replace(/=+$/, '');
     } catch (e) { return location.href; }
+}
+
+/* Saves the finished trip so a shared link costs one read rather than a fresh
+ * search for every person who opens it. Returns a promise for the short url. */
+function saveTrip() {
+    if (TRIP_ID) return Promise.resolve(shareUrl());
+    if (!DATA || DATA.sample || savingTrip) return Promise.resolve(shareUrl());
+    savingTrip = true;
+    return fetch(API + '/trip', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ v: 1, data: DATA, payload: hashPayload() })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+        savingTrip = false;
+        if (j && j.id) { TRIP_ID = j.id; history.replaceState(null, '', '#t=' + j.id); }
+        return shareUrl();
+    }).catch(function () { savingTrip = false; return shareUrl(); });
 }
 
 /* -------------------------------------------------------------- render */
@@ -790,7 +814,7 @@ function renderResHead() {
         : hrs == null ? 'fresh-mid' : hrs < 6 ? 'fresh-ok' : hrs < 24 ? 'fresh-mid' : 'fresh-old';
     var word = DATA.sample ? 'example data'
         : hrs == null ? 'unknown age' : hrs < 1 ? 'fares just now' : 'fares ' + hrs + 'h old';
-    el('resS').innerHTML = esc(q.dep + (q.ret ? ' → ' + q.ret : ' · one way'))
+    el('resS').innerHTML = esc(prettyRange(q.dep, q.ret))
         + ' &nbsp;<span class="fresh"><span class="dot ' + cls + '"></span>' + esc(word) + '</span>';
 }
 
@@ -1132,7 +1156,7 @@ function chatBlock() {
     var a = AIRPORTS.get(state.q.dest);
     var lines = [];
     lines.push((a ? a.city + ' (' + a.code + ')' : state.q.dest) + ' · '
-        + state.q.dep + (state.q.ret ? ' – ' + state.q.ret : ' one way'));
+        + prettyRange(state.q.dep, state.q.ret));
     lines.push('');
     lines = lines.concat(legLines('outbound', 'GETTING THERE'));
     if (hasReturn()) { lines.push(''); lines = lines.concat(legLines('return', 'GETTING HOME')); }
@@ -1422,12 +1446,12 @@ function renderShifts() {
         return;
     }
 
-    var rows = [{ label: state.q.dep + (state.q.ret ? ' – ' + state.q.ret : ''),
+    var rows = [{ label: prettyRange(state.q.dep, state.q.ret),
                   total: TRIP.total, worst: null, here: true }];
     cands.forEach(function (c) {
         var got = SHIFTS[shiftKey(c)];
         if (!got) return;
-        rows.push({ label: c.dep + (c.ret ? ' – ' + c.ret : ''),
+        rows.push({ label: prettyRange(c.dep, c.ret),
                     total: got.priced ? got.priced.total : null,
                     worst: got.priced ? got.priced.worst : null, here: false });
     });
@@ -1460,9 +1484,15 @@ function renderShare() {
     if (!TRIP) { host.innerHTML = ''; return; }
     host.innerHTML = '<button class="btn primary wide" id="copyBtn">Copy the whole trip for the group chat</button>'
         + '<div class="share-note" id="copyNote">Both legs, every person\u2019s flight and what each of them pays, '
-        + 'plus a link that opens on these exact choices.</div>';
+        + 'plus a link that opens on these exact flights. The link costs nothing to open — '
+        + 'everyone in the chat sees this trip without running a new search.</div>';
 
     el('copyBtn').addEventListener('click', function () {
+        el('copyNote').textContent = 'Saving the trip so the link is free to open…';
+        saveTrip().then(function () { doCopy(); });
+    });
+
+    function doCopy() {
         var text = chatBlock();
         var done = function (ok) {
             el('copyNote').textContent = ok ? 'Copied. Paste it in the group chat.'
@@ -1480,7 +1510,7 @@ function renderShare() {
             document.body.removeChild(ta);
             done(ok);
         }
-    });
+    }
 }
 
 
@@ -1810,14 +1840,135 @@ function fillBand() {
 }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
+/* ---------------------------------------------------------- dates */
+
+var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+var DOW = ['S','M','T','W','T','F','S'];
+
+function ymd(iso) {
+    var p = String(iso || '').split('-');
+    return p.length === 3 ? { y: +p[0], m: +p[1] - 1, d: +p[2] } : null;
+}
+function iso(y, m, d) {
+    return y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+}
+
+/* "Dec 3" / "Dec 3 – Dec 8" / "Dec 28 – Jan 3" — no year unless the range
+ * crosses one, which is how every airline writes it. ISO belongs in the data,
+ * not on the screen. */
+function prettyDate(isoStr, withYear) {
+    var p = ymd(isoStr);
+    if (!p) return '';
+    return MON[p.m] + ' ' + p.d + (withYear ? ', ' + p.y : '');
+}
+function prettyRange(a, b) {
+    var pa = ymd(a), pb = ymd(b);
+    if (!pa) return '';
+    var crossesYear = pb && pb.y !== pa.y;
+    if (!pb) return prettyDate(a, crossesYear) + ' · one way';
+    return prettyDate(a, crossesYear) + ' – ' + prettyDate(b, crossesYear);
+}
+function weekdayShort(isoStr) {
+    var p = ymd(isoStr);
+    if (!p) return '';
+    return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(Date.UTC(p.y, p.m, p.d)).getUTCDay()];
+}
+
+/* ------------------------------------------------------ range picker */
+
+var calOpen = false, calCursor = null, calPick = null;
+
+function calMonths() {
+    return window.matchMedia && window.matchMedia('(min-width: 620px)').matches ? 2 : 1;
+}
+
+function monthGrid(y, m) {
+    var first = new Date(Date.UTC(y, m, 1));
+    var lead = first.getUTCDay();
+    var days = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    var today = todayISO();
+    var dep = state.q.dep, ret = state.q.ret;
+
+    var cells = '';
+    for (var i = 0; i < lead; i++) cells += '<span class="cal-cell"></span>';
+    for (var d = 1; d <= days; d++) {
+        var v = iso(y, m, d);
+        var isDep = v === dep, isRet = !!ret && v === ret;
+        var inRange = !!(dep && ret && v > dep && v < ret);
+        var cls = (isDep ? ' start' : '') + (isRet ? ' end' : '') + (inRange ? ' mid' : '');
+        var past = v < today;
+        cells += '<span class="cal-cell' + cls + '">'
+            + '<button class="cal-d' + (isDep || isRet ? ' on' : '') + (v === today ? ' today' : '')
+            + '" data-day="' + v + '"' + (past ? ' disabled' : '')
+            + ' aria-label="' + weekdayShort(v) + ' ' + prettyDate(v, true) + '">' + d + '</button></span>';
+    }
+    return '<div><div class="cal-mon">' + MON[m] + ' ' + y + '</div>'
+        + '<div class="cal-dow">' + DOW.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>'
+        + '<div class="cal-grid">' + cells + '</div></div>';
+}
+
+function renderCal() {
+    var host = el('cal');
+    if (!calOpen) { host.className = 'cal hidden'; el('dateBtn').setAttribute('aria-expanded', 'false'); return; }
+    /* The calendar can be opened from more than one place, so the cursor is
+     * established here rather than relying on whoever opened it. */
+    if (!calCursor) calCursor = ymd(state.q.dep) || ymd(todayISO());
+    host.className = 'cal';
+    el('dateBtn').setAttribute('aria-expanded', 'true');
+
+    var n = calMonths();
+    var base = calCursor || ymd(state.q.dep) || ymd(todayISO());
+    var months = '';
+    for (var i = 0; i < n; i++) {
+        var mm = base.m + i, yy = base.y + Math.floor(mm / 12);
+        months += monthGrid(yy, ((mm % 12) + 12) % 12);
+    }
+
+    var tISO = ymd(todayISO());
+    var atStart = base.y === tISO.y && base.m === tISO.m;
+    var hint = !state.q.dep ? 'Pick the day you fly out'
+        : !state.q.ret ? 'Now pick the day you come back, or leave it for a one-way'
+        : prettyRange(state.q.dep, state.q.ret);
+
+    host.innerHTML = '<div class="cal-head">'
+        + '<button class="cal-nav" data-cal="-1" aria-label="Previous month"' + (atStart ? ' disabled' : '') + '>&#8249;</button>'
+        + '<span class="cal-title">' + (n === 2 ? 'Choose your dates' : MON[base.m] + ' ' + base.y) + '</span>'
+        + '<button class="cal-nav" data-cal="1" aria-label="Next month">&#8250;</button></div>'
+        + '<div class="cal-months' + (n === 2 ? ' two' : '') + '">' + months + '</div>'
+        + '<div class="cal-foot"><span class="cal-hint">' + esc(hint) + '</span>'
+        + '<span class="cal-acts"><button class="cal-clear" data-cal="clear">Clear</button>'
+        + '<button class="btn primary" data-cal="done">Done</button></span></div>';
+}
+
+function setDateLabel() {
+    var b = el('dateBtn'), l = el('dateLabel');
+    if (!state.q.dep) { b.className = 'datefield empty'; l.textContent = 'When are you going?'; return; }
+    b.className = 'datefield';
+    l.textContent = prettyRange(state.q.dep, state.q.ret);
+}
+
+function pickDay(v) {
+    /* First tap sets the outbound. Second extends it, unless it is earlier, in
+     * which case treating it as a new outbound is what people actually mean. */
+    if (!state.q.dep || state.q.ret || v < state.q.dep) {
+        state.q.dep = v; state.q.ret = '';
+    } else if (v === state.q.dep) {
+        state.q.ret = '';
+    } else {
+        state.q.ret = v;
+    }
+    el('dep').value = state.q.dep; el('ret').value = state.q.ret;
+    thReset();
+    setDateLabel(); renderCal();
+}
+
 /* A date input with no value opens at `min`, so pointing the return's min at
  * the departure date is what stops it opening months earlier. */
 function syncDateBounds() {
-    el('dep').min = todayISO();
-    el('ret').min = state.q.dep || todayISO();
-    if (state.q.ret && state.q.dep && state.q.ret < state.q.dep) {
-        state.q.ret = ''; el('ret').value = '';
-    }
+    if (state.q.ret && state.q.dep && state.q.ret < state.q.dep) state.q.ret = '';
+    el('dep').value = state.q.dep || '';
+    el('ret').value = state.q.ret || '';
+    setDateLabel();
 }
 
 function fillForm() {
@@ -1858,11 +2009,13 @@ el('to2').addEventListener('click', function () {
         return;
     }
     showStep(2);
-    if (!el('dep').value) setTimeout(function () { el('dep').focus(); }, 80);
+    if (!state.q.dep) { calOpen = true; renderCal(); }
 });
 el('to3').addEventListener('click', function () {
-    state.q.dep = el('dep').value; state.q.ret = el('ret').value;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(state.q.dep)) { state.error = 'Pick a departure date.'; render(); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(state.q.dep)) {
+        state.error = 'Pick your dates first.';
+        calOpen = true; renderCal(); render(); return;
+    }
     if (state.q.ret && state.q.ret < state.q.dep) { state.error = 'The return date is before the departure date.'; render(); return; }
     state.error = null; render(); showStep(3);
 });
@@ -1884,11 +2037,31 @@ el('addParty').addEventListener('click', function () {
     state.q.parties.push(newParty(state.q.parties.length));
     renderParties();
 });
-el('dep').addEventListener('change', function () {
-    state.q.dep = el('dep').value;
-    syncDateBounds();
+el('dateBtn').addEventListener('click', function () {
+    calOpen = !calOpen;
+    calCursor = ymd(state.q.dep) || ymd(todayISO());
+    renderCal();
 });
-el('ret').addEventListener('change', function () { state.q.ret = el('ret').value; });
+
+el('cal').addEventListener('click', function (ev) {
+    var day = ev.target.closest('[data-day]');
+    if (day && !day.disabled) { pickDay(day.getAttribute('data-day')); return; }
+    var act = ev.target.closest('[data-cal]');
+    if (!act) return;
+    var v = act.getAttribute('data-cal');
+    if (v === 'done') { calOpen = false; renderCal(); el('dateBtn').focus(); }
+    else if (v === 'clear') { state.q.dep = ''; state.q.ret = ''; thReset(); syncDateBounds(); renderCal(); }
+    else {
+        var step = +v;
+        var m = calCursor.m + step, y = calCursor.y + Math.floor(m / 12);
+        calCursor = { y: y, m: ((m % 12) + 12) % 12, d: 1 };
+        renderCal();
+    }
+});
+
+document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && calOpen) { calOpen = false; renderCal(); el('dateBtn').focus(); }
+});
 
 function applyStepBand() {
     state.q.band.outbound = { from: el('sFrom').value, to: el('sTo').value };
@@ -1908,6 +2081,7 @@ if (window.matchMedia) {
 SET = loadSet();
 applyTheme();
 
+var sharedId = tripIdFromHash();
 var shared = readHash();
 state.q = (shared && shared.q && shared.q.parties) ? shared.q : blankQuery();
 if (shared && shared.v) {
@@ -1965,6 +2139,39 @@ if (API) {
         .then(function (b) { BUDGET = b; }).catch(function () {});
 }
 
-if (shared && shared.q && shared.q.parties && validate() === null) doSearch();
+if (sharedId) {
+    /* Opening someone else's trip must not cost a search. */
+    TRIP_ID = sharedId;
+    state.error = null;
+    fetch(API + '/trip/' + sharedId).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+        if (!res.ok || !res.body || !res.body.data) {
+            state.error = (res.body && res.body.error) || 'That shared trip could not be loaded.';
+            TRIP_ID = null; render(); return;
+        }
+        var pay = res.body.payload || {};
+        if (pay.q && pay.q.parties) state.q = pay.q;
+        if (pay.v) {
+            var v = pay.v;
+            if (v.target) SET.target = v.target;
+            if (v.bags) SET.bags = v.bags;
+            if (v.priceDisplay) SET.priceDisplay = v.priceDisplay;
+            if (v.recommend) state.recommend = v.recommend;
+            if (v.th) {
+                state.th.outbound = v.th.outbound === 'inf' ? FWF.INF : v.th.outbound;
+                state.th['return'] = v.th['return'] === 'inf' ? FWF.INF : v.th['return'];
+            }
+        }
+        DATA = res.body.data;
+        fillForm(); renderParties();
+        showStep(4); render();
+    }).catch(function (e) {
+        state.error = 'Could not load that shared trip: ' + e.message;
+        TRIP_ID = null; render();
+    });
+} else if (shared && shared.q && shared.q.parties && validate() === null) {
+    doSearch();
+}
 
 })();
