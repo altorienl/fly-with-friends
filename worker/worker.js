@@ -268,25 +268,35 @@ async function serpapiSearch(env, params) {
   return { options: extractOptions(payload, LIMITS.optionsPerLeg), insights: extractInsights(payload) };
 }
 
-/* Returns { options, spent } -- spent is 0 when the cache served it. */
+/* Returns { options, insights, spent, empty }.
+ *
+ * spent is 1 whenever the provider was actually called, INCLUDING when it comes
+ * back with no itineraries. A route with no service is still a billed search --
+ * this previously threw before counting, so the guard undercounted against
+ * SerpApi's own meter, which is the dangerous direction for something whose job
+ * is protecting a quota.
+ *
+ * Empty results are cached too: there is no reason to pay a second time to learn
+ * that Kyiv still has no flights. */
 async function oneSearch(env, params, provider) {
   const key = cacheKey(params, provider);
   const hit = await env.FWF.get(key, 'json');
   if (hit) {
     /* Entries cached before insights existed are a bare array. */
-    return Array.isArray(hit)
-      ? { options: hit, insights: null, spent: 0 }
-      : { options: hit.options, insights: hit.insights || null, spent: 0 };
+    const cached = Array.isArray(hit)
+      ? { options: hit, insights: null }
+      : { options: hit.options || [], insights: hit.insights || null };
+    return { ...cached, spent: 0, empty: !cached.options.length };
   }
 
+  /* Throws only on transport failure or an explicit provider error, neither of
+   * which SerpApi bills for. */
   const got = provider === 'duffel'
     ? await duffelSearch(env, params)
     : await serpapiSearch(env, params);
 
-  if (!got.options.length) throw new Error('no results for this route and date');
-
   await env.FWF.put(key, JSON.stringify(got), { expirationTtl: LIMITS.cacheTtlSeconds });
-  return { options: got.options, insights: got.insights, spent: 1 };
+  return { options: got.options, insights: got.insights, spent: 1, empty: !got.options.length };
 }
 
 function validate(body) {
@@ -391,8 +401,9 @@ async function handleSearch(request, env) {
 
   const searched = await Promise.all(uniqueSearches.map(async u => {
     try {
-      const { options, insights, spent } = await oneSearch(env, u.params, provider);
-      return { ...u, options, insights, spent, error: null };
+      const { options, insights, spent, empty } = await oneSearch(env, u.params, provider);
+      return { ...u, options, insights, spent,
+               error: empty ? 'no results for this route and date' : null };
     } catch (err) {
       return { ...u, options: [], insights: null, spent: 0, error: err.message };
     }
