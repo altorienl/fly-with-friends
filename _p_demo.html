@@ -1,0 +1,11 @@
+<!doctype html><html><body style="margin:0">
+<iframe id="f" src="/index.html" style="width:390px;height:3200px;border:0"></iframe>
+<script>
+const w=ms=>new Promise(r=>setTimeout(r,ms));
+f.onload=async()=>{
+  const d=f.contentDocument;
+  await w(500);
+  d.getElementById('demo').click();
+  await w(1800);
+};
+</script></body></html>

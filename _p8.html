@@ -1,0 +1,13 @@
+<!DOCTYPE html><meta charset="utf-8"><body style="margin:0">
+<iframe id="f" src="index.html" style="width:1280px;height:900px;border:0"></iframe>
+<pre id="dump" style="font:10px monospace;white-space:pre-wrap"></pre>
+<script>
+function d(){ return document.getElementById('f').contentDocument; }
+setTimeout(function(){
+  d().getElementById('demo').click();
+  setTimeout(function(){
+    var pp=d().getElementById('perPerson');
+    document.getElementById('dump').textContent = pp.innerHTML.slice(0,4000);
+  }, 1300);
+}, 1500);
+</script>

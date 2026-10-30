@@ -1,0 +1,26 @@
+<!doctype html><html><body style="margin:0">
+<iframe id="f" src="/index.html" style="width:390px;height:500px;border:0"></iframe>
+<pre id="log" style="font:11px/1.45 monospace;white-space:pre-wrap;padding:8px;border-top:2px solid red"></pre>
+<script>
+const w=ms=>new Promise(r=>setTimeout(r,ms));
+f.onload=async()=>{
+  const d=f.contentDocument, W=f.contentWindow;
+  await w(500);
+  d.getElementById('demo').click();
+  await w(1200);
+  let captured=null;
+  try{ W.navigator.clipboard.writeText = async t => { captured = t; }; }catch(e){ log.textContent+='clip patch failed\n'; }
+  const orig = W.document.execCommand;
+  const btn = d.getElementById('shareBox')?.querySelector('button') || [...d.querySelectorAll('button')].find(b=>/Copy the whole trip/i.test(b.textContent));
+  log.textContent += 'button text: '+JSON.stringify(btn && btn.textContent)+'\n\n';
+  btn.click();
+  await w(900);
+  if(captured==null){
+    // try to find the text in app state / a hidden textarea
+    const ta=[...d.querySelectorAll('textarea')].map(t=>t.value).filter(Boolean);
+    log.textContent += 'textareas: '+JSON.stringify(ta)+'\n';
+  }
+  log.textContent += '=== CLIPBOARD ===\n'+(captured||'(nothing captured)')+'\n';
+  log.textContent += '=== button after ===\n'+JSON.stringify(btn.textContent)+'\n';
+};
+</script></body></html>

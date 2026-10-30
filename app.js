@@ -435,7 +435,11 @@ function doSearch() {
         return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
         state.busy = false;
-        if (res.body.budget) BUDGET = res.body.budget;
+        if (res.body.budget) {
+            BUDGET = res.body.budget;
+            BUDGET.low = BUDGET.used > BUDGET.limit * 0.8;
+            BUDGET.exhausted = BUDGET.used >= BUDGET.limit;
+        }
         if (!res.ok) { state.error = res.body.error || 'Search failed.'; render(); return; }
         DATA = res.body;
         SHIFTS = {}; shiftErr = null; TRIP_ID = null;
@@ -768,6 +772,20 @@ function renderNotices() {
     var e = el('nErr');
     if (state.error) { e.className = 'notice bad'; e.innerHTML = esc(state.error); }
     else e.className = 'notice bad hidden';
+
+    /* Nobody is rationed per person, so the only thing worth saying is when the
+     * shared allowance is nearly gone -- which is the signal to upgrade rather
+     * than to start turning people away. */
+    var q = el('nQuota');
+    if (BUDGET && BUDGET.exhausted) {
+        q.className = 'notice bad';
+        q.innerHTML = '<b>This month\u2019s flight data is used up.</b> Shared links and recent '
+            + 'searches still work. New searches resume on ' + esc(BUDGET.resetsAt) + '.';
+    } else if (BUDGET && BUDGET.low) {
+        q.className = 'notice warn';
+        q.innerHTML = '<b>' + Math.max(BUDGET.limit - BUDGET.used, 0) + ' searches left this month.</b> '
+            + 'Shared links are always free to open.';
+    } else q.className = 'notice warn hidden';
 
     var sh = el('nShort');
     if (state.step === 4 && C && C.prep && !C.prep.complete) {
@@ -2136,7 +2154,7 @@ render();
 
 if (API) {
     fetch(API + '/budget').then(function (r) { return r.json(); })
-        .then(function (b) { BUDGET = b; }).catch(function () {});
+        .then(function (b) { BUDGET = b; if (state.step === 4) render(); }).catch(function () {});
 }
 
 if (sharedId) {

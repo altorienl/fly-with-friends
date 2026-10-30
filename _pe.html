@@ -1,0 +1,28 @@
+<!DOCTYPE html><meta charset="utf-8"><body style="margin:0">
+<iframe id="f" src="index.html" style="width:1280px;height:3000px;border:0"></iframe>
+<pre id="dump" style="font:11px monospace;white-space:pre-wrap">P</pre>
+<script>
+function d(){ return document.getElementById('f').contentDocument; }
+function W(){ return document.getElementById('f').contentWindow; }
+function fire(n,t,c){ n.dispatchEvent(new (W())[c](t,{bubbles:true})); }
+var calls=[];
+setTimeout(function(){
+  var w=W(); var of=w.fetch;
+  w.fetch=function(u,o){ calls.push(String(u)); return of.apply(w,arguments); };
+  d().getElementById('demo').click();
+  setTimeout(function(){
+    d().querySelectorAll('details').forEach(function(x){x.open=true;});
+    setTimeout(function(){
+      var ins = d().querySelectorAll('#optionsBody input[type=time]');
+      var before = d().getElementById('tripTotal').innerText;
+      if(ins.length>=2){ ins[0].value='00:00'; fire(ins[0],'change','Event'); ins[1].value='20:00'; fire(ins[1],'change','Event'); }
+      setTimeout(function(){
+        document.getElementById('dump').textContent =
+          'time inputs found: '+ins.length+'\nFETCHES: '+JSON.stringify(calls)+
+          '\nBEFORE total: '+before+'\nAFTER total: '+d().getElementById('tripTotal').innerText+
+          '\nOPTIONS PANEL:\n'+d().getElementById('optionsBody').innerText;
+      }, 900);
+    }, 500);
+  }, 1300);
+}, 1500);
+</script>

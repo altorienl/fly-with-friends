@@ -31,6 +31,13 @@ index.html  ->  worker/  ->  SerpApi            optimizer.js
 
 The Worker is public and unauthenticated, so the exposure is not the API key — that lives
 only as a Cloudflare secret and never reaches the browser — it is the 250-search allowance.
+**There is no per-person limit, on purpose.** The owner's position is upgrade rather than
+ration, and it is the right one: a group searching hard is a customer, not a threat, and
+"you have used your searches" is the worst possible first impression. What remains is only
+what cannot be wished away — the provider's own monthly allowance, and a deliberately
+generous hourly brake so a script cannot turn the whole month into one minute before anyone
+notices. Separating humans from scripts is Turnstile's job, not a quota's.
+
 An audit found two holes that meant the existing limits were not limits at all:
 
 - **The per-IP cap counted requests, not searches.** One request for eight people on a round

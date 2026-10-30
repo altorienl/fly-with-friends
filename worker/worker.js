@@ -19,16 +19,23 @@ const SERPAPI_ENDPOINT = 'https://serpapi.com/search.json';
 const DUFFEL_ENDPOINT = 'https://api.duffel.com/air/offer_requests?return_offers=true';
 
 const LIMITS = {
+  /* The owner's position, and it is the right one: upgrade rather than ration.
+   * So there is no per-person search cap. A real group searching hard is a
+   * customer, not a threat, and telling them "you have used your searches" is
+   * the worst possible first impression.
+   *
+   * What remains is only what cannot be wished away:
+   *   - monthly is the provider's actual allowance. SerpApi simply stops at it.
+   *   - globalHourly is a runaway brake, set far above any human session, so a
+   *     script cannot convert the whole month into one minute before anyone
+   *     notices. It is deliberately generous: a burst it blocks is a burst no
+   *     group of friends would ever produce.
+   * Separating humans from scripts is Turnstile's job, not a quota's. */
   monthly: 230,      // of SerpApi's 250, leaving headroom for manual scans
-  daily: 40,         // a burst brake, not a day-long lockout (see globalHourly)
-  globalHourly: 14,  // one abuser now costs everyone an hour, not a whole day
-  /* Counted in SEARCHES, not requests. One request for eight people on a round
-   * trip is sixteen searches, so a request-based cap was never a cap on the
-   * scarce thing: twelve such requests was 192 searches from one address. */
-  perIpHourly: 16,
-  perIpDaily: 24,
-  perIpRequestsHourly: 60,
-  perIpTripWrites: 5,
+  daily: 120,
+  globalHourly: 60,
+  perIpRequestsHourly: 240,   // anti-script only; ~40 group searches an hour
+  perIpTripWrites: 40,
   cacheTtlSeconds: 60 * 60 * 24,   // a day; fares do not move enough to matter
   maxTravelers: 8,
   optionsPerLeg: 25,
@@ -412,7 +419,7 @@ async function handleSearch(request, env) {
   /* A loose request guard so the endpoint is not a free KV-read amplifier,
    * separate from the search caps below which count the scarce thing. */
   if ((await counter(env, ipReqKey(bucket))) >= LIMITS.perIpRequestsHourly) {
-    return json({ error: 'Too many requests from this network. Try again in an hour.' }, 429);
+    return json({ error: 'That looks automated. If you are a person, wait a minute and try again.' }, 429);
   }
   await bump(env, ipReqKey(bucket), 1, 60 * 60 * 2);
 
@@ -475,28 +482,19 @@ async function handleSearch(request, env) {
   };
 
   if (toSpend > 0 && used + toSpend > LIMITS.monthly) {
-    return json({ error: 'This month\'s search budget is used up. Cached searches still work, '
-      + 'and the budget resets on ' + budget.resetsAt + '.', budget, exhausted: 'month' }, 429);
+    return json({ error: 'Fly with Friends has used this month\'s flight-data allowance. '
+      + 'Shared links and recent searches still work, and it resets on ' + budget.resetsAt + '.',
+      budget, exhausted: 'month' }, 429);
   }
   if (toSpend > 0 && usedToday + toSpend > LIMITS.daily) {
-    return json({ error: 'Today\'s search budget is used up. Cached searches still work, '
-      + 'and more become available tomorrow.', budget, exhausted: 'day' }, 429);
+    return json({ error: 'Fly with Friends has used today\'s flight-data allowance. '
+      + 'Shared links and recent searches still work, and more is available tomorrow.',
+      budget, exhausted: 'day' }, 429);
   }
   if (toSpend > 0 && usedHour + toSpend > LIMITS.globalHourly) {
-    return json({ error: 'Too many searches across everyone in the last hour. '
-      + 'Cached searches still work; try again shortly.', budget, exhausted: 'hour' }, 429);
-  }
-
-  /* Per network, counted in searches. A cache-only request costs nothing here,
-   * so reopening a shared link is free -- which is the behaviour we want. */
-  const [ipHour, ipDay] = await Promise.all([
-    counter(env, ipHourKey(bucket)), counter(env, ipDayKey(bucket)),
-  ]);
-  if (toSpend > 0 && ipHour + toSpend > LIMITS.perIpHourly) {
-    return json({ error: 'Too many searches from this network. Try again in an hour.', budget }, 429);
-  }
-  if (toSpend > 0 && ipDay + toSpend > LIMITS.perIpDaily) {
-    return json({ error: 'This network has used its searches for today.', budget }, 429);
+    return json({ error: 'Unusually heavy traffic in the last hour, so searching is '
+      + 'briefly paused to protect the allowance. Shared links still work.',
+      budget, exhausted: 'hour' }, 429);
   }
 
   /* Reserve before calling the provider. Read-modify-write on KV is
@@ -509,8 +507,6 @@ async function handleSearch(request, env) {
       bump(env, monthKey(), toSpend, 60 * 60 * 24 * 40),
       bump(env, dayKey(), toSpend, 60 * 60 * 36),
       bump(env, hourKey(), toSpend, 60 * 60 * 2),
-      bump(env, ipHourKey(bucket), toSpend, 60 * 60 * 2),
-      bump(env, ipDayKey(bucket), toSpend, 60 * 60 * 26),
     ]);
   }
 
@@ -542,8 +538,6 @@ async function handleSearch(request, env) {
       bump(env, monthKey(), -refund, 60 * 60 * 24 * 40),
       bump(env, dayKey(), -refund, 60 * 60 * 36),
       bump(env, hourKey(), -refund, 60 * 60 * 2),
-      bump(env, ipHourKey(bucket), -refund, 60 * 60 * 2),
-      bump(env, ipDayKey(bucket), -refund, 60 * 60 * 26),
     ]);
   }
 
@@ -639,7 +633,8 @@ export default {
         env.FWF.get(dayKey(), { cacheTtl: 60 }).then(v => (v ? +v : 0)),
       ]);
       return new Response(JSON.stringify({ used, limit: LIMITS.monthly, usedToday,
-          dailyLimit: LIMITS.daily, resetsAt: monthResetsAt() }), {
+          dailyLimit: LIMITS.daily, resetsAt: monthResetsAt(),
+          low: used > LIMITS.monthly * 0.8, exhausted: used >= LIMITS.monthly }), {
         headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60', ...CORS },
       });
     }

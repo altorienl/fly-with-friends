@@ -1,0 +1,36 @@
+<!doctype html><html><body style="margin:0">
+<iframe id="f" src="/index.html" style="width:390px;height:2200px;border:0"></iframe>
+<script>
+const w=ms=>new Promise(r=>setTimeout(r,ms));
+const type=async(W,inp,s)=>{inp.focus();inp.value='';for(const c of s){inp.value+=c;inp.dispatchEvent(new W.Event('input',{bubbles:true}));await w(35);}};
+f.onload=async()=>{
+  const d=f.contentDocument, W=f.contentWindow;
+  await w(500);
+  await type(W,d.getElementById('dest'),'nash'); await w(250);
+  d.querySelectorAll('#destAc .ac-item')[1].click(); await w(200);
+  d.getElementById('to2').click(); await w(600);
+  d.querySelector('#cal [data-cal="1"]').click(); await w(300);
+  const pick=v=>[...d.querySelectorAll('#cal [data-day]')].find(b=>b.getAttribute('data-day')===v);
+  pick('2026-11-13').click(); await w(220); pick('2026-11-16').click(); await w(220);
+  d.getElementById('to3').click(); await w(500);
+  d.getElementById('addParty').click(); await w(350);
+  const plan=[['Me','DEN','denver'],['Jess + Mara','JFK','jfk'],['Theo','AUS','austin'],['Priya','ORD','chicago']];
+  for(let i=0;i<4;i++){
+    const cards=d.querySelectorAll('#parties .party');
+    const c=cards[i];
+    const nm=c.querySelector('input[data-name], .pname, input');
+    await type(W,c.querySelectorAll('input')[0], plan[i][0]); await w(120);
+    c.querySelector('.add-air').click(); await w(350);
+    const ai=[...c.querySelectorAll('input')].pop();
+    await type(W,ai,plan[i][2]); await w(400);
+    const it=c.querySelector('.ac.open .ac-item') || c.querySelector('.ac-item');
+    if(it) it.click();
+    await w(300);
+  }
+  // bump card 2 to two people
+  const c2=d.querySelectorAll('#parties .party')[1];
+  [...c2.querySelectorAll('.stepper button')].pop().click();
+  await w(700);
+  document.title='done';
+};
+</script></body></html>

@@ -1,0 +1,12 @@
+<!DOCTYPE html><meta charset="utf-8"><body style="margin:0">
+<iframe id="f" src="index.html" style="width:1280px;height:1600px;border:0"></iframe>
+<pre id="dump" style="font:11px monospace;white-space:pre-wrap"></pre>
+<script>
+function d(){ return document.getElementById('f').contentDocument; }
+setTimeout(function(){
+  d().getElementById('aboutBtn').click();
+  setTimeout(function(){
+    document.getElementById('dump').textContent = d().getElementById('sheet').innerText;
+  }, 700);
+}, 1500);
+</script>

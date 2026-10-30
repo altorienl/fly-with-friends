@@ -1,0 +1,24 @@
+<!DOCTYPE html><meta charset="utf-8"><body style="margin:0">
+<iframe id="f" src="index.html" style="width:1280px;height:900px;border:0"></iframe>
+<pre id="dump" style="font:11px monospace;white-space:pre-wrap">PENDING</pre>
+<script>
+function d(){ return document.getElementById('f').contentDocument; }
+function W(){ return document.getElementById('f').contentWindow; }
+function fire(n,t,c){ n.dispatchEvent(new (W())[c](t,{bubbles:true})); }
+function log(s){ document.getElementById('dump').textContent += '\n'+s; }
+setTimeout(function(){
+  document.getElementById('dump').textContent='START';
+  try{
+    var i=d().getElementById('dest'); i.value='Charleston'; fire(i,'input','Event');
+    setTimeout(function(){
+      var ac=d().getElementById('destAc');
+      log('destAc exists: '+!!ac);
+      log('destAc class: '+(ac?ac.className:''));
+      log('destAc text: ['+(ac?ac.innerText:'')+']');
+      log('destAc html len: '+(ac?ac.innerHTML.length:0));
+      log('items: '+(ac?ac.querySelectorAll('.ac-item').length:0));
+      log('RAW: '+(ac?ac.innerHTML.replace(/</g,'{').slice(0,900):''));
+    }, 900);
+  }catch(e){ log('ERR '+e); }
+}, 2000);
+</script>

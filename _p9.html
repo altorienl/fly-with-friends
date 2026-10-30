@@ -1,0 +1,13 @@
+<!DOCTYPE html><meta charset="utf-8"><body style="margin:0">
+<iframe id="f" src="index.html" style="width:1280px;height:1400px;border:0"></iframe>
+<script>
+function d(){ return document.getElementById('f').contentDocument; }
+setTimeout(function(){
+  d().getElementById('demo').click();
+  setTimeout(function(){
+    var g=d().querySelector('header button, .icon-btn[aria-label*="etting"], #gear, #settingsBtn');
+    var cand=[].slice.call(d().querySelectorAll('button')).filter(function(b){return /setting/i.test(b.getAttribute('aria-label')||'')||b.id==='gear';});
+    (cand[0]||g).click();
+  }, 1300);
+}, 1500);
+</script>
