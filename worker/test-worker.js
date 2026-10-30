@@ -137,7 +137,7 @@ console.log('\n5. Duffel: transatlantic normalisation');
  * bill. Where a number is wrong-but-cheap it is pinned as it is, with a comment
  * saying so, rather than quietly left untested. */
 console.log('\n6. Economics: what a trip costs');
-const { planSearches, legTtl, accountGate, normalize, LIMITS } = _internals;
+const { planSearches, legTtl, accountGate, normalize, LIMITS, planCaps } = _internals;
 
 const CITIES = ['SFO', 'ORD', 'ATL', 'DEN', 'BOS', 'AUS', 'SEA', 'PHL'];
 const party = (n, origins) => ({ dest: ['PIT'], depart: '2027-02-12',
@@ -201,12 +201,63 @@ check('KNOWN: Duffel keys the full origin list but only searches the first airpo
   plan(rt(party(2, i => (i ? ['SFO', 'OAK'] : ['SFO', 'SJC']))), 'duffel').unique.length === 4);
 
 console.log('\n7. Economics: cache lifetime by how far out the flight is');
+/* These were 12h / 3 days / 7 days, chosen when the whole month was 250
+ * searches and every one of them had to be hoarded. Then somebody tapped Book
+ * on a three-day-old quote and got "the itinerary you selected is no longer
+ * available". On the $25 plan the month is 1,000, so the trade reverses and the
+ * buckets come down 6x, 12x and 7x. What makes it affordable is that a shared
+ * ?t= link reads a stored snapshot and never searches -- the TTL is only ever
+ * paid when somebody presses the search button. */
 const inDays = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
-check('a flight next week caches for 12h, not a day', legTtl(inDays(7)) === 60 * 60 * 12);
-check('a month out caches for 3 days', legTtl(inDays(30)) === 60 * 60 * 24 * 3);
-check('six months out caches for 7 days', legTtl(inDays(180)) === 60 * 60 * 24 * 7);
-check('an unreadable date falls back to a day', legTtl('banana') === LIMITS.cacheTtlSeconds);
-check('the far bucket is 7x the old flat day', legTtl(inDays(180)) / LIMITS.cacheTtlSeconds === 7);
+check('a flight next week caches for 2h', legTtl(inDays(7)) === 60 * 60 * 2);
+check('a month out caches for 6h -- the bucket that quoted a sold-out seat',
+  legTtl(inDays(30)) === 60 * 60 * 6);
+check('six months out caches for a day', legTtl(inDays(180)) === 60 * 60 * 24);
+check('an unreadable date falls back to 6h', legTtl('banana') === LIMITS.cacheTtlSeconds);
+/* The ordering is the invariant, not the numbers: a fare you are about to book
+ * must never be cached longer than one nine months out. */
+check('the buckets still run shortest-first as the flight gets further away',
+  legTtl(inDays(7)) < legTtl(inDays(30)) && legTtl(inDays(30)) < legTtl(inDays(180)));
+check('and nothing is cached longer than a day',
+  [7, 30, 180, 300].every(d => legTtl(inDays(d)) <= 60 * 60 * 24));
+
+console.log('\n7b. Economics: the ceiling comes from the plan, not from this file');
+/* The free tier is 250/50 and the $25 Starter tier is 1,000/200. Both are the
+ * same code path, so moving between them takes effect on its own rather than
+ * waiting for somebody to remember to edit a constant and redeploy -- which is
+ * the version of this that silently keeps refusing searches on a paid plan. */
+check('the free tier allows 237 of its 250',
+  planCaps({ perMonth: 250, hourLimit: 50 }).monthly === 237);
+check('the $25 plan allows 950 of its 1,000',
+  planCaps({ perMonth: 1000, hourLimit: 200 }).monthly === 950);
+check('...and 180 of its 200 an hour',
+  planCaps({ perMonth: 1000, hourLimit: 200 }).hourly === 180);
+check('the hourly cap follows the plan too, not a constant',
+  planCaps({ perMonth: 250, hourLimit: 50 }).hourly === 45);
+/* One day must not be able to eat the month. */
+check('a day is a fraction of the month, never all of it',
+  planCaps({ perMonth: 1000, hourLimit: 200 }).daily === 380);
+check('and never less than the free-tier floor',
+  planCaps({ perMonth: 250, hourLimit: 50 }).daily === LIMITS.daily,
+  'got ' + planCaps({ perMonth: 250, hourLimit: 50 }).daily);
+/* No account call, a failed one, or a nonsense one: fall back to the floor.
+ * Spending less than allowed costs a search; spending more costs a group their
+ * trip mid-search. */
+[null, {}, { perMonth: 0 }, { perMonth: NaN }, { perMonth: -5 }].forEach((a, i) => {
+  const c = planCaps(a);
+  check('  unreadable account #' + (i + 1) + ' falls back to the free-tier floor',
+    c.monthly === LIMITS.monthly && c.hourly === LIMITS.globalHourly
+    && c.daily === LIMITS.daily, JSON.stringify(c));
+});
+check('every cap it reports is a whole number of searches',
+  [250, 1000, 5000].every(m => {
+    const c = planCaps({ perMonth: m, hourLimit: 200 });
+    return Number.isInteger(c.monthly) && Number.isInteger(c.daily) && Number.isInteger(c.hourly);
+  }));
+/* And it must always leave the provider some room, because their counter is the
+ * one that refuses and ours can be low. */
+check('it never claims the whole plan',
+  [250, 1000, 5000, 15000].every(m => planCaps({ perMonth: m, hourLimit: 200 }).monthly < m));
 
 console.log('\n8. Economics: the provider\'s meter overrules ours');
 check('no snapshot means allow -- telemetry never blocks a real group',
@@ -280,9 +331,30 @@ check('cold 8-party round trip bills 16 searches', cold.searches_made === 16,
 check('...and reports the 16 distinct routes it paid for', cold.distinct_routes === 16);
 check('...and costs 21 KV writes (16 cache + 4 counters + 1 provider snapshot)',
   coldWrites === 21, 'got ' + coldWrites);
-check('...so the 1,000-a-day write ceiling allows 47 of them, and the '
-  + '230-search cap allows 14 -- searches bind first, by two orders of magnitude',
-  Math.floor(1000 / coldWrites) === 47 && Math.floor(230 / 16) === 14);
+/* Which ceiling binds first, on each plan. It used to be "searches, by two
+ * orders of magnitude", which was true at 250 a month and is not true at 1,000:
+ * the margin is now about 2x, and on the $75 tier Cloudflare's 1,000 KV writes
+ * a day would overtake SerpApi and become the real limit. Stated per plan so
+ * the next upgrade has the number in front of it rather than finding out. */
+(function () {
+  const tripsByWrites = Math.floor(1000 / coldWrites);        // Cloudflare KV, free plan
+  const tripsOnFree = Math.floor(planCaps({ perMonth: 250, hourLimit: 50 }).daily / 16);
+  const tripsOnPaid = Math.floor(planCaps({ perMonth: 1000, hourLimit: 200 }).daily / 16);
+  check('an 8-party round trip costs 21 KV writes, so 47 of them a day fit the '
+    + 'free KV ceiling', tripsByWrites === 47, 'got ' + tripsByWrites);
+  check('on the free search tier 7 trips a day bind first -- searches, by 7x',
+    tripsOnFree === 7 && tripsOnFree < tripsByWrites,
+    'searches allow ' + tripsOnFree + ', writes allow ' + tripsByWrites);
+  check('on the $25 tier 23 a day bind first -- still searches, but only by 2x',
+    tripsOnPaid === 23 && tripsOnPaid < tripsByWrites,
+    'searches allow ' + tripsOnPaid + ', writes allow ' + tripsByWrites);
+  /* The one that matters next: the KV write ceiling is NOT derived from
+   * anything and will not move on its own when the search plan does. */
+  check('a 5,000-search plan would be bounded by KV writes, not by searches',
+    Math.floor(planCaps({ perMonth: 5000, hourLimit: 1000 }).daily / 16) > tripsByWrites,
+    'searches would allow '
+      + Math.floor(planCaps({ perMonth: 5000, hourLimit: 1000 }).daily / 16));
+}());
 
 /* The same request again: the cache is the product. */
 const warm = await (await worker.fetch(post(rt(party(8))), env)).json();

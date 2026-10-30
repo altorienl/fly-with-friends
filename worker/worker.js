@@ -31,23 +31,39 @@ const LIMITS = {
    *     notices. It is deliberately generous: a burst it blocks is a burst no
    *     group of friends would ever produce.
    * Separating humans from scripts is Turnstile's job, not a quota's. */
-  monthly: 230,      // of SerpApi's 250, leaving headroom for manual scans
+  /* The FREE tier's numbers, and now only a floor. The real ceiling is read
+   * from the provider -- see planCaps -- so moving to a bigger plan takes
+   * effect on its own rather than waiting for somebody to remember to edit this
+   * line and redeploy. These apply when the account call fails, which is the
+   * safe direction to be wrong in. */
+  monthly: 230,      // of the free tier's 250, leaving headroom for manual scans
   daily: 120,
   globalHourly: 60,
+  planHeadroom: 0.95,   // of the plan's monthly allowance
+  hourHeadroom: 0.9,    // of the plan's hourly throughput
+  dailyShare: 0.4,      // so one day cannot eat the month
   perIpRequestsHourly: 240,   // anti-script only; ~40 group searches an hour
   perIpTripWrites: 40,
 
   /* One TTL was answering two different questions. A fare nine months out barely
    * moves and a week-old quote is still right; a fare next week moves hourly and
    * a day-old quote is wrong. Grading it by how far out the flight is buys the
-   * thing that actually costs money -- several friends searching the same route
-   * across a week now pay for it once instead of once a day -- and buys it where
-   * staleness is cheapest. The near bucket is deliberately SHORTER than the old
-   * flat day: those are the searches someone is about to book against. */
-  cacheTtlSeconds: 60 * 60 * 24,            // fallback when the date is unreadable
-  legTtlNearSeconds: 60 * 60 * 12,          // departing inside 14 days
-  legTtlMidSeconds: 60 * 60 * 24 * 3,       // 15-60 days out
-  legTtlFarSeconds: 60 * 60 * 24 * 7,       // 60+ days out
+   * thing that actually costs money and buys it where staleness is cheapest.
+   *
+   * Then somebody tapped Book on a three-day-old quote and got Google's "the
+   * itinerary you selected is no longer available". Three days was chosen when
+   * the whole month was 250 searches and every one of them had to be hoarded;
+   * on the $25 plan it is 1,000, so the trade reverses -- 12 hours, 3 days and
+   * a week become 2 hours, 6 hours and a day.
+   *
+   * What makes that affordable is that a shared ?t= link reads a stored
+   * snapshot and never searches. The TTL is only ever paid when somebody
+   * presses the search button, which a group does a handful of times while
+   * planning -- not once per person per visit. */
+  cacheTtlSeconds: 60 * 60 * 6,             // fallback when the date is unreadable
+  legTtlNearSeconds: 60 * 60 * 2,           // departing inside 14 days
+  legTtlMidSeconds: 60 * 60 * 6,            // 15-60 days out
+  legTtlFarSeconds: 60 * 60 * 24,           // 60+ days out
   legTtlNearDays: 14,
   legTtlMidDays: 60,
 
@@ -451,6 +467,27 @@ async function fetchAccount(env) {
   };
 }
 
+/* What the plan actually allows, rather than what was true when this was
+ * written. SerpApi reports searches_per_month and account_rate_limit_per_hour,
+ * so the free tier's 250/50 and the $25 tier's 1,000/200 are the same code
+ * path and an upgrade needs no deploy. Headroom is kept under each because our
+ * counter and theirs can disagree by a search or two and theirs is the one
+ * that refuses.
+ *
+ * Falls back to the free-tier floor whenever the account call failed, which is
+ * the safe direction: spending less than allowed costs a search, spending more
+ * than allowed costs a group their trip mid-search. */
+function planCaps(acct) {
+  const perMonth = acct && isFinite(acct.perMonth) && acct.perMonth > 0 ? acct.perMonth : null;
+  const perHour = acct && isFinite(acct.hourLimit) && acct.hourLimit > 0 ? acct.hourLimit : null;
+  const monthly = perMonth ? Math.floor(perMonth * LIMITS.planHeadroom) : LIMITS.monthly;
+  return {
+    monthly: monthly,
+    daily: Math.max(LIMITS.daily, Math.floor(monthly * LIMITS.dailyShare)),
+    hourly: perHour ? Math.floor(perHour * LIMITS.hourHeadroom) : LIMITS.globalHourly,
+  };
+}
+
 /* Gates on total_searches_left, not this_month_usage: a plan renews on its own
  * anniversary rather than the first of the calendar month, so the two can
  * disagree about which month a search belongs to. "How many will they still
@@ -628,8 +665,9 @@ async function handleSearch(request, env) {
   const acct = (toSpend > 0 && provider === 'serpapi')
     ? await fetchAccount(env).catch(() => null) : null;
 
+  const caps = planCaps(acct);
   const budget = {
-    used, limit: LIMITS.monthly, usedToday, dailyLimit: LIMITS.daily,
+    used, limit: caps.monthly, usedToday, dailyLimit: caps.daily,
     resetsAt: monthResetsAt(), wouldSpend: toSpend,
     /* The provider's own figure, next to ours. When these disagree, ours is the
      * one that is wrong -- see the note on PROVIDER_SNAPSHOT. */
@@ -651,17 +689,17 @@ async function handleSearch(request, env) {
       budget, exhausted: 'hour' }, 429);
   }
 
-  if (toSpend > 0 && used + toSpend > LIMITS.monthly) {
+  if (toSpend > 0 && used + toSpend > caps.monthly) {
     return json({ error: 'Fly with Friends has used this month\'s flight-data allowance. '
       + 'Shared links and recent searches still work, and it resets on ' + budget.resetsAt + '.',
       budget, exhausted: 'month' }, 429);
   }
-  if (toSpend > 0 && usedToday + toSpend > LIMITS.daily) {
+  if (toSpend > 0 && usedToday + toSpend > caps.daily) {
     return json({ error: 'Fly with Friends has used today\'s flight-data allowance. '
       + 'Shared links and recent searches still work, and more is available tomorrow.',
       budget, exhausted: 'day' }, 429);
   }
-  if (toSpend > 0 && usedHour + toSpend > LIMITS.globalHourly) {
+  if (toSpend > 0 && usedHour + toSpend > caps.hourly) {
     return json({ error: 'Unusually heavy traffic in the last hour, so searching is '
       + 'briefly paused to protect the allowance. Shared links still work.',
       budget, exhausted: 'hour' }, 429);
@@ -1006,7 +1044,7 @@ async function readTrip(id, env) {
 
 export const _internals = { parseBags, validate, extractOptions, extractInsights, cacheKey, LIMITS, tripId,
                             duffelBags, parseIsoDuration, extractDuffelOptions, localStamp,
-                            planSearches, legTtl, accountGate, normalize,
+                            planSearches, legTtl, accountGate, normalize, planCaps,
                             sameKey, partyIdsOf, publicMarks, MARK_STATES,
                             /* Exported so the trust model can be tested rather than
                              * reasoned about: that a claim key never reaches a
@@ -1032,13 +1070,18 @@ export default {
        * Reporting both is the honest version -- and `exhausted` believes
        * whichever of the two says the allowance is gone. */
       const providerLeft = snap && isFinite(snap.left) ? snap.left : null;
-      return new Response(JSON.stringify({ used, limit: LIMITS.monthly, usedToday,
-          dailyLimit: LIMITS.daily, resetsAt: monthResetsAt(),
+      /* From the same snapshot the search path writes, so this page and the
+       * gate that actually refuses a search quote the same ceiling. Before an
+       * upgrade's first search there is no snapshot, and the floor is reported
+       * -- understating the allowance, which is the harmless direction. */
+      const caps = planCaps(snap);
+      return new Response(JSON.stringify({ used, limit: caps.monthly, usedToday,
+          dailyLimit: caps.daily, resetsAt: monthResetsAt(),
           providerUsed: snap && isFinite(snap.used) ? snap.used : null,
           providerLeft, providerAt: (snap && snap.at) || null,
-          low: used > LIMITS.monthly * 0.8
-               || (providerLeft != null && providerLeft < LIMITS.monthly * 0.2),
-          exhausted: used >= LIMITS.monthly || providerLeft === 0 }), {
+          low: used > caps.monthly * 0.8
+               || (providerLeft != null && providerLeft < caps.monthly * 0.2),
+          exhausted: used >= caps.monthly || providerLeft === 0 }), {
         headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60', ...CORS },
       });
     }
