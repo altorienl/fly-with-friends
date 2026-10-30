@@ -423,12 +423,17 @@ section { animation: stepIn .2s var(--ease); }
     border-style: dashed; background: transparent; }
 .pill.air.off .air-n { text-decoration: none; }
 .air-row.alli { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--edge); gap: 4px; }
-.pill.alli-b { padding: 8px 12px; font-size: 11px; }
+/* The alliance control is one bubble containing both halves: the name, and the
+ * ? that prints its membership. */
+.alli-g { display: inline-flex; align-items: stretch; border: 1px solid var(--edge);
+    border-radius: var(--r-pill); background: var(--card); overflow: hidden; }
+.alli-g .alli-b { min-height: 44px; padding: 8px 10px 8px 14px; font-size: 11px;
+    font-weight: 600; color: var(--muted); background: transparent; }
+.alli-g .qm { width: 32px; min-height: 44px; flex: none; background: transparent;
+    border: 0; border-left: 1px solid var(--edge); color: var(--muted);
+    font-size: 12px; font-weight: 800; line-height: 1; }
+.alli-g .qm[aria-expanded="true"] { color: var(--accent); background: var(--accent-dim); }
 .pill.alli-b.clear { margin-left: auto; color: var(--accent); border-color: var(--brand); }
-.qm { width: 26px; height: 26px; min-height: 26px; margin-right: 8px; flex: none;
-    border: 1px solid var(--edge); border-radius: 50%; background: var(--card);
-    color: var(--muted); font-size: 12px; font-weight: 800; line-height: 1; }
-.qm[aria-expanded="true"] { border-color: var(--brand); color: var(--accent); background: var(--accent-dim); }
 .qm-pop { margin-top: 10px; padding: 12px 14px; border: 1px solid var(--edge);
     border-radius: var(--r-md); background: var(--bg); font-size: 12px; }
 .qm-pop > b { display: block; margin-bottom: 8px; font-size: 12px; }

@@ -1216,9 +1216,15 @@ function renderAirlinePills() {
          * thing anybody will do on a phone. */
         + (shown.length ? '<div class="air-row alli">'
             + shown.map(function (a) {
-                return '<button class="pill alli-b" data-alli="' + a.k + '">Only ' + esc(a.name)
-                    + '</button><button class="qm" data-qm="' + a.k + '" aria-expanded="false"'
-                    + ' aria-label="Which airlines are in ' + esc(a.name) + '">?</button>';
+                /* One bubble, two targets. The ? used to sit outside as its own
+                 * circle, which made three alliances read as six controls. It
+                 * cannot be a button inside a button, so the bubble is a span
+                 * and both halves are buttons within it. */
+                return '<span class="alli-g">'
+                    + '<button class="alli-b" data-alli="' + a.k + '">Only ' + esc(a.name) + '</button>'
+                    + '<button class="qm" data-qm="' + a.k + '" aria-expanded="false"'
+                    + ' aria-label="Which airlines are in ' + esc(a.name) + '">?</button>'
+                    + '</span>';
             }).join('')
             + (avoiding ? '<button class="pill alli-b clear" data-air-clear="1">Allow all</button>' : '')
             + '</div>'
