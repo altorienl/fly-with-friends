@@ -2520,7 +2520,16 @@ function matchProfiles() {
      * veto, not as one axis among four. Without it the cheapest plan on a
      * narrowed band is routinely the one that quietly leaves somebody behind,
      * and it would hide every plan that brings them. */
-    var cmp = ['total', 'worst', 'mins', 'worstBurden'];
+    /* Not worstBurden. It was a fourth axis, and it is the only one of the four
+     * that appears nowhere on screen -- so a plan worse than its neighbour on
+     * price, closeness, connections AND time in the air survived on a number
+     * the reader cannot check against anything. Measured: 20 such rows across
+     * 800 band-filtered groups, every one of them "Easiest flights" sitting
+     * above a cheaper, tighter plan with no visible reason to exist. Dominance
+     * now compares exactly what a card can state. Burden is still computed and
+     * still reported on the entry; it just no longer keeps a card alive on its
+     * own. */
+    var cmp = ['total', 'worst', 'mins'];
     var feas = out.filter(function (e) { return e.feasible && !e.dupeOf; });
     feas.forEach(function (e) {
         if (e.id === 'balanced') return;
@@ -2726,10 +2735,24 @@ function matchWhy(m, ms) {
     var clash = list.some(function (o) {
         return o !== m && whyBits(o, list).join(' · ') === mine;
     });
+    /* Or worse than a clash: a caption showing nothing better than another
+     * row's, at a price no lower. "13h 59m apart $4,377" above "10h 2m apart
+     * $4,303" gives a reader no reason to tap the first and every reason to
+     * distrust the screen for offering it. It happened on 40% of multi-row
+     * screens, and in four out of five of them the row genuinely was better --
+     * at time in the air, which the caption had no reason to print until now.
+     * The fifth was worse at everything and is now dominated away. */
+    var beaten = list.some(function (o) {
+        return o !== m && o.total <= m.total
+            && (o.seated == null || m.seated == null || o.seated >= m.seated)
+            && o.spread <= m.spread
+            && (o.conn || []).length <= (m.conn || []).length
+            && (o.total < m.total || o.spread < m.spread);
+    });
     /* Nothing varied at all is the same problem with one row left: say it in
      * time in the air. Something always differs -- two matches that differ in
      * nothing were collapsed into one. */
-    if ((clash || !bits.length) && m.mins != null) {
+    if ((clash || beaten || !bits.length) && m.mins != null) {
         bits.push(FWF.fmtGap(m.mins) + ' in the air');
     }
     return bits.join(' · ');

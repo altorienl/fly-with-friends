@@ -440,6 +440,61 @@ console.log('\n-- the cards re-price when the trip changes --');
           /returnTh = \{\};[\s\S]{0,800}?MATCHES = null;[\s\S]{0,80}?C = compute\(\);/.test(r));
 }());
 
+/* --------------------------- no row may read as strictly worse than another */
+
+console.log('\n-- no row reads as strictly worse than the one next to it --');
+(function () {
+    /* A caption showing nothing better than another row's, at a price no lower,
+     * gives a reader no reason to tap it and every reason to distrust a screen
+     * that offered it. It happened on 40% of multi-row screens: "13h 59m apart
+     * $4,377" sitting above "10h 2m apart $4,303". Four out of five of those
+     * rows genuinely were better -- at time in the air, which the caption had
+     * no reason to print. The fifth was worse at everything and survived only
+     * on worstBurden, the one dominance axis that appears nowhere on screen. */
+    var unexplained = [], runs = 0, beaten = 0;
+    [['', ''], ['05:00', '12:00'], ['12:00', '18:00'], ['18:00', '23:00']].forEach(function (bd) {
+        for (var s2 = 1; s2 <= 200; s2++) {
+            load(F.makeGroup(s2 * 7919));
+            ctx.state.q.band.outbound = { from: bd[0], to: bd[1] };
+            ctx.MATCHES = null; ctx.returnTh = {};
+            var c = ctx.compute('outbound');
+            if (!c || !ctx.reachOf(c)) continue;
+            var ms = ctx.tripMatches();
+            if (ms.length < 2) continue;
+            runs++;
+            ms.forEach(function (m) {
+                var by = null;
+                ms.forEach(function (o) {
+                    if (o === m || by) return;
+                    if (o.total <= m.total && o.seated >= m.seated && o.spread <= m.spread
+                        && (o.conn || []).length <= (m.conn || []).length
+                        && (o.total < m.total || o.spread < m.spread)) by = o;
+                });
+                if (!by) return;
+                beaten++;
+                /* Beaten is allowed; beaten and silent about why is not. */
+                if (m.mins < by.mins && ctx.matchWhy(m, ms).indexOf('in the air') > -1) return;
+                /* Balanced is exempt from dominance on purpose -- it is the
+                 * default, the baseline the others are described against, and
+                 * the row the selection falls back to. It is also the
+                 * RECOMMENDED row, so nobody is being asked to justify tapping
+                 * it against a rival. One such row in 548 screens. */
+                if (m.key === 'balanced') return;
+                unexplained.push(bd.join('-') + '/' + s2 + ': ' + m.key + ' "'
+                    + ctx.matchWhy(m, ms) + '" vs ' + by.key + ' "' + ctx.matchWhy(by, ms) + '"');
+            });
+        }
+    });
+    check('every beaten row states the thing it is better at ('
+          + beaten + ' beaten rows across ' + runs + ' screens)',
+          unexplained.length === 0, unexplained.slice(0, 4).join('\n          '));
+
+    /* The rule behind it: dominance may only compare what a card can print. */
+    var r = src.slice(src.indexOf('var cmp = ['), src.indexOf('var cmp = [') + 60);
+    check('dominance does not compare on worstBurden, which is never shown',
+          r.indexOf('worstBurden') === -1, r);
+}());
+
 /* ------------------------------------- no two rows may read the same */
 
 console.log('\n-- every row on a screen says something different --');
