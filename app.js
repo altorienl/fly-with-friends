@@ -1789,7 +1789,7 @@ function returnWays(ctx) {
      * than they would alone -- the return never buys closeness with somebody's
      * connection -- and only inside the budget. */
     var fair = rows.filter(function (r) {
-        return worthIt(regretOf(ctx, r.result.picks))
+        return worthItHome(regretOf(ctx, r.result.picks))
             && r.result.cost <= floor.cost + ways.budget;
     });
     if (fair.length) {
@@ -1807,8 +1807,17 @@ function returnWays(ctx) {
         /* Nothing affordable. Keep the tightest fair window anyway, purely so
          * the screen can say what leaving together would have cost rather than
          * leaving the group to wonder. */
-        var any = rows.filter(function (r) { return worthIt(regretOf(ctx, r.result.picks)); });
-        if (any.length) ways.reach = { th: any[0].threshold, result: any[0].result };
+        var any = rows.filter(function (r) { return worthItHome(regretOf(ctx, r.result.picks)); });
+        if (any.length) {
+            ways.reach = { th: any[0].threshold, result: any[0].result };
+        } else if (rows.length) {
+            /* Nothing is fair. Offer the tightest window anyway, flagged with
+             * what it asks, rather than refusing with no number -- the group can
+             * weigh "two hours more flying for Nick" against "four hours apart"
+             * better than a threshold can. */
+            ways.reach = { th: rows[0].threshold, result: rows[0].result,
+                           asks: regretOf(ctx, rows[0].result.picks) };
+        }
     }
 
     returnTh[key] = ways;
@@ -1904,6 +1913,12 @@ function regretOf(ctx, picks) {
  * an extra hour and a half in the air, is not bought back by 30 minutes of
  * waiting saved at baggage claim. */
 function worthIt(r) { return r.stops <= 0 && r.mins <= 90; }
+/* The same judgement for the way home, where time is worth less. An extra hour
+ * and a half on the way out costs a day of the trip; on the way home it costs an
+ * evening already being spent travelling. The connection half does not move --
+ * buying closeness with somebody's connection is the complaint this guard was
+ * written for. */
+function worthItHome(r) { return r.stops <= 0 && r.mins <= 150; }
 
 /* The whole decision, priced across both legs at once, as a handful of named
  * choices rather than a ladder folded away below the fold. The first real user
@@ -3293,11 +3308,25 @@ function returnNote(b, allIn) {
     var cost = Math.round(tog.cost - b.inWindowTotal);
 
     if (ch.how === 'priced-out') {
-        return '<div class="win-note">Flying home separately because leaving together is not '
-            + 'cheap on these dates: the closest they can all get out is '
-            + gapWords(tog.spread) + ' apart, and that costs ' + money(cost)
-            + ' more across the group.'
-            + btn('any', 'Leave together for ' + money(cost))
+        /* Two different reasons land here and they deserve different sentences.
+         * Either leaving together is affordable but asks somebody to fly worse,
+         * or it is simply dear. Naming which, and who, is the difference between
+         * a decision and a refusal. */
+        var asks = reach.asks;
+        var who = asks && asks.who ? name(asks.who) : null;
+        var askTxt = '';
+        if (asks && who) {
+            if (asks.stops > 0) {
+                askTxt = ' and puts ' + esc(who) + ' on a connection';
+            } else if (asks.mins > 0) {
+                askTxt = ' and gives ' + esc(who) + ' ' + gapWords(asks.mins) + ' more in the air';
+            }
+        }
+        return '<div class="win-note">Each on their own flight home. Getting everyone out '
+            + 'within ' + gapWords(tog.spread) + ' of each other'
+            + (cost > 0 ? ' costs ' + money(cost) + ' more' : ' costs nothing extra')
+            + askTxt + '.'
+            + btn('any', cost > 0 ? 'Leave together for ' + money(cost) : 'Leave together')
             + '</div>';
     }
     return '<div class="win-note">Each on their own flight home, as asked. Leaving together '

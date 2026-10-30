@@ -49,7 +49,7 @@ function makeEl(id) {
  * export block before the closing brace rather than by editing app.js, so the
  * shipped file carries no test hooks. */
 var EXPORTS = ['compute', 'legBreakdown', 'tripLadder', 'tripBest', 'windowStrip', 'returnNote',
-               'returnWays', 'returnChoice', 'returnThOf', 'regretOf', 'worthIt',
+               'returnWays', 'returnChoice', 'returnThOf', 'regretOf', 'worthIt', 'worthItHome',
                'recommendedIn', 'blankQuery', 'migrateQuery'];
 
 function load() {
@@ -494,6 +494,50 @@ eq('a link that paid for it keeps paying for it',
    T.migrateQuery({ parties: [], avoid: [], clusterReturn: 'any' }).clusterReturn, 'any');
 eq('and anything else normalises rather than falling through as falsy',
    T.migrateQuery({ parties: [], avoid: [], clusterReturn: 0 }).clusterReturn, true);
+
+/* ======================================================================
+ * The way home is held to its own standard, and an unfair window is priced
+ * rather than refused.
+ *
+ * Reported case: three parties, the way home 4h 25m apart, and the screen said
+ * "No window gets the group out together without putting somebody on a
+ * materially worse flight than they would take alone." A bad match AND no
+ * recourse -- the group never learned that 15 minutes apart was ninety dollars
+ * away. worthIt is the OUTBOUND's judgement: ninety minutes of extra flying on
+ * the way out costs a day of the trip, on the way home it costs an evening
+ * already being spent travelling.
+ * ====================================================================== */
+console.log('\n-- the way home has its own fairness standard --');
+check('both standards refuse an extra connection',
+      !T.worthIt({ stops: 1, mins: 0 }) && !T.worthItHome({ stops: 1, mins: 0 }),
+      'a connection is the complaint this guard exists for, on either leg');
+check('the outbound refuses two hours of extra flying', !T.worthIt({ stops: 0, mins: 120 }));
+check('the way home allows it', T.worthItHome({ stops: 0, mins: 120 }));
+check('the way home still refuses three hours', !T.worthItHome({ stops: 0, mins: 180 }));
+
+console.log('\n-- an unfair window is offered with its price, not hidden --');
+{
+    var mk = function (t, mins, stops, price, id) {
+        return { id: id, price: price, depart: '2027-03-10 ' + t, arrive: '2027-03-10 ' + t,
+                 duration_minutes: mins, stops: stops, airlines: ['X'], from: 'AAA', to: 'FLL' };
+    };
+    var prep = FWF.prepare({
+        n: [mk('18:20', 180, 0, 300, 'n-own'), mk('21:40', 400, 1, 320, 'n-cluster')],
+        k: [mk('19:49', 190, 0, 300, 'k-own'), mk('21:50', 200, 0, 330, 'k-cluster')],
+        a: [mk('22:45', 185, 0, 300, 'a-own'), mk('21:55', 210, 0, 340, 'a-cluster')]
+    }, ['n', 'k', 'a'], 'depart', {});
+    var cost = function (op) { return op.price; };
+    var floor = FWF.minCostAtWindow(prep, FWF.INF, cost);
+    var tight = FWF.minCostAtWindow(prep, 60, cost);
+    check('the reported shape reproduces: hours apart at the floor',
+          floor.spread > 240, FWF.fmtGap(floor.spread) + ' apart at $' + floor.cost);
+    check('a clustered window exists and is cheap enough to be worth naming',
+          !!tight && tight.cost - floor.cost < 200,
+          FWF.fmtGap(tight.spread) + ' apart for $' + (tight.cost - floor.cost) + ' more');
+    check('and it is genuinely unfair, so the old code refused it with no number',
+          (tight.picks.n.option.stops || 0) > 0,
+          'clustering puts a connection on n');
+}
 
 console.log('\n' + (fail ? 'FAILED ' + fail + ' of ' + (pass + fail) : 'ALL ' + pass + ' CHECKS PASSED'));
 process.exitCode = fail ? 1 : 0;
