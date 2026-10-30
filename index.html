@@ -129,12 +129,25 @@
         r.classList.add('standalone');
         /* The overlay leaves on a CSS animation with fill: both. This removes
          * the node outright a beat later, so an engine that never ran the
-         * animation cannot leave a permanent cover over the app. */
-        var ms = parseFloat(getComputedStyle(r).getPropertyValue('--boot-ms')) || 1800;
-        setTimeout(function () {
-            var el = document.getElementById('boot');
-            if (el && el.parentNode) el.parentNode.removeChild(el);
-        }, ms + 600);
+         * animation cannot leave a permanent cover over the app.
+         *
+         * Armed on DOMContentLoaded, not here. This script is in <head> ABOVE
+         * the <style> that declares --boot-ms, so reading it now returns
+         * nothing: the fallback won, the node was torn out at 2.4s, and the
+         * three-second turn was cut off at 277 degrees. Styles are parsed by
+         * DOMContentLoaded, so the stylesheet stays the one place the duration
+         * is written. */
+        var arm = function () {
+            var ms = parseFloat(getComputedStyle(document.documentElement)
+                        .getPropertyValue('--boot-ms')) || 3000;
+            setTimeout(function () {
+                var el = document.getElementById('boot');
+                if (el && el.parentNode) el.parentNode.removeChild(el);
+            }, ms + 900);
+        };
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', arm);
+        } else { arm(); }
     }
 })();
 </script>
@@ -297,56 +310,98 @@ body {
  * none of this should fire, so it all hangs off .standalone, which the inline
  * script in <head> sets before the first paint. */
 
-/* The launch moment.
+/* The launch moment, continuing the launch image rather than replacing it.
  *
- * iOS shows a static launch image while an installed app boots and then cuts
- * to the page; this continues that image rather than adding to it, so the mark
- * the splash ends on is the mark that turns. One complete rotation, and the
- * overlay goes whether or not anything else has finished.
+ * iOS shows splash/*.png while an installed app boots, and that image is not
+ * just the mark -- it is the mark, "Fly with Friends", and "Everyone lands
+ * together". The first version of this overlay drew only the mark, so the
+ * instant it took over the two lines somebody was reading vanished and a bare
+ * logo spun: "the opening logo is so quick you dont even get a chance to read
+ * it before the roatiion screen". There was nothing left to read.
  *
- * Only on a home-screen launch. In a browser tab you are already looking at
- * the page, and a splash there is a delay with nothing to cover.
+ * So the geometry is the launch image's own, in the terms
+ * tools/make-splash.sh uses -- mark at 30% of the short edge capped at 190,
+ * gap at 28% of the mark, type clamped 11-15 then scaled 1.5x and 1.1x, which
+ * is what vmin means here. Keep the two in step: if the script's numbers
+ * change, these do too. Only the mark turns. Rotating text cannot be read,
+ * which is the whole complaint.
  *
- * --boot-ms is the whole control. One rotation at 1800ms reads as deliberate;
- * three seconds on every open of an app people use to glance at a trip starts
- * to feel like being held. Change the one number if you disagree. */
-:root { --boot-ms: 1800ms; }
+ * Only on a home-screen launch. In a browser tab there is no launch image to
+ * continue and a splash is a delay with nothing to cover.
+ *
+ * --boot-ms is the whole control, and it is now the three seconds originally
+ * asked for. 1800 was my guess at "a bit longer" and it was too quick. */
+:root {
+    --boot-ms: 3000ms;
+    --boot-mark: min(30vmin, 190px);
+    --boot-gap: calc(var(--boot-mark) * .28);
+    --boot-word: clamp(11px, 3.4vmin, 15px);
+    --boot-glow: rgba(255, 176, 1, .20);
+}
+[data-theme="light"] { --boot-glow: rgba(255, 176, 1, .30); }
 #boot { display: none; }
 .standalone #boot {
     display: grid; place-items: center;
     position: fixed; inset: 0; z-index: 200;
     background: var(--bg);
-    animation: bootOut 320ms ease var(--boot-ms) both;
+    animation: bootOut 340ms ease var(--boot-ms) both;
+}
+/* Optical centre, not geometric: the wordmark hangs below the mark, so the
+   pair is nudged up -- the same nudge the launch image makes. */
+.boot-stack {
+    display: flex; flex-direction: column; align-items: center;
+    transform: translateY(calc(var(--boot-gap) / -2));
+}
+.boot-halo {
+    position: absolute; width: calc(var(--boot-mark) * 1.5);
+    height: calc(var(--boot-mark) * 1.5); border-radius: 50%;
+    background: radial-gradient(circle, var(--boot-glow) 0%, transparent 70%);
+    transform: translateY(calc((var(--boot-gap) / 2 + var(--boot-mark) / 3) * -1));
+    pointer-events: none;
 }
 .boot-mark {
-    width: 84px; height: 84px; border-radius: 19px; display: block;
-    animation: bootSpin var(--boot-ms) cubic-bezier(.62, 0, .25, 1) both;
+    width: var(--boot-mark); height: var(--boot-mark);
+    border-radius: calc(var(--boot-mark) * .22); display: block; position: relative;
+    /* ease-in-out, not a snap: on the old curve the mark sat nearly still and
+       then whipped round, which reads as a flash rather than as a turn. */
+    animation: bootSpin var(--boot-ms) cubic-bezier(.42, 0, .58, 1) both;
+}
+.boot-word {
+    margin-top: var(--boot-gap); font-weight: 600;
+    font-size: calc(var(--boot-word) * 1.5); letter-spacing: -.01em;
+    color: var(--text); white-space: nowrap;
+}
+.boot-sub {
+    margin-top: calc(var(--boot-gap) / 2);
+    font-size: calc(var(--boot-word) * 1.1); color: var(--muted); letter-spacing: .2px;
 }
 @keyframes bootSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 /* visibility, not just opacity: a transparent overlay still swallows taps. */
 @keyframes bootOut { to { opacity: 0; visibility: hidden; } }
 /* Somebody who has asked the system not to animate things is not asking for a
- * spinning logo. The overlay still appears, so the launch image still has
- * something to cut to, and it leaves almost at once. */
+ * turning logo. The overlay still appears, so the launch image has something
+ * to cut to and the words are still there to read. */
 @media (prefers-reduced-motion: reduce) {
-    :root { --boot-ms: 260ms; }
+    :root { --boot-ms: 1200ms; }
     .boot-mark { animation: none; }
 }
 
-/* Three beats and two arrows, not three numbered badges: the badges were as
-   much ink as the words between them, and at 393px the thing wrapped so that
-   "Add to Home Screen" -- the only part that names what you are looking for --
-   landed alone on the second line under a row of circled digits.
-   The ... is Safari's own glyph for the menu that now hides Share, so it is set
-   like a control rather than like prose. Each step is nowrap so a break can
-   only ever land on an arrow. */
+/* The path as it actually is on iOS 26, from the owner's own screenshots:
+ * "you hit those 3 lines in side the domain / Then hit share vie more then add
+ * to home screen".
+ *
+ * Not the ... I first wrote. On this phone the menu is three horizontal lines
+ * sitting INSIDE the address bar, and the share sheet hides Add to Home Screen
+ * behind More until it is expanded. Four steps is more than I wanted, and all
+ * four are real -- an instruction that is short and points at the wrong glyph
+ * costs more than one that is long and works.
+ *
+ * Arrows rather than numbered badges: the badges were as much ink as the words
+ * between them. Each step is nowrap, so a break can only land on an arrow. */
 .install .s { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
-.install .s .step { white-space: nowrap; }
+.install .s .step { white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
 .install .s .arr { color: var(--faint); }
-.install .s .dots { font-weight: 600; letter-spacing: .05em; }
-/* The other tab layout still shows the arrow in the toolbar and has no ... at
-   all. One faint line, on its own row, for the people that is true for. */
-.install .s .alt { flex-basis: 100%; color: var(--faint); margin-top: 2px; }
+.install .s .ham { width: 15px; height: 10px; flex-shrink: 0; }
 
 /* .ios-bar is gone with black-translucent. It was an opaque band the height of
  * the safe-area inset, dark in both themes, there only to keep a forced-white
@@ -1459,7 +1514,7 @@ footer .sep { color: var(--faint); margin: 0 8px; }
 <!-- Third copy of the 2023 mark, after .mk and .brand-mark. Same geometry,
      its own gradient id. Keep all of them in step with favicon.svg and
      icon-512.png. -->
-<div id="boot" aria-hidden="true"><svg class="boot-mark" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="bg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFCB00"/><stop offset="1" stop-color="#FF9501"/></linearGradient></defs><rect width="512" height="512" rx="113" fill="url(#bg2)"/><g fill="#fff"><circle cx="178.85" cy="136.8" r="30.0"/><circle cx="332.25" cy="136.8" r="30.0"/><rect x="62.8" y="183.0" width="385.4" height="24.9" rx="12.45"/><path d="M144.20 207.9 L213.50 207.9 L217.65 286.5 L140.05 286.5 Z"/><path d="M155.80 286.5 L130.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M201.90 286.5 L227.90 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M297.60 207.9 L366.90 207.9 L371.05 286.5 L293.45 286.5 Z"/><path d="M309.20 286.5 L283.70 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M355.30 286.5 L380.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/></g></svg></div>
+<div id="boot" aria-hidden="true"><div class="boot-halo"></div><div class="boot-stack"><svg class="boot-mark" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="bg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFCB00"/><stop offset="1" stop-color="#FF9501"/></linearGradient></defs><rect width="512" height="512" rx="113" fill="url(#bg2)"/><g fill="#fff"><circle cx="178.85" cy="136.8" r="30.0"/><circle cx="332.25" cy="136.8" r="30.0"/><rect x="62.8" y="183.0" width="385.4" height="24.9" rx="12.45"/><path d="M144.20 207.9 L213.50 207.9 L217.65 286.5 L140.05 286.5 Z"/><path d="M155.80 286.5 L130.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M201.90 286.5 L227.90 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M297.60 207.9 L366.90 207.9 L371.05 286.5 L293.45 286.5 Z"/><path d="M309.20 286.5 L283.70 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M355.30 286.5 L380.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/></g></svg><div class="boot-word">Fly with Friends</div><div class="boot-sub">Everyone lands together</div></div></div>
 
 <div class="install hidden" id="installBanner" role="region" aria-label="Add to Home Screen">
     <svg class="mk" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="bg0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFCB00"/><stop offset="1" stop-color="#FF9501"/></linearGradient></defs><rect width="512" height="512" rx="113" fill="url(#bg0)"/><g fill="#fff"><circle cx="178.85" cy="136.8" r="30.0"/><circle cx="332.25" cy="136.8" r="30.0"/><rect x="62.8" y="183.0" width="385.4" height="24.9" rx="12.45"/><path d="M144.20 207.9 L213.50 207.9 L217.65 286.5 L140.05 286.5 Z"/><path d="M155.80 286.5 L130.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M201.90 286.5 L227.90 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M297.60 207.9 L366.90 207.9 L371.05 286.5 L293.45 286.5 Z"/><path d="M309.20 286.5 L283.70 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M355.30 286.5 L380.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/></g></svg>
@@ -1473,16 +1528,13 @@ footer .sep { color: var(--faint); margin: 0 8px; }
              share icon below" was true until this autumn and is now an
              instruction that points at nothing. -->
         <div class="s" id="installS">
-            <span class="step">Tap <span class="dots">&#8943;</span></span>
+            <span class="step">Tap <svg class="ham" viewBox="0 0 18 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 2h14M2 6h14M2 10h14"/></svg> in the address bar</span>
             <span class="arr" aria-hidden="true">&rarr;</span>
             <span class="step">Share</span>
             <span class="arr" aria-hidden="true">&rarr;</span>
+            <span class="step">More</span>
+            <span class="arr" aria-hidden="true">&rarr;</span>
             <span class="step">Add to Home Screen</span>
-            <span class="alt">No <span class="dots">&#8943;</span>? Tap
-                <svg viewBox="0 0 16 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M8 13V2"/><path d="M4.5 5.5 8 2l3.5 3.5"/>
-                    <path d="M3 9H1.5v9.5h13V9H13"/>
-                </svg> instead.</span>
         </div>
     </div>
     <button class="x" id="installX" aria-label="Not now">&times;</button>
