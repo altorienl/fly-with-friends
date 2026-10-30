@@ -5592,8 +5592,14 @@ render();
         || (/iPad/i.test(ua))
         || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
     var iOSSafari = iOS && !/CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
+    /* window-controls-overlay is an INSTALLED window that has taken the title
+     * bar, and it does not also report standalone -- so testing standalone
+     * alone offered to install the app inside the installed app. */
     var standalone = window.navigator.standalone
-        || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+        || (window.matchMedia
+            && (window.matchMedia('(display-mode: standalone)').matches
+                || window.matchMedia('(display-mode: window-controls-overlay)').matches
+                || window.matchMedia('(display-mode: minimal-ui)').matches));
 
     var deferred = null;
     window.addEventListener('beforeinstallprompt', function (ev) {

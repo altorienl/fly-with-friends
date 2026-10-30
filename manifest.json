@@ -6,8 +6,12 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#0b0a08",
-  "theme_color": "#0b0a08",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone"
+  ],
+  "background_color": "#0f0d0a",
+  "theme_color": "#0f0d0a",
   "icons": [
     {
       "src": "icon-192.png",

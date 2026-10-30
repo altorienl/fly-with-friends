@@ -115,8 +115,12 @@
     /* Home-screen launch has no browser chrome and no back button, so a handful
      * of rules below only make sense there. navigator.standalone is readable
      * this early; the media query covers the standards-track spelling. */
-    if (window.navigator.standalone
-        || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)) {
+    if (window.navigator.standalone || (window.matchMedia
+        && (window.matchMedia('(display-mode: standalone)').matches
+            /* An installed window that has taken the title bar reports
+             * window-controls-overlay and NOT standalone, so testing standalone
+             * alone makes an installed app look uninstalled. */
+            || window.matchMedia('(display-mode: window-controls-overlay)').matches))) {
         r.classList.add('standalone');
     }
 })();
@@ -405,6 +409,55 @@ a { color: var(--accent); }
 .home-btn:focus-visible { outline: 2px solid var(--brand-line); outline-offset: 2px; }
 .brand-mark { width: 34px; height: 34px; border-radius: var(--r-sm); flex-shrink: 0; display: block; }
 .brand-name { font-size: var(--t-4); font-weight: 600; letter-spacing: var(--tr-4); white-space: nowrap; }
+/* The macOS title bar, taken over.
+ *
+ * Installed on a desktop, the window drew "Fly with Friends" in the system
+ * font next to the traffic lights -- correct, and generic, and not something
+ * CSS can reach: that strip is painted by the OS, so there is no bolding it.
+ * What there is, is asking for the strip. display_override:
+ * window-controls-overlay hands the title bar area to the page, and the app
+ * already has the thing that belongs there -- the 2023 mark and the name at
+ * 600 -- so the header moves into it.
+ *
+ * Everything here is behind the display-mode query, which cannot match in a
+ * browser tab, on a phone, or in any engine that does not grant the overlay.
+ * Chromium grants it; Safari ignores display_override and falls back to
+ * standalone, which is today's behaviour unchanged. So the blast radius is
+ * exactly one surface: the installed desktop window.
+ *
+ * The env() values are the only honest source for the geometry -- the traffic
+ * lights are on the left on macOS and the right on Windows, and
+ * titlebar-area-x already accounts for whichever. Hard-coding 80px of inset
+ * would be correct on this machine and wrong on half the others. */
+@media (display-mode: window-controls-overlay) {
+    .brand {
+        position: fixed;
+        top: env(titlebar-area-y, 0);
+        left: env(titlebar-area-x, 0);
+        width: env(titlebar-area-width, 100%);
+        height: env(titlebar-area-height, 33px);
+        padding: 0 10px; margin: 0; max-width: none;
+        box-sizing: border-box;
+        background: var(--bg);
+        /* The strip has to stay a title bar: without this the window cannot be
+         * moved, which is a worse bug than a generic font. */
+        -webkit-app-region: drag; app-region: drag;
+        z-index: 50;
+    }
+    /* ...but the two things in it are still buttons, and a draggable button
+     * cannot be clicked. */
+    .brand .home-btn, .brand .gear { -webkit-app-region: no-drag; app-region: no-drag; }
+    /* 33px of title bar does not hold a 34px mark and 17px type. Both come down
+     * one step, which is the same pair of tokens the phone header uses. */
+    .brand-mark { width: 20px; height: 20px; }
+    .brand-name { font-size: var(--t-3); letter-spacing: var(--tr-4); }
+    .brand-left { gap: 8px; }
+    .gear { width: 28px; height: 28px; margin-right: 0; }
+    .gear::after { width: 28px; height: 28px; }
+    /* The header is out of the flow now, so the page has to start below it. */
+    body { padding-top: calc(env(titlebar-area-height, 33px) + 6px); }
+}
+
 .gear { position: relative; width: 44px; height: 44px; margin-right: -11px; border-radius: var(--r-pill);
     display: grid; place-items: center; flex-shrink: 0; transition: transform .12s var(--ease); }
 .gear::after { content: ''; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
