@@ -1951,8 +1951,11 @@ function travellerCard(id, i) {
         + '<div class="trav-tot mono">' + money(pp.total)
         + '<span>' + (t.seats > 1 ? money(each) + ' each' : 'all in') + '</span></div>'
         + '</div>'
-        + hopRow('Out', o, 'outbound', id, t.seats)
-        + (b ? hopRow('Back', b, 'return', id, t.seats) : '')
+        /* "Depart" and "Return" are what airlines label the two legs of a round
+         * trip, and a tester read "Out"/"Back" as something else entirely.
+         * Not "departure"/"arrival": both legs have one of each. */
+        + hopRow('Depart', o, 'outbound', id, t.seats)
+        + (b ? hopRow('Return', b, 'return', id, t.seats) : '')
         + '<div class="trav-book">'
         + '<a class="btn primary" style="display:block;text-align:center;text-decoration:none" href="'
         + esc(tripBookUrl(origin, state.q.dest, state.q.dep, state.q.ret || null, t.seats, chosen))

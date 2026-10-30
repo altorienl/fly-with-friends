@@ -455,7 +455,9 @@ section { animation: stepIn .2s var(--ease); }
 .trav-name { font-size: var(--t-4); font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .trav-tot { font-size: var(--t-5); font-weight: 600; letter-spacing: var(--tr-5); text-align: right; }
 .trav-tot span { display: block; font-size: var(--t-2); font-weight: 400; color: var(--muted); margin-top: 2px; }
-.hop { display: grid; grid-template-columns: 34px 24px 1fr auto; gap: var(--s3); align-items: center; padding: var(--s2) 0; }
+/* First column fits the longest leg label ("Depart"/"Return") without wrapping;
+ * at 34px it held "Out"/"Back" and nothing longer. */
+.hop { display: grid; grid-template-columns: 52px 24px 1fr auto; gap: var(--s3); align-items: center; padding: var(--s2) 0; }
 .hop-dir { font-size: var(--t-2); font-weight: 400; color: var(--faint); }
 .hop-main { min-width: 0; }
 /* An airport pair is one token; it must not break across the arrow. */
