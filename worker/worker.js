@@ -36,7 +36,21 @@ const LIMITS = {
   globalHourly: 60,
   perIpRequestsHourly: 240,   // anti-script only; ~40 group searches an hour
   perIpTripWrites: 40,
-  cacheTtlSeconds: 60 * 60 * 24,   // a day; fares do not move enough to matter
+
+  /* One TTL was answering two different questions. A fare nine months out barely
+   * moves and a week-old quote is still right; a fare next week moves hourly and
+   * a day-old quote is wrong. Grading it by how far out the flight is buys the
+   * thing that actually costs money -- several friends searching the same route
+   * across a week now pay for it once instead of once a day -- and buys it where
+   * staleness is cheapest. The near bucket is deliberately SHORTER than the old
+   * flat day: those are the searches someone is about to book against. */
+  cacheTtlSeconds: 60 * 60 * 24,            // fallback when the date is unreadable
+  legTtlNearSeconds: 60 * 60 * 12,          // departing inside 14 days
+  legTtlMidSeconds: 60 * 60 * 24 * 3,       // 15-60 days out
+  legTtlFarSeconds: 60 * 60 * 24 * 7,       // 60+ days out
+  legTtlNearDays: 14,
+  legTtlMidDays: 60,
+
   maxTravelers: 8,
   optionsPerLeg: 25,
   tripTtlSeconds: 60 * 60 * 24 * 30,   // a shared trip stays openable for a month
@@ -344,6 +358,113 @@ function cacheKey(params, provider) {
                    params.currency].join('|');
 }
 
+function legTtl(departIso) {
+  const days = (Date.parse(departIso + 'T00:00:00Z') - Date.now()) / 86400000;
+  if (!isFinite(days)) return LIMITS.cacheTtlSeconds;
+  if (days <= LIMITS.legTtlNearDays) return LIMITS.legTtlNearSeconds;
+  if (days <= LIMITS.legTtlMidDays) return LIMITS.legTtlMidSeconds;
+  return LIMITS.legTtlFarSeconds;
+}
+
+/* What a request costs, as a pure function, so the economics can be measured
+ * without spending anything.
+ *
+ * `jobs` is one entry per (traveller, leg) -- what the app asked for. `unique`
+ * is what the provider is actually asked, after collapsing travellers who share
+ * an origin set. The gap between those two numbers is the whole cost story:
+ * eight people from eight cities round trip is 16 jobs and 16 searches, but
+ * eight people from one city is 16 jobs and 2 searches.
+ *
+ * Note what is NOT in the key: `bags`, `adults`, `hl`, `gl`. Two groups with
+ * different carry-on counts share one cached result. That is cheaper and it is
+ * also wrong -- see test-worker.js, which pins it as a number so a future change
+ * to either side shows up in a diff rather than in next month's bill. */
+function planSearches(body, provider) {
+  const currency = body.currency || 'USD';
+  const carryOn = Math.max(0, ...body.travelers.map(t => (t.bags && t.bags.carry_on) || 0));
+
+  const jobs = [];
+  for (const t of body.travelers) {
+    jobs.push({ id: t.id, leg: 'outbound', params: {
+      type: 2, departure_id: t.origins.join(','), arrival_id: body.dest.join(','),
+      outbound_date: body.depart, currency, adults: 1, bags: carryOn, hl: 'en', gl: 'us' } });
+    if (body.ret) {
+      jobs.push({ id: t.id, leg: 'return', params: {
+        type: 2, departure_id: body.dest.join(','), arrival_id: t.origins.join(','),
+        outbound_date: body.ret, currency, adults: 1, bags: carryOn, hl: 'en', gl: 'us' } });
+    }
+  }
+
+  /* Two people flying from the same city are the same search. Because jobs run in
+   * parallel they would both miss the cache and both be billed, so collapse them
+   * to one request per distinct (route, date) and fan the result back out. */
+  const unique = new Map();
+  for (const job of jobs) {
+    const key = cacheKey(job.params, provider);
+    if (!unique.has(key)) unique.set(key, { params: job.params, key, jobs: [] });
+    unique.get(key).jobs.push(job);
+  }
+
+  return { currency, jobs, unique: [...unique.values()] };
+}
+
+/* ---------------------------------------------------- the provider's own meter
+ *
+ * SerpApi publishes its own usage at /account.json, free, and explicitly not
+ * counted as a search (serpapi.com/account-api). That is worth more than it
+ * sounds, because our KV counter cannot be made correct:
+ *
+ *   - it is a read-modify-write on ONE key, and Workers KV is last-write-wins;
+ *   - KV caches reads for 60s by DEFAULT, with a 30s floor, even at the location
+ *     that did the write -- so the value a request reads is routinely stale no
+ *     matter how tight the code around it is;
+ *   - writes to a single key are capped at 1/second on every plan, free or paid.
+ *
+ * So the counter does not merely race, it runs quietly LOW, and GET /budget
+ * reports a comfortable number while the provider's meter keeps going. The
+ * provider's own number cannot undercount. It is fetched only on the search
+ * path, which is already making a provider round trip, and snapshotted once per
+ * spending request -- so GET /budget can tell the truth without adding a KV
+ * write per page load. */
+const PROVIDER_SNAPSHOT = 'budget:provider';
+
+async function fetchAccount(env) {
+  if (!env.SERPAPI_KEY) return null;
+  const res = await fetch('https://serpapi.com/account.json?api_key='
+    + encodeURIComponent(env.SERPAPI_KEY));
+  const a = await res.json();
+  if (!a || typeof a !== 'object' || a.error) return null;
+  return {
+    used: Number(a.this_month_usage),
+    left: Number(a.total_searches_left),
+    perMonth: Number(a.searches_per_month),
+    hourLimit: Number(a.account_rate_limit_per_hour),
+    thisHour: Number(a.this_hour_searches),
+    at: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
+  };
+}
+
+/* Gates on total_searches_left, not this_month_usage: a plan renews on its own
+ * anniversary rather than the first of the calendar month, so the two can
+ * disagree about which month a search belongs to. "How many will they still
+ * serve me" has no such ambiguity.
+ *
+ * Returns null -- allow -- whenever the snapshot is missing or unreadable. A
+ * telemetry call must never be the thing that stops a real group searching. */
+function accountGate(acct, toSpend) {
+  if (!acct || !isFinite(acct.left)) return null;
+  if (acct.left <= 0) return 'exhausted';
+  if (toSpend > acct.left) return 'exhausted';
+  /* The free plan serves 50 searches an hour and paid plans serve more, so the
+   * hourly brake is read off the account rather than hard-coded: it rises by
+   * itself on upgrade instead of becoming the new bottleneck. Without this the
+   * 51st search in an hour is not refused, it is accepted and then rejected
+   * upstream, which the user sees as "could not be searched right now". */
+  if (isFinite(acct.hourLimit) && acct.hourLimit > 0 && isFinite(acct.thisHour)
+      && acct.thisHour + toSpend > acct.hourLimit) return 'hour';
+  return null;
+}
+
 function extractInsights(payload) {
   const p = payload.price_insights;
   if (!p) return null;
@@ -378,6 +499,12 @@ async function serpapiSearch(env, params) {
  * that Kyiv still has no flights. */
 async function oneSearch(env, params, provider) {
   const key = cacheKey(params, provider);
+  /* Yes, handleSearch already probed this key to count toSpend, and no, the
+   * result should not be threaded through to save the read. Reads are not the
+   * scarce thing -- 100,000 a day against 250 searches a month -- and between
+   * the two reads a sibling request may have populated the cache, in which case
+   * this one gets the answer free and the reservation is refunded. Passing the
+   * first read's value down would spend a search a sibling had just bought. */
   const hit = await env.FWF.get(key, 'json');
   if (hit) {
     /* Entries cached before insights existed are a bare array. */
@@ -393,7 +520,7 @@ async function oneSearch(env, params, provider) {
     ? await duffelSearch(env, params)
     : await serpapiSearch(env, params);
 
-  await env.FWF.put(key, JSON.stringify(got), { expirationTtl: LIMITS.cacheTtlSeconds });
+  await env.FWF.put(key, JSON.stringify(got), { expirationTtl: legTtl(params.outbound_date) });
   return { options: got.options, insights: got.insights, spent: 1, empty: !got.options.length };
 }
 
@@ -462,46 +589,47 @@ async function handleSearch(request, env) {
     return json({ error: 'Duffel is not configured on this deployment. Set the DUFFEL_TOKEN secret.' }, 503);
   }
 
-  const currency = body.currency || 'USD';
-  const carryOn = Math.max(0, ...body.travelers.map(t => (t.bags && t.bags.carry_on) || 0));
-
   /* Build the full job list up front so the budget is checked against the real
    * cost, not discovered halfway through. */
-  const jobs = [];
-  for (const t of body.travelers) {
-    jobs.push({ id: t.id, leg: 'outbound', params: {
-      type: 2, departure_id: t.origins.join(','), arrival_id: body.dest.join(','),
-      outbound_date: body.depart, currency, adults: 1, bags: carryOn, hl: 'en', gl: 'us' } });
-    if (body.ret) {
-      jobs.push({ id: t.id, leg: 'return', params: {
-        type: 2, departure_id: body.dest.join(','), arrival_id: t.origins.join(','),
-        outbound_date: body.ret, currency, adults: 1, bags: carryOn, hl: 'en', gl: 'us' } });
-    }
-  }
+  const { currency, unique: uniqueSearches } = planSearches(body, provider);
 
-  const [used, usedToday, usedHour] = await Promise.all([
+  /* The counters and the cache probe in one hop rather than two. The last of
+   * these is the real question: how many of these legs are NOT already cached.
+   * That, not the number of travellers, is what the month is charged. */
+  const [used, usedToday, usedHour, ...cachedFlags] = await Promise.all([
     counter(env, monthKey()), counter(env, dayKey()), counter(env, hourKey()),
+    ...uniqueSearches.map(u => env.FWF.get(u.key)),
   ]);
-
-  /* Two people flying from the same city are the same search. Because jobs run in
-   * parallel they would both miss the cache and both be billed, so collapse them
-   * to one request per distinct (route, date) and fan the result back out. */
-  const unique = new Map();
-  for (const job of jobs) {
-    const key = cacheKey(job.params, provider);
-    if (!unique.has(key)) unique.set(key, { params: job.params, key, jobs: [] });
-    unique.get(key).jobs.push(job);
-  }
-  const uniqueSearches = [...unique.values()];
-
-  /* How many of these are not already cached -- that is the real spend. */
-  const cachedFlags = await Promise.all(uniqueSearches.map(u => env.FWF.get(u.key)));
   const toSpend = cachedFlags.filter(v => !v).length;
+
+  /* Only asked for on requests that are about to cost money. It is free and
+   * unbilled, but a fully-cached shared link opened by a hundred people should
+   * not turn into a hundred calls to the account API either. */
+  const acct = (toSpend > 0 && provider === 'serpapi')
+    ? await fetchAccount(env).catch(() => null) : null;
 
   const budget = {
     used, limit: LIMITS.monthly, usedToday, dailyLimit: LIMITS.daily,
     resetsAt: monthResetsAt(), wouldSpend: toSpend,
+    /* The provider's own figure, next to ours. When these disagree, ours is the
+     * one that is wrong -- see the note on PROVIDER_SNAPSHOT. */
+    providerLeft: acct && isFinite(acct.left) ? acct.left : null,
+    providerUsed: acct && isFinite(acct.used) ? acct.used : null,
   };
+
+  /* Checked before our own counters, because it is the only number here that
+   * cannot be quietly low. */
+  const gate = toSpend > 0 ? accountGate(acct, toSpend) : null;
+  if (gate === 'exhausted') {
+    return json({ error: 'Fly with Friends has used this month\'s flight-data allowance. '
+      + 'Shared links and recent searches still work, and it resets on ' + budget.resetsAt + '.',
+      budget, exhausted: 'month' }, 429);
+  }
+  if (gate === 'hour') {
+    return json({ error: 'Unusually heavy traffic in the last hour, so searching is '
+      + 'briefly paused to protect the allowance. Shared links still work.',
+      budget, exhausted: 'hour' }, 429);
+  }
 
   if (toSpend > 0 && used + toSpend > LIMITS.monthly) {
     return json({ error: 'Fly with Friends has used this month\'s flight-data allowance. '
@@ -536,6 +664,11 @@ async function handleSearch(request, env) {
       bump(env, monthKey(), toSpend, 60 * 60 * 24 * 40),
       bump(env, dayKey(), toSpend, 60 * 60 * 36),
       bump(env, hourKey(), toSpend, 60 * 60 * 2),
+      /* One write, on the only requests that cost money, so GET /budget can
+       * report the provider's figure without a provider call -- and therefore
+       * without a KV write -- on every page load. */
+      acct ? env.FWF.put(PROVIDER_SNAPSHOT, JSON.stringify(acct),
+                         { expirationTtl: 60 * 60 * 24 * 2 }) : Promise.resolve(),
     ]);
   }
 
@@ -651,7 +784,8 @@ async function readTrip(id, env) {
 }
 
 export const _internals = { parseBags, validate, extractOptions, extractInsights, cacheKey, LIMITS, tripId,
-                            duffelBags, parseIsoDuration, extractDuffelOptions, localStamp };
+                            duffelBags, parseIsoDuration, extractDuffelOptions, localStamp,
+                            planSearches, legTtl, accountGate, normalize };
 
 export default {
   async fetch(request, env) {
@@ -660,13 +794,24 @@ export default {
     const path = new URL(request.url).pathname;
 
     if (path === '/budget' && request.method === 'GET') {
-      const [used, usedToday] = await Promise.all([
+      const [used, usedToday, snap] = await Promise.all([
         env.FWF.get(monthKey(), { cacheTtl: 60 }).then(v => (v ? +v : 0)),
         env.FWF.get(dayKey(), { cacheTtl: 60 }).then(v => (v ? +v : 0)),
+        /* Written by the search path, never fetched here: a page load must not
+         * cost a KV write, and 1,000 a day is the real free-tier ceiling. */
+        env.FWF.get(PROVIDER_SNAPSHOT, { type: 'json', cacheTtl: 60 }).catch(() => null),
       ]);
+      /* `used` is ours and can be low; `providerLeft` is SerpApi's and cannot.
+       * Reporting both is the honest version -- and `exhausted` believes
+       * whichever of the two says the allowance is gone. */
+      const providerLeft = snap && isFinite(snap.left) ? snap.left : null;
       return new Response(JSON.stringify({ used, limit: LIMITS.monthly, usedToday,
           dailyLimit: LIMITS.daily, resetsAt: monthResetsAt(),
-          low: used > LIMITS.monthly * 0.8, exhausted: used >= LIMITS.monthly }), {
+          providerUsed: snap && isFinite(snap.used) ? snap.used : null,
+          providerLeft, providerAt: (snap && snap.at) || null,
+          low: used > LIMITS.monthly * 0.8
+               || (providerLeft != null && providerLeft < LIMITS.monthly * 0.2),
+          exhausted: used >= LIMITS.monthly || providerLeft === 0 }), {
         headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60', ...CORS },
       });
     }

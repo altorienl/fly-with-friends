@@ -1224,6 +1224,12 @@ function doSearch() {
          * example apart from a search. */
         saveGroup();
         showStep(4); render();
+        /* Save immediately, not when somebody taps share. The expensive link is
+         * the one copied out of the address bar, and until the trip exists in
+         * storage that link is a replayable paid search. Two KV writes against a
+         * 1,000-a-day ceiling, once per search, buys every future opener a free
+         * read -- including the sender's own reload. */
+        saveTrip().then(function () { writeHash(); });
     }).catch(function (e) {
         clearKiller();
         if (!current()) return;
@@ -1376,10 +1382,21 @@ function hashPayload() {
              target: SET.target, bags: SET.bags, priceDisplay: SET.priceDisplay }
     };
 }
+/* Once the trip is saved, the address bar carries the trip id as well as the
+ * view. This is the whole economics of sharing: a bare #s= link is a self-
+ * contained search, and opening one runs a FRESH PAID SEARCH on the opener's
+ * device -- for an eight-person round trip, sixteen of the month's searches,
+ * per recipient, every time the leg cache has gone cold. #t= is one KV read,
+ * forever. The share buttons already save first, but the link people actually
+ * copy is the one in the address bar, and that was still the expensive form.
+ *
+ * Both parts are kept: #t= so the results come out of storage, &s= so the
+ * sender's current reading of them travels too. tripIdFromHash and readHash
+ * already match on [#&], so both halves are found either way round. */
 function writeHash() {
     try {
         var enc = btoa(unescape(encodeURIComponent(JSON.stringify(hashPayload())))).replace(/=+$/, '');
-        history.replaceState(null, '', '#s=' + enc);
+        history.replaceState(null, '', TRIP_ID ? '#t=' + TRIP_ID + '&s=' + enc : '#s=' + enc);
     } catch (e) {}
 }
 function tripIdFromHash() {
@@ -3265,10 +3282,32 @@ function shiftCandidates() {
 
 function shiftKey(c) { return c.dep + '|' + (c.ret || ''); }
 
+/* How many searches the worker will actually be charged, which is not how many
+ * people are going. Travellers who share an origin set collapse to one search
+ * upstream -- four friends all leaving from SFO is one search per leg, not four
+ * -- so quoting parties x legs over-charges this button by exactly the amount
+ * the dedupe already saves. Built from the same list runShiftScan sends, closed
+ * airports and all, so the quote and the request cannot drift apart.
+ *
+ * It is still an upper bound: a leg another group already paid for this week is
+ * a cache hit and free. The number can only come in lower, never higher, which
+ * is the right direction for a number somebody is about to tap. */
+function shiftRoutes() {
+    var seen = {};
+    travelers().forEach(function (t) {
+        var o = t.origins.filter(function (x) {
+            var a = AIRPORTS.get(x); return a && !a.closed;
+        }).map(function (x) { return String(x).toUpperCase(); });
+        o = o.filter(function (x, i) { return o.indexOf(x) === i; }).sort();
+        if (o.length) seen[o.join(',')] = 1;
+    });
+    return Object.keys(seen).length;
+}
+
 function shiftCost() {
-    var parties = travelers().filter(function (t) { return t.origins.length; }).length;
     var legs = hasReturn() ? 2 : 1;
-    return shiftCandidates().filter(function (c) { return !SHIFTS[shiftKey(c)]; }).length * parties * legs;
+    return shiftCandidates().filter(function (c) { return !SHIFTS[shiftKey(c)]; }).length
+        * shiftRoutes() * legs;
 }
 
 /* Prices one alternative trip from an already-fetched payload. */
@@ -3380,7 +3419,7 @@ function renderShifts() {
          * button. The number is the only part that changes a decision. */
         host.innerHTML = '<button class="btn wide" id="shiftBtn"' + (shiftBusy ? ' disabled' : '') + '>'
             + (shiftBusy ? 'Checking…' : 'Is another day cheaper?') + '</button>'
-            + '<div class="share-note">Checks the day before and the day after. Uses <b>'
+            + '<div class="share-note">Checks the day before and the day after. Uses up to <b>'
             + n + '</b> of this month\u2019s searches.'
             + (shiftErr ? '<br><span style="color:var(--bad)">' + esc(shiftErr) + '</span>' : '')
             + '</div>';
@@ -4390,7 +4429,13 @@ var shared = readHash();
 /* A shared link carries its own cast and always wins -- opening somebody else's
  * trip must show their group, not yours. Failing that, the group from last time
  * if there is one, and only then three empty cards. */
-state.q = migrateQuery((shared && shared.q && shared.q.parties) ? shared.q : blankQuery());
+/* sanitizeQuery, for the same reason the #t= path below calls it: an #s= hash is
+ * a document written by whoever made the link, several of its fields land in
+ * innerHTML, and this origin is about to be handed round a group chat. The two
+ * paths carry the identical payload shape, so there was no reason for only one
+ * of them to be coerced. */
+state.q = migrateQuery((shared && shared.q && shared.q.parties)
+    ? sanitizeQuery(shared.q) : blankQuery());
 if (!(shared && shared.q && shared.q.parties)) {
     var savedGroup = loadGroup();
     if (savedGroup) state.q.parties = savedGroup;
@@ -4560,9 +4605,15 @@ if (sharedId) {
                 || 'Could not open that trip. Ask for a fresh link, or start a new trip.';
             TRIP_ID = null; render(); return;
         }
+        /* A link can now carry both: #t= for the results and &s= for the view.
+         * When it does, the hash is the fresher statement of what the sender was
+         * looking at -- the stored payload was written when the trip was first
+         * saved, before they adjusted anything. The saved DATA is still used for
+         * the results; only the reading of them comes from the hash. */
         var pay = res.body.payload || {};
-        if (pay.q && pay.q.parties) state.q = migrateQuery(sanitizeQuery(pay.q));
-        if (pay.v) {
+        var hashHasView = !!(shared && shared.q && shared.q.parties);
+        if (pay.q && pay.q.parties && !hashHasView) state.q = migrateQuery(sanitizeQuery(pay.q));
+        if (pay.v && !(shared && shared.v)) {
             var v = pay.v;
             if (v.target) SET.target = v.target;
             if (v.bags) SET.bags = v.bags;

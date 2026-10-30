@@ -128,5 +128,210 @@ console.log('\n5. Duffel: transatlantic normalisation');
     cheap.bags.confidence !== standard.bags.confidence);
 })();
 
+/* ------------------------------------------------------------- economics
+ *
+ * These are the only tests here that are about money rather than correctness.
+ * Every number below is a billed SerpApi search against a 250-a-month allowance,
+ * so a change that makes any of them larger is a change to what the product can
+ * be, and should have to argue for itself in a diff rather than turn up in a
+ * bill. Where a number is wrong-but-cheap it is pinned as it is, with a comment
+ * saying so, rather than quietly left untested. */
+console.log('\n6. Economics: what a trip costs');
+const { planSearches, legTtl, accountGate, normalize, LIMITS } = _internals;
+
+const CITIES = ['SFO', 'ORD', 'ATL', 'DEN', 'BOS', 'AUS', 'SEA', 'PHL'];
+const party = (n, origins) => ({ dest: ['PIT'], depart: '2027-02-12',
+  travelers: Array.from({ length: n }, (_, i) => ({ id: 'p' + i,
+    origins: origins ? origins(i) : [CITIES[i]], bags: { carry_on: 1 } })) });
+/* normalize() then planSearches(), in that order, because that is what
+ * handleSearch does and because the sort that makes ["SFO","OAK"] and
+ * ["OAK","SFO"] one search rather than two lives in normalize. Testing
+ * planSearches alone would pass while the real pipeline paid twice. */
+const plan = (b, p) => planSearches(normalize(b), p || 'serpapi');
+const cost = (b) => plan(b).unique.length;
+const rt = (b) => ({ ...b, ret: '2027-02-15' });
+
+/* One billed search per distinct origin set per leg. This is the table the
+ * whole product sits on: eight people round trip is 16 of 250. */
+for (const [n, ow, trip] of [[2, 2, 4], [3, 3, 6], [4, 4, 8], [6, 6, 12], [8, 8, 16]]) {
+  check(n + ' parties: ' + ow + ' one-way, ' + trip + ' round trip',
+    cost(party(n)) === ow && cost(rt(party(n))) === trip,
+    'got ' + cost(party(n)) + ' and ' + cost(rt(party(n))));
+}
+check('8 parties round trip is 16 jobs, not 16 searches by accident',
+  plan(rt(party(8))).jobs.length === 16);
+
+/* Travellers who share an origin set are one search. This is the single
+ * cheapest thing in the worker and the easiest to break by touching the key. */
+check('two of four share a city: 8 jobs collapse to 6 searches',
+  cost(rt(party(4, i => [['SFO', 'SFO', 'ORD', 'ATL'][i]]))) === 6);
+check('a whole group from one city: 16 jobs collapse to 2 searches',
+  cost(rt(party(8, () => ['SFO']))) === 2,
+  'got ' + cost(rt(party(8, () => ['SFO']))));
+check('origin order does not create a second search',
+  cost(rt(party(2, i => (i ? ['SJC', 'OAK', 'SFO'] : ['SFO', 'OAK', 'SJC'])))) === 2);
+
+/* The cost of letting one person pick "all Bay Area airports" and another pick
+ * SFO: two billed searches for results that largely overlap. Pinned because it
+ * is the most plausible remaining win and should be visible if anyone claims to
+ * have taken it. */
+check('COST: SFO vs SFO+OAK+SJC is two searches per leg, not one',
+  cost(rt(party(2, i => (i ? ['SFO', 'OAK', 'SJC'] : ['SFO'])))) === 4,
+  'got ' + cost(rt(party(2, i => (i ? ['SFO', 'OAK', 'SJC'] : ['SFO'])))));
+
+/* WRONG BUT CHEAP, pinned deliberately: carry-on count is sent upstream but is
+ * not in the cache key, so a group carrying bags is served the result computed
+ * for a group carrying none. Fixing it by adding `bags` to the key costs real
+ * searches; fixing it by not sending `bags` costs none. Either way this check
+ * is the thing that has to change first. */
+const withBags = party(2, () => ['SFO']);
+const noBags = party(2, () => ['SFO']);
+noBags.travelers.forEach(t => { t.bags.carry_on = 0; });
+check('KNOWN: carry-on count is NOT in the cache key (two groups collide)',
+  plan(withBags).unique[0].key === plan(noBags).unique[0].key);
+check('...and the carry-on count IS sent upstream, so the collision is real',
+  plan(withBags).unique[0].params.bags === 1
+  && plan(noBags).unique[0].params.bags === 0);
+
+/* KNOWN DEFECT on the Duffel path: duffelSearch sends only the first airport of
+ * a comma list, but the cache key keeps the whole list. So two different origin
+ * sets that share a first airport are two billed searches returning identical
+ * results. Must be closed before PROVIDER=duffel goes live. */
+check('KNOWN: Duffel keys the full origin list but only searches the first airport',
+  plan(rt(party(2, i => (i ? ['SFO', 'OAK'] : ['SFO', 'SJC']))), 'duffel').unique.length === 4);
+
+console.log('\n7. Economics: cache lifetime by how far out the flight is');
+const inDays = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+check('a flight next week caches for 12h, not a day', legTtl(inDays(7)) === 60 * 60 * 12);
+check('a month out caches for 3 days', legTtl(inDays(30)) === 60 * 60 * 24 * 3);
+check('six months out caches for 7 days', legTtl(inDays(180)) === 60 * 60 * 24 * 7);
+check('an unreadable date falls back to a day', legTtl('banana') === LIMITS.cacheTtlSeconds);
+check('the far bucket is 7x the old flat day', legTtl(inDays(180)) / LIMITS.cacheTtlSeconds === 7);
+
+console.log('\n8. Economics: the provider\'s meter overrules ours');
+check('no snapshot means allow -- telemetry never blocks a real group',
+  accountGate(null, 16) === null && accountGate({}, 16) === null);
+check('allows a search that fits', accountGate({ left: 40, hourLimit: 50, thisHour: 0 }, 16) === null);
+check('refuses a search that does not fit, even if our counter is happy',
+  accountGate({ left: 10, hourLimit: 50, thisHour: 0 }, 16) === 'exhausted');
+check('refuses at zero left', accountGate({ left: 0, hourLimit: 50, thisHour: 0 }, 1) === 'exhausted');
+check('the hourly brake is the provider\'s own 50/hr, not our 60',
+  accountGate({ left: 200, hourLimit: 50, thisHour: 40 }, 16) === 'hour'
+  && accountGate({ left: 200, hourLimit: 200, thisHour: 40 }, 16) === null);
+check('a missing hour figure does not block',
+  accountGate({ left: 200 }, 16) === null);
+
+/* ------------------------------------- what a request costs, end to end
+ *
+ * The checks above count searches from a pure function. These run the real
+ * handler against a fake KV and a fake provider, which is the only way to see
+ * the two numbers that actually decide what this product can be: KV writes per
+ * request, and how far the budget counter drifts from what the provider billed.
+ *
+ * Nothing here touches the network. The provider stub counts calls instead. */
+console.log('\n9. Economics: the request, measured end to end');
+const worker = (await import('./worker.js')).default;
+
+let kvReads = 0, kvWrites = 0, billed = 0;
+const store = new Map();
+const fakeKv = {
+  async get(k, opt) {
+    kvReads++;
+    const v = store.get(k);
+    if (v === undefined) return null;
+    const wantsJson = opt === 'json' || (opt && opt.type === 'json');
+    return wantsJson ? JSON.parse(v) : v;
+  },
+  async put(k, v) { kvWrites++; store.set(k, v); },
+};
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (url) => {
+  const u = String(url);
+  /* Free and not billed as a search -- that is the entire reason it is used. */
+  if (u.includes('/account.json')) {
+    return { json: async () => ({ this_month_usage: billed, total_searches_left: 250 - billed,
+                                  searches_per_month: 250, account_rate_limit_per_hour: 50,
+                                  this_hour_searches: billed }) };
+  }
+  if (u.includes('serpapi.com/search.json')) {
+    billed++;
+    return { json: async () => ({ best_flights: [{ price: 400, total_duration: 300,
+      flights: [{ airline: 'United', flight_number: 'UA 500',
+        departure_airport: { id: 'SFO', time: '2027-02-12 08:00' },
+        arrival_airport: { id: 'PIT', time: '2027-02-12 16:00' }, extensions: [] }],
+      extensions: ['1 free checked bag'] }], other_flights: [] }) };
+  }
+  throw new Error('unexpected fetch: ' + u);
+};
+
+const env = { FWF: fakeKv, SERPAPI_KEY: 'test', ALLOWED_ORIGINS: 'https://app.test' };
+const post = (body, ip) => new Request('https://api.test/search', { method: 'POST',
+  headers: { 'Content-Type': 'application/json', Origin: 'https://app.test',
+             'CF-Connecting-IP': ip || '203.0.113.9' },
+  body: JSON.stringify(body) });
+const fresh = () => { store.clear(); kvReads = 0; kvWrites = 0; billed = 0; };
+
+/* One cold eight-person round trip. */
+fresh();
+const cold = await (await worker.fetch(post(rt(party(8))), env)).json();
+const coldWrites = kvWrites;
+check('cold 8-party round trip bills 16 searches', cold.searches_made === 16,
+  'got ' + cold.searches_made);
+check('...and reports the 16 distinct routes it paid for', cold.distinct_routes === 16);
+check('...and costs 21 KV writes (16 cache + 4 counters + 1 provider snapshot)',
+  coldWrites === 21, 'got ' + coldWrites);
+check('...so the 1,000-a-day write ceiling allows 47 of them, and the '
+  + '230-search cap allows 14 -- searches bind first, by two orders of magnitude',
+  Math.floor(1000 / coldWrites) === 47 && Math.floor(230 / 16) === 14);
+
+/* The same request again: the cache is the product. */
+const warm = await (await worker.fetch(post(rt(party(8))), env)).json();
+check('the same trip again bills nothing and writes nothing',
+  warm.searches_made === 0 && warm.cached === true, JSON.stringify(warm.budget));
+check('...and does not even call the free account API when nothing will be spent',
+  billed === 16);
+
+/* A dozen people opening the same saved link, one after another. */
+fresh();
+for (let i = 0; i < 12; i++) await worker.fetch(post(rt(party(8)), '198.51.100.' + i), env);
+check('12 sequential openers of the same trip bill 16 between them, not 192',
+  billed === 16, 'got ' + billed);
+
+/* THE DEFECT, pinned as a number. Twelve people open the same link in the same
+ * minute -- a group chat, which is the only way this app is ever used. The leg
+ * cache has not been written yet, so every one of them misses it and pays; the
+ * budget counter is a read-modify-write on one KV key, so eleven of the twelve
+ * writes are lost and GET /budget reports a twelfth of what was spent.
+ *
+ * In production it is worse than this, not better: Workers KV caches reads for
+ * 60s by default and writes to a single key are capped at 1/second on every
+ * plan, so the window these numbers assume to be microseconds is really up to a
+ * minute wide. A Durable Object is the fix. The accountGate above is the
+ * stopgap: it asks the provider, which cannot undercount.
+ *
+ * When the fix lands, these two checks fail. That is their purpose. */
+for (const [n, expectBilled] of [[2, 32], [5, 80], [12, 192]]) {
+  fresh();
+  await Promise.all(Array.from({ length: n }, (_, i) =>
+    worker.fetch(post(rt(party(8)), '198.51.100.' + i), env)));
+  const counted = +(store.get('budget:' + new Date().toISOString().slice(0, 7)) || 0);
+  check('DEFECT: ' + n + ' simultaneous openers bill ' + expectBilled
+    + ' but the counter records 16',
+    billed === expectBilled && counted === 16,
+    'billed ' + billed + ', counter ' + counted);
+}
+
+/* And the cap itself does not hold. Thirty searches left; six groups arrive at
+ * once; each one individually fits, so all six are allowed through. */
+fresh();
+store.set('budget:' + new Date().toISOString().slice(0, 7), '200');
+await Promise.all(Array.from({ length: 6 }, (_, i) =>
+  worker.fetch(post({ ...rt(party(8)), depart: '2027-03-0' + (1 + i), ret: '2027-03-1' + (1 + i) },
+                    '198.51.100.' + i), env)));
+check('DEFECT: with 30 of 230 left, six simultaneous groups spend 96',
+  billed === 96, 'got ' + billed);
+
+globalThis.fetch = realFetch;
+
 console.log('\n' + (fail === 0 ? 'ALL ' + pass + ' CHECKS PASSED' : pass + ' passed, ' + fail + ' FAILED'));
 process.exit(fail === 0 ? 0 : 1);
