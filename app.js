@@ -20,7 +20,7 @@ var APP = { bagFee: 35, carryOnFee: 30, target: 30, maxParties: 8, maxSeats: 9 }
 
 /* Assigned in order so each party keeps its colour across the timeline, the
  * avatar and the plan rows. */
-var COLORS = ['#ffb300', '#4ade80', '#38bdf8', '#c084fc', '#fb923c', '#f472b6', '#2dd4bf', '#facc15'];
+var COLORS = ['#986306', '#177984', '#3c6bc7', '#994cbb', '#bb482c', '#be4066', '#147d45', '#61760a'];
 
 var DATA = null, SET = null, BUDGET = null, C = null, TRIP = null;
 /* Alternative dates, keyed "dep|ret". Each entry is a whole searched trip. */
@@ -72,7 +72,7 @@ function applyTheme() {
     }
     document.documentElement.setAttribute('data-theme', m);
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', m === 'light' ? '#f7f4ee' : '#0b0a08');
+    if (meta) meta.setAttribute('content', m === 'light' ? '#ece8e1' : '#0f0d0a');
 }
 
 /* ---------------------------------------------------------- query model */
@@ -1027,11 +1027,15 @@ function renderGear() {
         var t = travelers().filter(function (x) { return x.id === SET.meId; })[0];
         if (t) {
             var i = state.q.parties.map(function (p) { return p.id; }).indexOf(SET.meId);
-            g.innerHTML = '<span class="ini" style="color:' + partyColor(i) + '">'
+            g.style.background = partyColor(i);
+            g.style.borderColor = partyColor(i);
+            g.innerHTML = '<span class="ini">'
                 + esc(partyInitials(state.q.parties[i], i)) + '</span>';
             return;
         }
     }
+    g.style.background = '';
+    g.style.borderColor = '';
     g.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
         + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
         + '<circle cx="12" cy="12" r="3"/>'
@@ -2294,7 +2298,7 @@ function timeline(picks, included, excluded) {
         last = p;
         var dots = groups[m].map(function (g) {
             var i = idxOf(g.id);
-            var style = g.dim ? 'background:var(--edge-2);color:var(--muted)' : 'background:' + partyColor(i < 0 ? 0 : i);
+            var style = g.dim ? 'background:var(--edge);color:var(--muted)' : 'background:' + partyColor(i < 0 ? 0 : i);
             return '<div class="tl-dot" style="' + style + '">'
                 + esc(partyInitials(state.q.parties[i] || { name: name(g.id) }, i < 0 ? 0 : i)) + '</div>';
         }).join('');
