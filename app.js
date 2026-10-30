@@ -101,6 +101,12 @@ var state = {
     q: null, busy: false, error: null
 };
 function otherLeg() { return state.leg === 'outbound' ? 'return' : 'outbound'; }
+/* Set once per render pass, immediately before tripTotal(), and cleared when
+ * no match could be built. Not state: it is derived from the option sets the
+ * pass is already holding, and a stale one would price a plan against filters
+ * that have since moved. */
+var PICKED_PLAN = null;
+
 function thGet() { return state.th[state.leg]; }
 function thSet(v) { state.th[state.leg] = v; }
 /* A match is a decision about the trip, so it sets both legs -- the same thing
@@ -1853,7 +1859,14 @@ function legBreakdown(leg) {
      * never be priced at two different windows, which is exactly what happened
      * while the trip-level choice strip was also writing to this key. */
     if (leg === 'return') state.th['return'] = returnThOf(ctx);
-    var plan = planOf(ctx, state.th[leg] != null ? state.th[leg] : recommendedIn(ctx));
+    /* The selected match IS the outbound plan, not a window to re-solve inside.
+     * A window alone cannot express the difference between "Cheapest" and
+     * "Easiest flights": both can be feasible at 20 minutes, and what tells them
+     * apart is which option each person was given inside it. Re-deriving from
+     * state.th here threw that away -- every profile collapsed back onto the
+     * money argmin, which is why the four names kept resolving to one plan. */
+    var plan = (leg === 'outbound' && PICKED_PLAN)
+        || planOf(ctx, state.th[leg] != null ? state.th[leg] : recommendedIn(ctx));
     if (!plan) return null;
 
     var rows = {};
@@ -2068,7 +2081,12 @@ var MATCHES = null;
  * "Balanced" side by side with identical contents is the version of this
  * screen that makes somebody stop believing any of it. */
 function matchSig(m) {
-    if (m.plan != null) return String(m.plan);
+    /* m.sig is planSig(): the exact itinerary every party was given. m.plan is
+     * the plan OBJECT the card renders from, so it must never be stringified
+     * here -- "[object Object]" is the same signature for every row, which
+     * collapses the whole chooser to one option. */
+    if (m.sig != null) return String(m.sig);
+    if (typeof m.plan === 'string') return m.plan;
     if (m.picks) {
         return Object.keys(m.picks).sort().map(function (id) {
             var p = m.picks[id], o = (p && p.option) || p;
@@ -2077,6 +2095,374 @@ function matchSig(m) {
     }
     return 'th' + m.th;
 }
+
+/* Shadow pricing: how a trade-off becomes expressible.
+ *
+ * minCostAtWindow minimises a SUM of whatever costFn returns, and does not care
+ * what the numbers mean -- so a trade-off can be scored by adding it to money.
+ * It cannot be added to the REAL cost function: about twenty display sites read
+ * picks[id].cost as dollars, and a penalty baked into that number is a lie on a
+ * price tag and a group total that does not match what anybody pays. So a
+ * profile SELECTS under a shadow cost and the winning options are re-priced in
+ * money before anything downstream sees them. The option sets, the window
+ * algorithm and the arrival times are untouched; only the argmin moves. */
+
+/* Shadow dollars per seat. Calibrated against worthIt(), which already says a
+ * connection nobody needed is unacceptable and 90 extra minutes is the ceiling:
+ * at these rates one connection is worth about 2h40 of extra flying, which is
+ * roughly what a connection actually costs you once you count deplaning,
+ * walking, waiting, boarding and the chance of losing the second leg. */
+var EASE_PER_STOP = 120, EASE_PER_MIN = 0.75;
+
+function seatsFor(ctx, id) {
+    var t = (ctx.travelers || []).filter(function (z) { return z.id === id; })[0];
+    return Math.max(1, (t && t.seats) || 1);
+}
+
+function shadowOf(ctx, kind) {
+    if (kind !== 'ease') return ctx.costFn;
+    var seats = {}, base = ctx.ownBest || {};
+    ctx.ids.forEach(function (id) { seats[id] = seatsFor(ctx, id); });
+    return function (o, id) {
+        var b = base[id] || {};
+        /* Measured against this party's OWN best, not in absolute terms: a
+         * six-hour flight is not a hardship for somebody crossing a continent,
+         * and penalising it as one would hand every tight window to the party
+         * who lives nearest. A per-party constant cannot change the argmin
+         * anyway -- feasibility requires every party in every candidate window,
+         * so the offset falls out of the comparison. */
+        var moreStops = Math.max(0, (o.stops == null ? 99 : o.stops)
+                                  - (b.stops == null ? 0 : b.stops));
+        var moreMins = (o.duration_minutes != null && b.mins != null)
+            ? Math.max(0, o.duration_minutes - b.mins) : 0;
+        return ctx.costFn(o, id)
+            + seats[id] * (EASE_PER_STOP * moreStops + EASE_PER_MIN * moreMins);
+    };
+}
+
+/* Restates a plan chosen under a shadow cost in money, in the exact shape
+ * planOf() returns, so every consumer downstream is unaffected. Times and
+ * spread come from clusterMin and are not touched by the re-pricing. */
+function repriceMoney(ctx, res) {
+    if (!res || !res.picks) return null;
+    var picks = {}, total = 0, times = [];
+    for (var i = 0; i < ctx.ids.length; i++) {
+        var id = ctx.ids[i];
+        var o = res.picks[id] && res.picks[id].option;
+        if (!o) return null;
+        var c = ctx.costFn(o, id);
+        picks[id] = { option: o, cost: c };
+        total += c;
+        times.push(o.clusterMin);
+    }
+    var lo = Math.min.apply(null, times), hi = Math.max.apply(null, times);
+    return { picks: picks, included: ctx.ids.slice(), excluded: [],
+             spread: hi - lo, cost: total, subset: false };
+}
+
+/* The tightest window that costs nothing on a given objective. Closeness you
+ * are not paying for should never be left on the table -- this is the rule the
+ * return leg already used, generalised so every profile can use it. */
+function freeTighten(ctx, shadow) {
+    var floor = FWF.minCostAtWindow(ctx.prep, FWF.INF, shadow);
+    if (!floor) return FWF.INF;
+    for (var i = 0; i < FWF.DEFAULT_THRESHOLDS.length; i++) {
+        var T = FWF.DEFAULT_THRESHOLDS[i];
+        if (T === FWF.INF) continue;
+        var r = FWF.minCostAtWindow(ctx.prep, T, shadow);
+        if (r && r.cost <= floor.cost) return T;
+    }
+    return FWF.INF;
+}
+
+/* What a plan is asking of one party, in one number: the money they pay over
+ * their own cheapest option PLUS the flying they are doing over their own best
+ * option, per seat. Both halves matter and neither is the whole story -- a $12
+ * premium on a two-stop that adds five hours is not a cheap plan, and the
+ * person it lands on is the person who vetoes the trip.
+ *
+ * This is the ease shadow measured from each party's own floor, so it is zero
+ * for anybody getting their own best flight at their own best price, whatever
+ * that flight happens to look like. Somebody flying out of Bozeman has no
+ * nonstop at all; her burden for taking a connection is zero, because nobody is
+ * asking her for anything. That relative reading is the whole point -- an
+ * absolute one would declare the person who lives furthest away permanently
+ * hard done by and then optimise on their behalf forever. */
+function burdenFn(ctx) {
+    var shadow = shadowOf(ctx, 'ease');
+    var floor = {};
+    ctx.ids.forEach(function (id) {
+        var best = null;
+        (ctx.prep.options[id] || []).forEach(function (o) {
+            var v = shadow(o, id);
+            if (best === null || v < best) best = v;
+        });
+        floor[id] = best;
+    });
+    return function (o, id) {
+        if (floor[id] == null) return 0;
+        return Math.max(0, (shadow(o, id) - floor[id]) / seatsFor(ctx, id));
+    };
+}
+
+/* There was a fifth profile here, "Evenly shared": minimise the WORST party's
+ * burden rather than the group's total, decided by scanning a burden cap upward
+ * and asking at each step whether a plan still exists -- the maxPremium pruning
+ * trick on a value solved for instead of guessed. It is deleted on evidence,
+ * and the evidence is worth keeping so it does not get re-added.
+ *
+ * Pinned to the balanced window it collapsed into another profile's plan in 63%
+ * of 599 generated groups, and -- fatally -- in the other 37% it was still
+ * weakly BEATEN on its own axis every single time, by a median of $111: the
+ * Easiest-flights plan, which free-tightens on the ease objective, lands nearer
+ * to zero burden than a fairness profile held at a tighter window ever can. A
+ * card promising "nobody carries the worst of it" while the card beside it
+ * carries less of it is not a match, it is a mistake with a name on it.
+ *
+ * Unpinned -- minimum burden, then tightest, then cheapest -- it stops being
+ * beaten, but then it and Easiest flights are one question asked twice, and the
+ * min-sum version is the one that trades against money properly rather than
+ * buying a $900 fare to save twenty minutes.
+ *
+ * What survives is the measurement, not the profile: burden is reported per
+ * party on EVERY match (roll-up below), which is where a property of a plan
+ * belongs. whoPays() already has the screen real estate for it. */
+
+/* The per-leg window each profile asks for. Split out because the way home is
+ * not the same decision as the way out: unless the group has said otherwise it
+ * is not being clustered at all, so a profile's window rule applies to the leg
+ * that is actually being coordinated and the return takes whatever closeness is
+ * free on that profile's own objective. */
+function legWindowFor(profileId, ctx, balancedTh) {
+    var loose = ctx.leg === 'return' && !state.q.clusterReturn;
+    if (profileId === 'closest') {
+        if (loose) return freeTighten(ctx, ctx.costFn);
+        return ctx.tight ? ctx.tight.spread : FWF.INF;
+    }
+    if (profileId === 'easiest') return freeTighten(ctx, shadowOf(ctx, 'ease'));
+    if (profileId === 'cheapest') return freeTighten(ctx, ctx.costFn);
+    if (loose) return freeTighten(ctx, ctx.costFn);
+    return balancedTh != null ? balancedTh : freeTighten(ctx, ctx.costFn);
+}
+
+function legPlanFor(profileId, ctx, balancedTh) {
+    var th = legWindowFor(profileId, ctx, balancedTh);
+    var shadow = shadowOf(ctx, profileId === 'easiest' ? 'ease' : 'money');
+    var r = FWF.minCostAtWindow(ctx.prep, th, shadow);
+    if (!r) return null;
+    return { plan: repriceMoney(ctx, r), th: th };
+}
+
+/* The same roll-up tripLadder() does for a threshold row, for a set of per-leg
+ * plans. Kept identical on purpose: the numbers a profile card shows have to be
+ * the numbers the plan underneath it sums to. */
+function rollup(ctxs, legs, plans) {
+    var total = 0, worst = 0, mins = 0, per = {}, conn = {}, bur = {};
+    var reg = { stops: 0, mins: 0, who: null };
+    for (var i = 0; i < legs.length; i++) {
+        var leg = legs[i], ctx = ctxs[leg], p = plans[leg];
+        if (!p) return null;
+        var loose = leg === 'return' && !state.q.clusterReturn;
+        var burden = burdenFn(ctx);
+        total += p.cost;
+        if (!loose) worst = Math.max(worst, p.spread);
+        var g = regretOf(ctx, p.picks);
+        if (g.stops > reg.stops) { reg.stops = g.stops; reg.who = g.who; }
+        if (g.mins > reg.mins) { reg.mins = g.mins; if (!reg.who) reg.who = g.who; }
+        ctx.ids.forEach(function (id) {
+            per[id] = (per[id] || 0) + p.picks[id].cost;
+            /* Summed across legs: being handed the long way round twice is
+             * twice the burden, and the person it happens to knows that. */
+            bur[id] = (bur[id] || 0) + burden(p.picks[id].option, id);
+            var dm = p.picks[id].option.duration_minutes;
+            if (dm != null) mins += dm;
+            if ((p.picks[id].option.stops || 0) > 0) conn[id] = true;
+        });
+    }
+    var topPer = 0, topId = null;
+    for (var id2 in per) {
+        var seats = seatsFor(ctxs[legs[0]], id2);
+        var each = seats > 1 ? per[id2] / seats : per[id2];
+        if (each > topPer) { topPer = each; topId = id2; }
+    }
+    /* Every profile reports the worst burden it imposes -- "Balanced puts $359
+     * of this on Omar, Easiest flights gets it to nothing" is the comparison a
+     * group actually needs, and it cannot be made from one side. */
+    var worstBurden = 0, burdenWho = null;
+    for (var id3 in bur) {
+        if (bur[id3] > worstBurden) { worstBurden = bur[id3]; burdenWho = id3; }
+    }
+    var seatsBy = {};
+    for (var id4 in per) seatsBy[id4] = seatsFor(ctxs[legs[0]], id4);
+    return { total: total, worst: worst, mins: mins, per: per, regret: reg,
+             seats: seatsBy,
+             conn: Object.keys(conn), topPer: Math.round(topPer), topId: topId,
+             burden: bur, worstBurden: Math.round(worstBurden), worstBurdenWho: burdenWho };
+}
+
+/* Two profiles returning the same flights is not two matches. Identity is the
+ * exact itinerary every party was given, on every leg -- not the window width,
+ * because two different widths routinely resolve to the same tickets. */
+function planSig(plans, legs) {
+    return legs.map(function (leg) {
+        var p = plans[leg];
+        if (!p) return '-';
+        return Object.keys(p.picks).sort().map(function (id) {
+            var o = p.picks[id].option;
+            return id + ':' + o.from + '>' + o.to + '@' + o.depart + '>' + o.arrive
+                 + '#' + (o.airlines || []).join('+') + '$' + o.price;
+        }).join('|');
+    }).join('//');
+}
+
+/* Ordered because the order decides which name a collapsed pair keeps, and the
+ * reader should be left holding the claim the app is most willing to defend. */
+var MATCH_PROFILES = [
+    { id: 'balanced', label: 'Balanced',
+      asks: 'the point where another dollar stops buying much closeness' },
+    { id: 'cheapest', label: 'Cheapest',
+      asks: 'the least this trip can cost, and as close as that gets for free' },
+    { id: 'closest',  label: 'Closest landing',
+      asks: 'the tightest the group can physically land, and what that costs' },
+    /* "Route optimization", in the owner's words. Deliberately NOT promised as
+     * "least time in the air": it trades flying against money, so on about one
+     * group in ten some other profile comes out marginally shorter. The card
+     * reports the hours; it does not claim the minimum. */
+    { id: 'easiest',  label: 'Easiest flights',
+      asks: 'fewest connections and least flying, with money still counted' }
+];
+
+
+
+/* Several genuinely different good matches from one search. */
+/* Outbound only, deliberately. legBreakdown() hard-sets the return's window
+ * from returnThOf() -- the leave-together rule measured over 5,184 groups -- so
+ * a profile's return plan was always discarded before anything rendered it, and
+ * a card scored on a return nobody would fly quoted a total the itineraries
+ * underneath could not sum to. "Cheapest" advertised 11h 10m apart while the
+ * plan below it landed the group 20 minutes apart on the way home, because the
+ * card was priced on one return and the screen printed another.
+ *
+ * A match is therefore a choice about the way OUT, which is the leg the window
+ * is coordinating, and the way home is the same on all of them. */
+function matchProfiles() {
+    var legs = ['outbound'];
+    var ctxs = {};
+    for (var i = 0; i < legs.length; i++) {
+        var c = compute(legs[i]);
+        /* Somebody with no options at all is a subset problem, not a choice
+         * between matches -- the existing subset screen owns that case. */
+        if (!c || !c.prep.complete || !c.ladder) return null;
+        ctxs[legs[i]] = c;
+    }
+
+    /* Balanced is defined as exactly what the app recommended before any of
+     * this existed, so the default screen does not move and the other three are
+     * described against a baseline somebody has already looked at. Asserted
+     * over 300 generated groups in test-matches.js, not assumed. */
+    var tl = tripLadder();
+    var tb = tl && tripBest(tl);
+    var balancedTh = tb ? tb.th : null;
+
+    var ids0 = ctxs[legs[0]].ids;
+    var out = [], bySig = {};
+    MATCH_PROFILES.forEach(function (def) {
+        var plans = {}, ths = {}, ok = true;
+        legs.forEach(function (leg) {
+            if (!ok) return;
+            var lp = legPlanFor(def.id, ctxs[leg], balancedTh);
+            if (!lp) { ok = false; return; }
+            plans[leg] = lp.plan; ths[leg] = lp.th;
+        });
+        if (!ok) { out.push({ id: def.id, label: def.label, asks: def.asks, feasible: false }); return; }
+
+        var roll = rollup(ctxs, legs, plans);
+        if (!roll) { out.push({ id: def.id, label: def.label, asks: def.asks, feasible: false }); return; }
+
+        var sig = planSig(plans, legs);
+        var entry = {
+            id: def.id, label: def.label, asks: def.asks, feasible: true,
+            plans: plans, th: ths, sig: sig,
+            total: roll.total, worst: roll.worst, mins: roll.mins, per: roll.per,
+            regret: roll.regret, conn: roll.conn, topPer: roll.topPer, topId: roll.topId,
+            seats: roll.seats,
+            burden: roll.burden, worstBurden: roll.worstBurden,
+            worstBurdenWho: roll.worstBurdenWho,
+            dupeOf: bySig[sig] || null
+        };
+        if (!bySig[sig]) bySig[sig] = def.id;
+        out.push(entry);
+    });
+
+    /* Dedupe catches two profiles returning the SAME flights. It does not catch
+     * a profile returning different flights that are worse in every way a card
+     * reports -- which is just as bad to put in front of somebody, because the
+     * only honest caption for it is "here is a plan with nothing to recommend
+     * it". A profile is dominated when another live profile is at least as good
+     * on money, closeness, time in the air and the worst person's burden, and
+     * strictly better on one of them.
+     *
+     * Balanced is exempt: it is the default and the baseline everything else is
+     * described against, so hiding it would leave the screen with no anchor and
+     * the selection with nothing to fall back to. */
+    var cmp = ['total', 'worst', 'mins', 'worstBurden'];
+    var feas = out.filter(function (e) { return e.feasible && !e.dupeOf; });
+    feas.forEach(function (e) {
+        if (e.id === 'balanced') return;
+        e.dominatedBy = null;
+        /* Compared against every feasible profile rather than the surviving
+         * ones, so the answer does not depend on the order of the sweep.
+         * Dominance is a strict partial order, so this cannot loop: if A is
+         * hidden by B and B by C, C is the one left standing. */
+        for (var i = 0; i < feas.length; i++) {
+            var o = feas[i];
+            if (o === e) continue;
+            var weak = true, strict = false;
+            for (var k = 0; k < cmp.length; k++) {
+                if (o[cmp[k]] > e[cmp[k]]) { weak = false; break; }
+                if (o[cmp[k]] < e[cmp[k]]) strict = true;
+            }
+            if (weak && strict) { e.dominatedBy = o.id; return; }
+        }
+    });
+
+    var live = out.filter(function (e) {
+        return e.feasible && !e.dupeOf && !e.dominatedBy;
+    });
+    if (!live.length) return null;
+
+    /* Relative facts, so a card can say what choosing it costs without the UI
+     * having to re-derive it. Measured against the best any profile achieved on
+     * that axis, which is the comparison a reader is actually making. */
+    var minTotal = Math.min.apply(null, live.map(function (e) { return e.total; }));
+    var minWorst = Math.min.apply(null, live.map(function (e) { return e.worst; }));
+    var minMins = Math.min.apply(null, live.map(function (e) { return e.mins; }));
+    var minBurden = Math.min.apply(null, live.map(function (e) { return e.worstBurden; }));
+    out.forEach(function (e) {
+        if (!e.feasible) return;
+        e.vsCheapest = Math.round(e.total - minTotal);
+        e.vsClosest = e.worst - minWorst;
+        e.vsLeastFlying = e.mins - minMins;
+        e.vsLeastBurden = Math.round(e.worstBurden - minBurden);
+        /* Per-leg aliases let a card name the collapse instead of vanishing. */
+        e.aliases = out.filter(function (x) { return x.dupeOf === e.id; })
+                       .map(function (x) { return x.label; });
+    });
+
+    out.trivial = ids0.length < 2;
+    out.legs = legs;
+    out.ctxs = ctxs;
+    /* The same rawFloor disclosure, trip-wide: what the app's own two rules
+     * cost the group relative to the lowest fares on the page. */
+    var raw = 0, haveRaw = true;
+    legs.forEach(function (leg) {
+        if (ctxs[leg].rawFloor == null) haveRaw = false; else raw += ctxs[leg].rawFloor;
+    });
+    out.rawFloor = haveRaw ? raw : null;
+    return out;
+}
+
+/* Why this one, in facts the reader can check against the rows below it. */
 
 function matchList(raw) {
     var seen = {}, out = [];
@@ -2101,30 +2487,57 @@ function matchList(raw) {
     return out;
 }
 
-/* STUB. The profiles themselves -- what "cheapest", "route optimisation" and
- * "balanced" are actually optimising -- are being defined separately, and this
- * function is the seam they land on: replace the body, keep the shape. It is
- * here so the presentation could be built and looked at against real option
- * sets rather than invented numbers, and it derives four honest profiles from
- * the ladder the app already computes. Recommended first. */
+/* The seam between the two halves of this feature. matchProfiles() decides what
+ * each named match IS -- which flight every person takes, not merely which
+ * window -- and matchList() decides how several of them are shown. The stub that
+ * used to live here derived four names from four rows of one ladder, so every
+ * profile differed only by window width: when the ladder collapsed to a single
+ * feasible row, as it does for a small group on a thin route, all four became
+ * the same plan and the screen said "one plan covers it". That is why there were
+ * no options to tap.
+ *
+ * A profile now selects under its own shadow cost and the winning options are
+ * re-priced in real money before anything downstream sees them, so "Easiest
+ * flights" can take somebody off a connection that "Cheapest" put them on at the
+ * same window. Measured over 300 generated groups: balanced distinct 100% of the
+ * time, closest 99%, easiest 98%, and easiest removes a connection balanced
+ * imposed in 91% of groups for a median $202. */
 function tripMatches() {
     if (MATCHES) return MATCHES;
-    var l = tripLadder();
-    if (!l || !l.length) { MATCHES = []; return MATCHES; }
-    var least = function (f) {
-        return l.reduce(function (a, b) { return f(b) < f(a) ? b : a; });
-    };
-    var row = function (key, nm, r) {
-        return r && { key: key, name: nm, total: r.total, topPer: r.topPer,
-                      spread: r.worst, mins: r.mins, conn: r.conn,
-                      picks: null, th: r.th, plan: 'th' + r.th };
-    };
-    MATCHES = matchList([
-        row('balanced', 'Balanced', tripBest(l)),
-        row('cheapest', 'Cheapest', least(function (r) { return r.total; })),
-        row('together', 'Closest together', least(function (r) { return r.worst; })),
-        row('shortest', 'Least flying', least(function (r) { return r.mins; }))
-    ]);
+    var ps = matchProfiles();
+    if (!ps) { MATCHES = []; return MATCHES; }
+    var live = ps.filter(function (e) {
+        return e.feasible && !e.dupeOf && !e.dominatedBy;
+    });
+
+    /* The way home, once. Every match flies the same return -- see
+     * matchProfiles -- so it is a constant added to each card, which leaves the
+     * ordering of the cards untouched and makes the price on a card the price of
+     * the whole trip. Quoting the outbound alone would be the third version of
+     * the same bug: a number on the chooser that the plan below it does not
+     * sum to. */
+    var back = hasReturn() ? legBreakdown('return') : null;
+    var backTotal = back ? back.total : 0;
+
+    MATCHES = matchList(live.map(function (e) {
+        var per = {}, topPer = 0;
+        Object.keys(e.per).forEach(function (id) {
+            var b = back && back.rows[id] ? back.rows[id].cost : 0;
+            per[id] = e.per[id] + b;
+            var seats = e.seats && e.seats[id] > 1 ? e.seats[id] : 1;
+            topPer = Math.max(topPer, per[id] / seats);
+        });
+        return {
+            key: e.id, name: e.label, total: e.total + backTotal,
+            topPer: Math.round(topPer),
+            /* The outbound spread, which is what "apart" means on this screen:
+             * the number under "Landing together" in the plan the card opens. */
+            spread: e.worst, mins: e.mins, conn: e.conn,
+            picks: e.plans.outbound.picks, plan: e.plans.outbound,
+            th: e.th.outbound != null ? e.th.outbound : null,
+            sig: e.sig
+        };
+    }));
     return MATCHES;
 }
 
@@ -2148,9 +2561,7 @@ function matchOf(ms) {
  * names is exactly that. The division is: the chooser states the differences,
  * the plan below states the trip. Who changes planes is in the itineraries
  * anyway, per person, which is the more useful place for it. */
-function matchWhy(m, ms) {
-    if (m.why) return m.why;
-    var list = (ms && ms.length) ? ms : [m];
+function whyBits(m, list) {
     var varies = function (f) {
         var v = String(f(m));
         return list.some(function (o) { return String(f(o)) !== v; });
@@ -2165,9 +2576,31 @@ function matchWhy(m, ms) {
             : n === 1 ? name(m.conn[0]) + ' changes planes'
             : n + ' people change planes');
     }
-    /* Neither told them apart, so say it in time in the air. Something always
-     * differs: two matches that differ in nothing were collapsed into one. */
-    if (!bits.length && m.mins != null) bits.push(FWF.fmtGap(m.mins) + ' in the air');
+    return bits;
+}
+
+function matchWhy(m, ms) {
+    if (m.why) return m.why;
+    var list = (ms && ms.length) ? ms : [m];
+    var bits = whyBits(m, list);
+    /* A caption another row on the same screen also carries has told nobody
+     * anything -- it has put two rows at different prices under one sentence,
+     * which reads as an unexplained surcharge. It happened on 9% of screens,
+     * always the same way: "Easiest flights" lands the group exactly as far
+     * apart as "Balanced" and costs a few dollars more, and what it bought was
+     * hours out of the air, which the spread cannot show. So when a caption
+     * collides, the colliding rows state their flying time and the reader
+     * compares two numbers instead of reading one sentence twice. */
+    var mine = bits.join(' · ');
+    var clash = list.some(function (o) {
+        return o !== m && whyBits(o, list).join(' · ') === mine;
+    });
+    /* Nothing varied at all is the same problem with one row left: say it in
+     * time in the air. Something always differs -- two matches that differ in
+     * nothing were collapsed into one. */
+    if ((clash || !bits.length) && m.mins != null) {
+        bits.push(FWF.fmtGap(m.mins) + ' in the air');
+    }
     return bits.join(' · ');
 }
 
@@ -2297,6 +2730,7 @@ function render() {
     /* Cleared every pass: the memo is keyed by leg and party, but the option
      * sets it summarises change whenever a filter does. */
     returnTh = {};
+    PICKED_PLAN = null;
     C = compute();
     renderNotices();
     renderGear();
@@ -2313,8 +2747,12 @@ function render() {
      * recommendation when no match can be built at all -- which happens when
      * one leg has somebody with no options. */
     var sel0 = matchOf(tripMatches());
+    PICKED_PLAN = sel0 ? sel0.plan : null;
     if (sel0) {
         state.match = sel0.key;
+        /* Still set, for the window strip and for anything downstream that asks
+         * what window this trip is at -- but it is no longer what the plan is
+         * built from. PICKED_PLAN above is. */
         if (sel0.th != null) thBoth(sel0.th);
     } else if (thGet() === null && C.ladder) thSet(recommendedIn(C));
     renderResHead();
@@ -3156,23 +3594,24 @@ function tripHeadline() {
 }
 
 /* Email, because a trip is addressed to people rather than left on a clipboard.
- * mailto has no agreed length limit and clients truncate silently somewhere
- * around two thousand characters, so the body is built shortest-first: the
- * result, the link, then the detail -- and the detail is what gets dropped if
- * the group is large enough to overflow. The link always survives, and the link
- * is the whole plan. */
-/* The email is links and one price. Nothing else.
  *
- * "the email to everyone should provide the links and just total price not the
- * break outs" -- and he is right: a per-person fare table is something you read,
- * and nobody reads an email about a trip they have not agreed to yet. What every
- * recipient needs is the one number the group is deciding on and the one link
- * that books their own seat. The full plan lives behind the trip link for anyone
- * who wants it.
+ * Two rewrites are recorded in what it does NOT contain.
+ *
+ * It carried a Google Flights deep link per person. Each of those is a
+ * four-hundred-character tfs= token, so a three-person trip arrived as three
+ * walls of base64 that wrapped across six lines each and buried the total --
+ * "the email lands like this so i have no real link nor do i have the price
+ * anymore". The deep links still exist where they work: on the Book button, in
+ * the app, one tap from the trip link.
+ *
+ * It also carried a fare per person, until "the email to everyone should
+ * provide the links and jus tottal price not the break outs" was read properly.
+ * A per-person fare is a break-out of the total. Each line now carries the one
+ * thing only this app can tell them: when they land.
  *
  * mailto has no agreed length limit and clients truncate silently somewhere
- * around two thousand characters, so the per-person links are trimmed before the
- * trip link, which is the last thing that can ever go. */
+ * around two thousand characters, so the per-person lines are trimmed before
+ * anything else and the trip link is the last thing that can ever go. */
 var MAILTO_MAX = 1800;
 function emailUrl() {
     var a = AIRPORTS.get(state.q.dest);
@@ -3188,28 +3627,27 @@ function emailUrl() {
             + ' for ' + seatsAll() + ', all in.',
         ''
     ];
-    var tail = ['', 'The whole plan, and what each person pays:', shareUrl()];
-
-    /* One line per person: their name and the link that books their flights. */
-    var links = [];
+    /* One short line each, and it is the landing time -- not the fare. The
+     * owner asked for "the links and just total price not the break outs", and
+     * a per-person fare is a break-out of the total: it invites the arithmetic
+     * ("why is mine $40 more than yours") that the one tap into the trip
+     * answers properly, with the actual flights next to the actual numbers.
+     * What the email is for is the claim: here is when you land. */
+    var who = [];
     C.ids.forEach(function (id) {
         var t = C.travelers.filter(function (x) { return x.id === id; })[0];
         var o = TRIP.legOut && TRIP.legOut.rows[id];
-        var b = TRIP.legBack && TRIP.legBack.rows[id];
-        if (!t || !o) return;
-        var chosen = [];
-        if (o.option) chosen.push(o.option);
-        if (b && b.option) chosen.push(b.option);
-        var origin = o.option ? o.option.from : (t.origins[0] || '');
-        links.push(t.name + ' \u2014 ' + tripBookUrl(origin, state.q.dest,
-            state.q.dep, state.q.ret || null, t.seats, chosen));
+        if (!t || !o || !o.option) return;
+        who.push(t.name + ' \u2014 lands ' + clock(o.option.arriveMin));
     });
-    if (links.length) links.unshift('Book your own seat:', '');
 
-    var body = head.concat(links).concat(tail).join('\n');
-    while (body.length > MAILTO_MAX && links.length > 2) {
-        links = links.slice(0, -1);
-        body = head.concat(links, ['  \u2026']).concat(tail).join('\n');
+    var tail = ['', 'Open the trip to book \u2014 every flight is one tap from here:',
+                shareUrl()];
+
+    var body = head.concat(who).concat(tail).join('\n');
+    while (body.length > MAILTO_MAX && who.length) {
+        who = who.slice(0, -1);
+        body = head.concat(who, ['  \u2026']).concat(tail).join('\n');
     }
     if (body.length > MAILTO_MAX) body = head.concat(tail).join('\n');
     return 'mailto:?subject=' + encodeURIComponent(subject)

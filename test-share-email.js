@@ -18,19 +18,21 @@ function ck(n, c, extra) {
 }
 
 function makeCtx(nPeople) {
-    var ids = [], travelers = [], outRows = {}, backRows = {};
+    var ids = [], travelers = [], outRows = {}, backRows = {}, perPerson = {};
     for (var i = 0; i < nPeople; i++) {
         var id = 'p' + i;
         ids.push(id);
         travelers.push({ id: id, name: 'Traveller' + i, seats: 1, origins: ['LGA'] });
-        outRows[id] = { option: { from: 'LGA', to: 'FLL', depart: '2027-01-15 09:00', stops: 0, segs: null } };
+        outRows[id] = { option: { from: 'LGA', to: 'FLL', depart: '2027-01-15 09:00', stops: 0, segs: null, arriveMin: 1193 } };
+        perPerson[id] = { total: 340 };
         backRows[id] = { option: { from: 'FLL', to: 'LGA', depart: '2027-01-18 17:00', stops: 0, segs: null } };
     }
     var ctx = {
         encodeURIComponent: encodeURIComponent,
         AIRPORTS: { get: function () { return { city: 'Fort Lauderdale', code: 'FLL' }; } },
         state: { q: { dest: 'FLL', dep: '2027-01-15', ret: '2027-01-18' } },
-        TRIP: { total: 1028, legOut: { rows: outRows }, legBack: { rows: backRows } },
+        TRIP: { total: 1028, legOut: { rows: outRows }, legBack: { rows: backRows },
+                perPerson: perPerson },
         C: { ids: ids, travelers: travelers },
         money: function (n) { return '$' + n.toLocaleString('en-US'); },
         prettyRange: function () { return 'Jan 15 – Jan 18'; },
@@ -38,6 +40,7 @@ function makeCtx(nPeople) {
         seatsAll: function () { return nPeople; },
         tripHeadline: function () { return 'Everyone lands within 14 minutes'; },
         shareUrl: function () { return 'https://fly-with-friends.altorien.workers.dev/#t=abc123'; },
+        clock: function (m) { return '7:53pm'; },
         tripBookUrl: function (origin) {
             return 'https://www.google.com/travel/flights/booking?tfs=TOKEN' + origin;
         }
@@ -60,16 +63,34 @@ ck('subject leads with the result',
      .indexOf('everyone lands within 14 minutes') > -1);
 ck('body opens with the result', t.indexOf('Everyone lands within 14 minutes.') === 0);
 ck('the total is there once', (t.match(/\$1,028/g) || []).length === 1);
-ck('one booking link per person', (t.match(/booking\?tfs=/g) || []).length === 3);
+/* No per-person deep links: each is a 400-character tfs= token, and three of
+ * them arrived as walls of base64 that buried the total and could not be used
+ * as links. The Book buttons live in the app, one tap from the trip link. */
+ck('no giant deep-link tokens in the body', t.indexOf('tfs=') === -1);
+ck('exactly one link, and it is the trip', (t.match(/https?:\/\//g) || []).length === 1);
 ck('every traveller is named', (t.match(/Traveller/g) || []).length === 3);
 ck('the trip link is there', t.indexOf('#t=abc123') > -1);
 
 console.log('\n-- no per-person fare breakdown --');
-ck('no per-person fares', !/\$\d+\s*$/m.test(t.replace(/\$1,028.*/, '')));
-/* Not a search for "lands ": the headline itself is "Everyone lands within 14
- * minutes". What must be absent is per-flight detail. */
-ck('no leg-by-leg detail',
-   t.indexOf('nonstop') === -1 && t.indexOf('\u2192') === -1 && !/\d{1,2}:\d{2}(am|pm)/.test(t));
+/* Asserted the opposite until the owner's line was read properly: "the email to
+ * everyone should provide the links and jus tottal price not the break outs".
+ * A per-person fare IS a break-out of the total, and three of them in a row
+ * invite the arithmetic the trip link answers properly. The only dollar figure
+ * in the body is now the group total -- checked above at exactly one $1,028. */
+ck('no per-person fare in the body', (t.match(/\$340/g) || []).length === 0);
+ck('the only money in the body is the total',
+   (t.match(/\$[\d,]+/g) || []).join(',') === '$1,028',
+   (t.match(/\$[\d,]+/g) || []).join(','));
+/* ...and the landing time is what each line carries instead, because that is
+ * the claim the app is making. */
+ck('every line carries a landing time', (t.match(/lands \d/g) || []).length === 3,
+   (t.match(/lands [^\n]*/g) || []).join(' | '));
+/* A landing time per person is allowed and useful -- it is how somebody checks
+ * their own line. What must stay out is the itinerary: carriers, routes, stop
+ * counts and per-leg fares. That is what the trip link is for. */
+ck('no flight detail',
+   t.indexOf('nonstop') === -1 && t.indexOf('\u2192') === -1
+   && t.indexOf(' stop') === -1 && t.indexOf('LGA') === -1);
 ck('no WHAT EACH PERSON PAYS block', t.indexOf('EACH PERSON') === -1);
 
 console.log('\n-- a large group drops links, never the trip link --');
