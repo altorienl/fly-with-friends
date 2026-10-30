@@ -305,8 +305,12 @@ console.log('\n-- regret measured against a pruned baseline --');
         p: [opt('18:05', 480, 1, 300, ['Delta'], 'p-delta-8h'),
             opt('18:10', 120, 0, 250, ['Spirit'], 'p-spirit-2h')]
     });
+    /* Was ['p-delta-8h', 'p-spirit-2h']. The connection-premium rule now also
+     * drops the 8h one-stop, because it is $50 DEARER than P's own 2h nonstop
+     * -- an eight-hour connection that costs more buys nobody anything. The
+     * point of the fixture stands: the 2h nonstop survives. */
     eq('the 2h nonstop is not deleted to protect a $50 fare difference',
-       kept(C, 'p'), ['p-delta-8h', 'p-spirit-2h']);
+       kept(C, 'p'), ['p-spirit-2h']);
     var plan = FWF.minCostAtWindow(C.prep, 30, C.costFn);
     var r = ctx.regretOf(C, plan.picks);
     check('and regret still has a baseline that can see the difference',
@@ -326,13 +330,22 @@ console.log('\n-- ownBest combines the best stops and the best duration from dif
         p: [opt('09:10', 400, 0, 300, ['Delta'], 'p-slow-nonstop'),
             opt('09:20', 200, 1, 300, ['Delta'], 'p-quick-onestop')]
     });
-    eq('ownBest is a flight that does not exist', C.ownBest.p, { mins: 200, stops: 0 });
+    /* Was { mins: 200, stops: 0 } -- a baseline stitched from the duration of
+     * the quick one-stop and the stop count of the slow nonstop, describing a
+     * flight nobody could book. The connection-premium rule removes that
+     * one-stop (same price, one more stop), so the baseline is now a real
+     * flight. The quirk is still possible in principle; this fixture no longer
+     * triggers it. */
+    eq('ownBest is now a flight that exists', C.ownBest.p, { mins: 400, stops: 0 });
     var r = ctx.regretOf(C, { a: { option: (C.prep.options.a || [])[0] },
                               p: { option: kept(C, 'p').indexOf('p-slow-nonstop') > -1
                                    ? C.prep.options.p.filter(function (o) { return o.id === 'p-slow-nonstop'; })[0]
                                    : C.prep.options.p[0] } });
-    check('P on their own fastest-stops option still reports regret', r.mins > 0,
-          'regret = ' + JSON.stringify(r) + ' for the nonstop, which IS the fewest-stops option.');
+    /* Was asserting regret > 0, which was the symptom of the impossible
+     * baseline above. With the baseline now equal to the only option P has,
+     * zero regret is the correct answer -- P is on their own best flight. */
+    check('P on their own best option reports no regret', r.mins === 0,
+          'regret = ' + JSON.stringify(r) + ' against ownBest ' + JSON.stringify(C.ownBest.p));
 }
 
 /* ======================================================================
@@ -547,8 +560,12 @@ console.log('\n-- flights.json, the ?demo=1 example --');
         return (r.threshold === FWF.INF ? 'inf' : r.threshold) + ':$' + Math.round(r.result.cost)
              + '/' + r.result.spread;
     });
+    /* Last rung was 'inf:$868/350' until DEFAULT_THRESHOLDS gained 300/360/480.
+     * Same cost, same spread -- a 350-minute spread now lands on a finite rung
+     * instead of falling through to "any time", which is the whole point of the
+     * new rungs. Every other row is untouched. */
     eq('the outbound ladder is byte-for-byte what it was',
-       got, ['15:$1072/8', '30:$916/20', '120:$915/110', '180:$892/145', 'inf:$868/350']);
+       got, ['15:$1072/8', '30:$916/20', '120:$915/110', '180:$892/145', '360:$868/350']);
     eq('and the tightest window the group can make', C.tight.spread, 8);
 }
 

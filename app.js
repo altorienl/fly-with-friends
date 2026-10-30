@@ -250,26 +250,42 @@ function compute(leg) {
     });
 
     var relaxed = [], detoured = [], blocked = [], ownBest = {};
-    var byParty = {};
+    var byParty = {}, legalFor = {};
+
+    /* The two discretionary prunes below -- the budget margin and the detour cap
+     * -- run before prepare() applies the landing band, so either can delete the
+     * one option that put somebody inside the window the group asked for. That
+     * trades a whole plan for a rule about taste, and the notice then blames the
+     * band for it, because nothing records which rule actually did the pruning.
+     * So: apply them, but never to the last option in the band. */
+    function pruneSoftly(list, keepFn) {
+        var out = list.filter(keepFn);
+        if (!out.length) return list;
+        if (!band) return out;
+        var inBand = function (o) {
+            var t = FWF.toMinutes(o[field]);
+            return t != null && FWF.inBand(t, band.from, band.to);
+        };
+        if (!list.some(inBand) || out.some(inBand)) return out;
+        return list.filter(function (o) { return keepFn(o) || inBand(o); });
+    }
+
     ids.forEach(function (id) {
         var all = legData[id] || [];
         var kept = all;
         var rule = rulesFor(id);
 
-        if (rule.maxStops != null) {
-            var strict = all.filter(function (o) { return (o.stops || 0) <= rule.maxStops; });
-            if (strict.length) kept = strict;
-            else if (rule.own.maxStops) {
-                /* Their own rule: block and ask, never relax silently. */
-                blocked.push({ id: id, rule: 'stops', best: all });
-                kept = [];
-            } else if (all.length) relaxed.push(id);
-        }
-
-        /* Carriers the group refuses. Unlike the stops preference this is never
-         * relaxed on anybody's behalf: quietly booking somebody onto the airline
-         * they just told us to avoid is the single worst thing this screen could
-         * do. If it empties a party we say so and let them choose. */
+        /* Carriers the group refuses. This is never relaxed on anybody's behalf:
+         * quietly booking somebody onto the airline they just told us to avoid is
+         * the single worst thing this screen could do. If it empties a party we
+         * say so and let them choose.
+         *
+         * It runs FIRST, ahead of the relaxable stops preference, because a soft
+         * rule applied before a hard one can make the hard one fatal: with "nonstop
+         * only" set, somebody whose only nonstop is on the avoided carrier used to
+         * be cut to that one flight by the preference and then blocked outright by
+         * the avoid, when relaxing the preference would have given them a perfectly
+         * good connection on a carrier the group accepts. */
         var avoid = state.q.avoid || [];
         if (avoid.length && kept.length) {
             var flyable = kept.filter(function (o) {
@@ -281,27 +297,121 @@ function compute(leg) {
             else { blocked.push({ id: id, rule: 'airline' }); kept = []; }
         }
 
+        if (rule.maxStops != null && kept.length) {
+            var strict = kept.filter(function (o) { return (o.stops || 0) <= rule.maxStops; });
+            if (strict.length) kept = strict;
+            else if (rule.own.maxStops) {
+                /* Their own rule: block and ask, never relax silently. */
+                blocked.push({ id: id, rule: 'stops', best: kept });
+                kept = [];
+            } else relaxed.push(id);
+        }
+
+        /* What this party is allowed to fly at all: their own rules, and the
+         * carriers the group refuses. Everything after this point is the app's
+         * own judgement about which of those flights are worth offering, which is
+         * a different thing and must not be mistaken for a constraint. */
+        legalFor[id] = kept;
+
         /* A budget fare has to actually be a bargain. If Frontier is $8 under
          * Delta it is not cheaper, it is the same price without a bag, a seat
          * or a rebooking -- and picking it is how the app ends up recommending
          * the flight people dread. So a budget option must beat the best
          * mainline option by a real margin or it is dropped. Only applied when
          * a mainline option exists: on routes only a budget carrier flies, the
-         * choice is that or nothing. */
+         * choice is that or nothing.
+         *
+         * "The best mainline option" means one the group could use INSTEAD, which
+         * is a mainline flight landing inside the same window -- not the best
+         * mainline flight of the day. Judged against the whole day, a $250 budget
+         * flight landing with the group was deleted because a $300 mainline flight
+         * existed nine hours earlier, and the group was split to save $50 on a
+         * fare nobody was going to pick anyway. Two flights that cannot appear in
+         * the same plan are not substitutes and must not be compared.
+         *
+         * Nor is a mainline flight a substitute when it is materially worse to
+         * fly. The rule compares fares and nothing else, so a $250 two-hour
+         * nonstop was deleted in favour of a $300 eight-hour connection -- the
+         * rule exists because a budget fare understates its own cost by about a
+         * bag and a seat, not to buy six extra hours in the air for $50. */
         if (kept.length) {
+            /* "The same window" means the widest window this app still calls
+             * landing together -- the loosest finite rung of the ladder. Past it
+             * the only row left is "each on their own best flight", which is not
+             * a group plan, so two flights that far apart were never alternatives
+             * to each other and comparing their fares decides nothing. */
+            var near = FWF.DEFAULT_THRESHOLDS.filter(function (t) { return isFinite(t); }).pop();
+            var detourCap = state.q.maxDetour != null ? state.q.maxDetour : 180;
+            var seatsOfParty = Math.max(1, (tv.filter(function (z) { return z.id === id; })[0] || {}).seats || 1);
             var mainline = kept.filter(function (o) { return !isUlcc(o); });
+            /* Could the group put `m` in the plan instead of `o`? Same window,
+             * no extra connection, and not materially longer -- materially using
+             * the same relative yardstick as the detour cap, because an absolute
+             * number here would be as meaningless as it is there. */
+            var substitutes = function (m, o) {
+                var mt = FWF.toMinutes(m[field]), ot = FWF.toMinutes(o[field]);
+                if (mt == null || ot == null || Math.abs(mt - ot) > near) return false;
+                if ((m.stops == null ? 99 : m.stops) > (o.stops == null ? 99 : o.stops)) return false;
+                return !(m.duration_minutes != null && o.duration_minutes != null
+                         && m.duration_minutes - o.duration_minutes > detourCap);
+            };
             if (mainline.length) {
-                var bestMain = null;
-                mainline.forEach(function (o) {
+                kept = pruneSoftly(kept, function (o) {
+                    if (!isUlcc(o)) return true;
+                    var bestMain = null;
+                    mainline.forEach(function (m) {
+                        if (!substitutes(m, o)) return;
+                        var c = costFn(m, id);
+                        if (bestMain === null || c < bestMain) bestMain = c;
+                    });
+                    if (bestMain === null) return true;
+                    var margin = Math.max(40 * seatsOfParty, bestMain * 0.18);
+                    return costFn(o, id) <= bestMain - margin;
+                });
+            }
+        }
+
+        /* And a connection has to be worth the connection. cheapestInWindow
+         * ranks on money alone and breaks only EXACT ties on stops, so a
+         * one-stop a dollar under the nonstop wins the seat -- which is how a
+         * 5h55m LAX-IAH-BNA itinerary beat a 3h55m nonstop by $9, and $9 is
+         * what it costs to lose that traveller to Google Flights forever.
+         *
+         * Same shape as the budget rule above: beat the best nonstop by a real
+         * margin or be dropped. The margin grows with the extra time in the air,
+         * because the extra time is the thing being sold -- $40 a seat never
+         * buys somebody three more hours, and on a long-haul where the one-stop
+         * is forty minutes longer it should not have to. Only applied when the
+         * party has a nonstop at all: on routes nobody flies nonstop, the choice
+         * is a connection or nothing.
+         *
+         * maxDetour below cannot do this job. It is measured from the party's
+         * QUICKEST option and is three hours wide, so on a 1h30m CLT-BNA hop it
+         * waves through anything under 4h30m. */
+        if (kept.length) {
+            var nonstop = kept.filter(function (o) { return (o.stops || 0) === 0; });
+            if (nonstop.length) {
+                var bestDirect = null, directMins = null;
+                nonstop.forEach(function (o) {
                     var c = costFn(o, id);
-                    if (bestMain === null || c < bestMain) bestMain = c;
+                    if (bestDirect === null || c < bestDirect) bestDirect = c;
+                    if (o.duration_minutes != null
+                        && (directMins === null || o.duration_minutes < directMins)) {
+                        directMins = o.duration_minutes;
+                    }
                 });
-                var seatsOfParty = Math.max(1, (tv.filter(function (z) { return z.id === id; })[0] || {}).seats || 1);
-                var margin = Math.max(40 * seatsOfParty, bestMain * 0.18);
-                var worthIt = kept.filter(function (o) {
-                    return !isUlcc(o) || costFn(o, id) <= bestMain - margin;
+                var seatsHere = Math.max(1, (tv.filter(function (z) { return z.id === id; })[0] || {}).seats || 1);
+                /* Through pruneSoftly, like the budget rule: a discretionary
+                 * prune must never take a party's last option inside the
+                 * landing window they asked for. Applied bare, this rule emptied
+                 * parties in the interaction fixtures and left the screen
+                 * blaming the band for a flight a different rule removed. */
+                kept = pruneSoftly(kept, function (o) {
+                    if ((o.stops || 0) === 0) return true;
+                    var extra = (o.duration_minutes != null && directMins != null)
+                        ? Math.max(0, (o.duration_minutes - directMins) / 60) : 0;
+                    return costFn(o, id) <= bestDirect - seatsHere * (40 + 25 * extra);
                 });
-                if (worthIt.length) kept = worthIt;
             }
         }
 
@@ -317,29 +427,15 @@ function compute(leg) {
                 }
             });
             if (quickest != null) {
-                var sane = kept.filter(function (o) {
+                var sane = pruneSoftly(kept, function (o) {
                     return o.duration_minutes == null || o.duration_minutes <= quickest + cap;
                 });
-                if (sane.length) {
-                    if (sane.length < kept.length) detoured.push(id);
-                    kept = sane;
-                }
+                if (sane.length < kept.length) detoured.push(id);
+                kept = sane;
             }
         }
 
         byParty[id] = kept;
-
-        /* The flight this party would pick if the group did not exist: quickest,
-         * fewest stops. Not the cheapest -- this is the yardstick for what the
-         * group is ASKING them to give up, and nobody experiences a connection
-         * as a saving. */
-        var bm = null, bs = null;
-        kept.forEach(function (o) {
-            if (o.duration_minutes != null && (bm == null || o.duration_minutes < bm)) bm = o.duration_minutes;
-            var st = o.stops == null ? 99 : o.stops;
-            if (bs == null || st < bs) bs = st;
-        });
-        ownBest[id] = { mins: bm, stops: bs };
     });
 
     var prep = FWF.prepare(byParty, ids, field, { band: band });
@@ -383,9 +479,37 @@ function compute(leg) {
         prep = FWF.prepare(pruned, ids, field, { band: band });
     }
 
+    /* The flight this party would pick if the group did not exist: quickest,
+     * fewest stops. Not the cheapest -- this is the yardstick for what the
+     * group is ASKING them to give up, and nobody experiences a connection
+     * as a saving.
+     *
+     * Taken from the SAME set the plans are drawn from, because its only job is
+     * to compare one ladder row against another. Measured against a wider set it
+     * stops discriminating: with a landing band set, every row reported the same
+     * fixed regret against a flight the band forbids, worthIt() was false for all
+     * of them, and recommendedIn()'s `if (!fair.length) fair = f` quietly switched
+     * the connection guard off for the whole trip. What the filters themselves
+     * cost is a separate question, and soloOpen/anyTime answer it. */
+    ids.forEach(function (id) {
+        var bm = null, bs = null;
+        (prep.options[id] || []).forEach(function (o) {
+            if (o.duration_minutes != null && (bm == null || o.duration_minutes < bm)) bm = o.duration_minutes;
+            var st = o.stops == null ? 99 : o.stops;
+            if (bs == null || st < bs) bs = st;
+        });
+        ownBest[id] = { mins: bm, stops: bs };
+    });
+
+    /* The flight each party would take on their own, at any hour. Built from the
+     * set they are ALLOWED to fly rather than from the raw results: legBreakdown()
+     * uses this as the row it renders for anyone the filters removed, and hopRow()
+     * prints the carrier while travellerCard() pins the itinerary into the Book
+     * link. Built from legData it offered the one party blocked by the airline
+     * filter a flight on exactly the carrier the group had just refused, and
+     * offered somebody who said "nonstop only" a two-stop. */
     var soloOpen = {};
-    var openPrep = FWF.prepare(legData, ids, field);
-    void openPrep;
+    var openPrep = FWF.prepare(legalFor, ids, field);
     ids.forEach(function (id) {
         var list = openPrep.options[id] || [];
         var best = null;

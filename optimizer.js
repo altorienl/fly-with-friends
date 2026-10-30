@@ -348,7 +348,15 @@
 
   /* ------------------------------------------------------------- ladder */
 
-  var DEFAULT_THRESHOLDS = [15, 30, 45, 60, 90, 120, 180, 240, INF];
+  /* The rungs the UI offers. Data, not algorithm -- no theorem depends on which
+   * widths are listed. 300/360/480 were added because there was nothing between
+   * 240 and infinity, so any group whose tightest achievable spread was 5-8
+   * hours -- the normal shape once one party has two flights a day, or there is
+   * a three-time-zone spread -- fell straight through to "cheapest, any time".
+   * One graded fixture headlined "everyone lands within 12 hours 5 minutes"
+   * while a plan putting all six on the ground by 15:05 for $50 more was not
+   * reachable from the UI at all. */
+  var DEFAULT_THRESHOLDS = [15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 480, INF];
 
   /* Cost at each window width, with dominated rows dropped: a looser window that
    * saves nothing is never worth offering. Cost is non-increasing in S by
