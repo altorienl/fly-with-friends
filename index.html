@@ -245,6 +245,11 @@ section { animation: stepIn .2s var(--ease); }
 .c-l { font-size: 14px; font-weight: 700; }
 .c-w { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .c-p { font-size: 16px; font-weight: 700; text-align: right; white-space: nowrap; }
+.over { color: var(--bad); }
+.budget-note { font-size: 12px; line-height: 1.55; color: var(--bad); border: 1px solid var(--bad); border-radius: var(--r-md); padding: 12px 14px; margin-bottom: 10px; }
+.budget-note strong { font-weight: 700; }
+.choice.over .c-p { color: var(--bad); }
+.c-fit { font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
 .c-p em { display: block; font-size: 10px; font-style: normal; font-weight: 600; color: var(--muted); letter-spacing: .4px; margin-top: 2px; }
 .choice.on .c-p em { color: var(--accent); }
 @media (max-width: 420px) {
@@ -565,8 +570,21 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
         </div>
 
         <div class="field">
+            <label class="k" for="sBudget">Budget per person, flights all-in <span style="text-transform:none;letter-spacing:0">optional</span></label>
+            <div class="row2">
+                <span class="sep">$</span>
+                <input class="inp" id="sBudget" type="number" min="0" step="25" inputmode="numeric"
+                       placeholder="500" aria-label="Budget per person in dollars">
+            </div>
+            <div class="party-note">A real number, not “roughly what people want to spend”. One person
+                saying Mykonos and another thinking Myrtle Beach is the same conversation twice.</div>
+        </div>
+
+        <div class="field">
             <span class="k">Stops</span>
             <div class="pills" id="sStops" role="radiogroup" aria-label="Maximum stops"></div>
+            <div class="party-note">A preference, not a rule. If someone flying from a smaller city has
+                no nonstop, they get a connection rather than the whole group losing its plan.</div>
         </div>
 
         <div class="field">

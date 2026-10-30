@@ -78,7 +78,7 @@ function blankQuery() {
     return {
         dest: '', dep: '', ret: '',
         band: { outbound: { from: '', to: '' }, return: { from: '', to: '' } },
-        maxStops: null, maxPremium: null,
+        maxStops: null, maxPremium: null, budget: null,
         parties: [newParty(0), newParty(1), newParty(2)]
     };
 }
@@ -125,7 +125,21 @@ function compute(leg) {
         priceDisplay: SET.priceDisplay
     });
 
-    var prep = FWF.prepare(legData, ids, field, { band: band, maxStops: maxStops });
+    var relaxed = [];
+    var byParty = {};
+    ids.forEach(function (id) {
+        var all = legData[id] || [];
+        if (maxStops == null) { byParty[id] = all; return; }
+        var strict = all.filter(function (o) { return (o.stops || 0) <= maxStops; });
+        if (!strict.length && all.length) {
+            /* Nothing meets the preference for this person, so they keep their
+             * own options rather than the group losing its plan. */
+            byParty[id] = all;
+            relaxed.push(id);
+        } else byParty[id] = strict;
+    });
+
+    var prep = FWF.prepare(byParty, ids, field, { band: band });
 
     /* What each party would pay flying whenever they liked, inside the same
      * filters. This is the baseline the premium is measured from, and it is the
@@ -142,15 +156,16 @@ function compute(leg) {
     if (cap != null && loner) {
         var pruned = {};
         ids.forEach(function (id) {
-            pruned[id] = (legData[id] || []).filter(function (o) {
+            pruned[id] = (byParty[id] || []).filter(function (o) {
                 return costFn(o, id) <= solo[id] + cap;
             });
         });
-        prep = FWF.prepare(pruned, ids, field, { band: band, maxStops: maxStops });
+        prep = FWF.prepare(pruned, ids, field, { band: band });
     }
 
     var soloOpen = {};
     var openPrep = FWF.prepare(legData, ids, field);
+    void openPrep;
     ids.forEach(function (id) {
         var list = openPrep.options[id] || [];
         var best = null;
@@ -162,7 +177,7 @@ function compute(leg) {
     });
 
     var out = { leg: leg, travelers: tv, ids: ids, prep: prep, costFn: costFn, band: band,
-                maxStops: maxStops, cap: cap, solo: solo, soloOpen: soloOpen,
+                maxStops: maxStops, relaxed: relaxed, cap: cap, solo: solo, soloOpen: soloOpen,
                 tight: null, ladder: null, target: null, subset: null, anyTime: null };
 
     /* The cost of a filter only means anything against the same search without
@@ -537,14 +552,25 @@ function tripLadder() {
 
     var rows = [];
     FWF.DEFAULT_THRESHOLDS.forEach(function (T) {
-        var total = 0, worst = 0, ok = true;
+        var total = 0, worst = 0, ok = true, per = {};
         ctxs.forEach(function (c) {
             var r = FWF.minCostAtWindow(c.prep, T, c.costFn);
             if (!r) { ok = false; return; }
             total += r.cost;
             worst = Math.max(worst, r.spread);
+            c.ids.forEach(function (id) { per[id] = (per[id] || 0) + r.picks[id].cost; });
         });
-        if (ok) rows.push({ th: T, total: total, worst: worst });
+        if (!ok) return;
+        /* Budget is per person, so what matters is the worst-off traveller --
+         * a group average would hide exactly the person who cannot afford it. */
+        var topPer = 0, topId = null;
+        for (var id in per) {
+            var t = ctxs[0].travelers.filter(function (z) { return z.id === id; })[0];
+            var each = t && t.seats > 1 ? per[id] / t.seats : per[id];
+            if (each > topPer) { topPer = each; topId = id; }
+        }
+        rows.push({ th: T, total: total, worst: worst, per: per,
+                    topPer: Math.round(topPer), topId: topId });
     });
     if (!rows.length) return null;
 
@@ -574,6 +600,16 @@ function tripChoices() {
     var out = [tight];
     if (knee && knee.th !== tight.th && knee.th !== cheap.th) out.push(knee);
     if (cheap.th !== tight.th) out.push(cheap);
+
+    /* If a ceiling is set, the tightest window that actually fits it is the most
+     * useful row on the page, so it earns a place of its own. */
+    if (state.q.budget) {
+        var fits = l.filter(function (r) { return r.topPer <= state.q.budget; })[0];
+        if (fits && !out.some(function (r) { return r.th === fits.th; })) {
+            out.splice(1, 0, fits);
+            fits.isFit = true;
+        }
+    }
     return out;
 }
 
@@ -585,17 +621,41 @@ function renderChoices() {
     var cheapest = c[c.length - 1];
     var cur = state.th.outbound;
 
+    /* Flagging every row as over-budget without saying so is a puzzle. State the
+     * gap and who sets it, because that is the decision: raise the number, or
+     * one person flies from somewhere else. */
+    var budgetNote = '';
+    if (state.q.budget) {
+        var best = c.reduce(function (a, b) { return b.topPer < a.topPer ? b : a; });
+        if (best.topPer > state.q.budget) {
+            var who = best.topId ? (C.travelers.filter(function (t) { return t.id === best.topId; })[0] || {}).name : null;
+            budgetNote = '<div class="budget-note">Nothing keeps everyone under <strong>'
+                + money(state.q.budget) + '</strong> each. The best anyone can do is <strong>'
+                + money(best.topPer) + '</strong>'
+                + (who ? ', set by ' + esc(who) : '')
+                + ' — raise the number, or that person flies from somewhere else.</div>';
+        }
+    }
+
     host.className = 'choices';
-    host.innerHTML = '<span class="k">How close, and what it costs</span>'
+    host.innerHTML = '<span class="k">How close, and what it costs</span>' + budgetNote
         + c.map(function (r, i) {
             var on = cur === r.th;
             var extra = r.total - cheapest.total;
-            var label = i === 0 ? 'As close as possible'
+            var over = state.q.budget && r.topPer > state.q.budget;
+            var label = r.isFit ? 'Closest that fits ' + money(state.q.budget) + ' each'
+                : i === 0 ? 'As close as possible'
                 : (r.th === cheapest.th ? 'Cheapest, however far apart' : 'A bit more spread out');
-            return '<button class="choice' + (on ? ' on' : '') + '" data-choice="'
+            return '<button class="choice' + (on ? ' on' : '') + (over ? ' over' : '') + '" data-choice="'
                 + (r.th === FWF.INF ? 'Infinity' : r.th) + '" aria-pressed="' + on + '">'
                 + '<span class="c-l">' + label + '</span>'
-                + '<span class="c-w mono">' + FWF.fmtGap(r.worst) + ' apart</span>'
+                + '<span class="c-w mono">' + FWF.fmtGap(r.worst) + ' apart'
+                + (state.q.budget
+                    ? '<br><span class="c-fit ' + (over ? 'over' : '') + '">'
+                      + money(r.topPer) + ' each at most'
+                      + (over ? ' · over by ' + money(r.topPer - state.q.budget) : ' · fits')
+                      + '</span>'
+                    : '') + '</span>'
                 + '<span class="c-p mono">' + money(r.total)
                 + (extra > 0 ? '<em>+' + money(extra) + '</em>' : '<em>cheapest</em>') + '</span>'
                 + '</button>';
@@ -1149,6 +1209,14 @@ function windowStrip(leg, b, label) {
         + timeline(picks, included, excluded)
         /* The choice strip above already prices tighter-vs-cheaper for the whole
          * trip, so repeating it per leg was noise pointing the wrong way. */
+        + (b.ctx.relaxed && b.ctx.relaxed.length
+            ? '<div class="win-note">' + esc(b.ctx.relaxed.map(function (id) {
+                    var t = b.ctx.travelers.filter(function (z) { return z.id === id; })[0];
+                    return t ? t.name : id;
+                }).join(', '))
+              + ' had no ' + (b.ctx.maxStops === 0 ? 'nonstop' : 'short-enough')
+              + ' option, so a connection was allowed rather than dropping the plan.</div>'
+            : '')
         + (!allIn
             ? '<div class="win-note" style="color:var(--bad)">'
               + esc(excluded.map(function (x) { return name(x.id); }).join(', '))
@@ -1192,6 +1260,8 @@ function travellerCard(id, i) {
     var idx = state.q.parties.map(function (x) { return x.id; }).indexOf(id);
     var apart = !pp.outInWindow || !pp.backInWindow;
     var origin = o ? o.option.from : (t.origins[0] || '');
+    var each = t.seats > 1 ? Math.round(pp.total / t.seats) : pp.total;
+    var overBudget = !!(state.q.budget && each > state.q.budget);
 
     return '<div class="trav' + (apart ? ' apart' : '') + '">'
         + '<div class="trav-top">'
@@ -1200,8 +1270,11 @@ function travellerCard(id, i) {
         + '<div><div class="trav-name">' + esc(t.name)
         + (t.seats > 1 ? ' <span class="badge seats">' + t.seats + ' seats</span>' : '')
         + (apart ? ' <span class="badge out">not in the window</span>' : '') + '</div></div>'
-        + '<div class="trav-tot mono">' + money(pp.total)
-        + '<span>' + (t.seats > 1 ? money(Math.round(pp.total / t.seats)) + ' each' : 'all in') + '</span></div>'
+        + '<div class="trav-tot mono' + (overBudget ? ' over' : '') + '">' + money(pp.total)
+        + '<span' + (overBudget ? ' class="over"' : '') + '>'
+        + (overBudget ? money(each - state.q.budget) + ' over budget'
+            : t.seats > 1 ? money(each) + ' each' : 'all in')
+        + '</span></div>'
         + '</div>'
         + hopRow('Out', o, 'outbound')
         + (b ? hopRow('Back', b, 'return') : '')
@@ -1627,6 +1700,7 @@ function fillForm() {
     el('dest').value = a ? a.code + ' — ' + a.city : (state.q.dest || '');
     el('dep').value = state.q.dep || '';
     el('ret').value = state.q.ret || '';
+    if (el('sBudget')) el('sBudget').value = state.q.budget == null ? '' : state.q.budget;
     syncDateBounds();
     fillBand();
 }
@@ -1696,6 +1770,12 @@ function applyStepBand() {
     state.q.band.outbound = { from: el('sFrom').value, to: el('sTo').value };
     thReset();
 }
+if (el('sBudget')) el('sBudget').addEventListener('change', function () {
+    var v = parseFloat(el('sBudget').value);
+    state.q.budget = isFinite(v) && v > 0 ? v : null;
+    thReset();
+    if (state.step === 4) render();
+});
 if (el('sFrom')) el('sFrom').addEventListener('change', applyStepBand);
 if (el('sTo')) el('sTo').addEventListener('change', applyStepBand);
 

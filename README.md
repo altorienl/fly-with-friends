@@ -165,6 +165,19 @@ is 42m", because a two-person spread was being measured against a three-person f
 "tightest is 8m", which reads as the app second-guessing its own answer. It now reads
 "8m is possible for $126 more", which is the actual decision.
 
+**A budget ceiling, as a number.** Not "roughly what people want to spend", which is how one
+person suggests Mykonos while another was thinking Myrtle Beach. Set a per-person all-in
+figure and every option is priced against the *worst-off* traveller, never a group average —
+an average hides exactly the person who cannot afford it. Where nothing fits, the app says so
+and names who sets the floor: *"nothing keeps everyone under $250 each; the best anyone can do
+is $501, set by Alex — raise the number, or that person flies from somewhere else."*
+
+**Nonstop is a preference, not a rule.** This was a behaviour bug, not a missing feature:
+asking for nonstop used to eliminate every plan for everyone if a single person flying from a
+smaller city had no nonstop. Now the preference is applied per traveller — honoured where it
+exists, relaxed only for whoever cannot meet it, and stated plainly: *"Alex had no nonstop
+option, so a connection was allowed rather than dropping the plan."*
+
 **The decision is at the top, not folded away.** The first person to use this who had not
 built it said "that's expensive, why can't it show me the cheapest and the time difference,
 I'd wait longer for a cheaper flight". The app already knew all of that and had buried it in
