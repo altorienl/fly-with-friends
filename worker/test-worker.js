@@ -453,5 +453,102 @@ await (async () => {
     kv.writes === 5, 'writes ' + kv.writes);
 })();
 
+/* ---------------------------------------------------------- the origin gate
+ *
+ * workers.dev means WAF and rate-limiting rules do not apply, so every
+ * protection this worker has is code -- and this is the one that stops a
+ * hostile page spending the month's searches using its visitors' IPs, each of
+ * which looks like a single polite caller.
+ *
+ * Untested until now, and about to matter: moving the app to a custom domain
+ * means adding a second origin to a comma-separated list. Get that wrong and
+ * GET still works, so shared links open and the app looks alive, while every
+ * POST -- searching, saving a trip, marking a seat booked -- returns 403. The
+ * failure is silent in exactly the place nobody checks first. */
+await (async () => {
+  /* The provider stub is torn down above, for the roster tests that must not
+   * have one. These POSTs reach the search path, so it goes back on: without it
+   * they leave the machine and hit the real SerpApi with a junk key, which is
+   * a test suite making network calls to a metered API. */
+  const stub = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('/account.json')) {
+      return { json: async () => ({ this_month_usage: billed, total_searches_left: 250 - billed,
+                                    searches_per_month: 250, account_rate_limit_per_hour: 50,
+                                    this_hour_searches: billed }) };
+    }
+    if (u.includes('serpapi.com/search.json')) {
+      billed++;
+      return { json: async () => ({ best_flights: [{ price: 400, total_duration: 300,
+        flights: [{ airline: 'United', flight_number: 'UA 500',
+          departure_airport: { id: 'SFO', time: '2027-02-12 08:00' },
+          arrival_airport: { id: 'PIT', time: '2027-02-12 16:00' }, extensions: [] }],
+        extensions: ['1 free checked bag'] }], other_flights: [] }) };
+    }
+    throw new Error('unexpected fetch: ' + u);
+  };
+
+  const twoOrigins = { ...env, ALLOWED_ORIGINS: 'https://flywith.test,https://app.test' };
+  const from = (origin, envv) => new Request('https://api.test/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: origin,
+               'CF-Connecting-IP': '203.0.113.77' },
+    body: JSON.stringify(rt(party(2))) });
+
+  fresh();
+  const old1 = await worker.fetch(from('https://app.test'), twoOrigins);
+  check('a second origin does not displace the first', old1.status === 200,
+    'got ' + old1.status);
+  fresh();
+  const new1 = await worker.fetch(from('https://flywith.test'), twoOrigins);
+  check('and the new domain is served too', new1.status === 200, 'got ' + new1.status);
+
+  /* Whitespace around the comma is the mistake a human makes editing a toml
+   * line, and it must not cost an afternoon of "why is search broken". */
+  fresh();
+  const spaced = await worker.fetch(from('https://flywith.test'),
+    { ...env, ALLOWED_ORIGINS: 'https://app.test , https://flywith.test' });
+  check('spaces around the comma are tolerated', spaced.status === 200,
+    'got ' + spaced.status);
+
+  fresh();
+  const stranger = await worker.fetch(from('https://evil.test'), twoOrigins);
+  check('an origin not on the list is refused', stranger.status === 403,
+    'got ' + stranger.status);
+  check('...and the refusal spends no search', billed === 0, 'billed ' + billed);
+  check('...and writes nothing, so it cannot be used to burn the KV ceiling',
+    kvWrites === 0, 'writes ' + kvWrites);
+
+  /* A scheme or a trailing slash is a different origin to a browser, and the
+   * list is matched exactly. Pinned so the asymmetry is a decision on record
+   * rather than a surprise during the move. */
+  fresh();
+  const scheme = await worker.fetch(from('http://flywith.test'), twoOrigins);
+  check('http is not https -- the list is matched exactly', scheme.status === 403,
+    'got ' + scheme.status);
+
+  /* Localhost always passes, so the app can be developed against the real
+   * worker without editing deployed config. */
+  fresh();
+  const local = await worker.fetch(from('http://localhost:8000'), twoOrigins);
+  check('localhost is always allowed', local.status === 200, 'got ' + local.status);
+
+  /* Unset is permissive, which is only safe because wrangler.toml sets it.
+   * Asserted so that the comment claiming it stays true. */
+  fresh();
+  const unset = await worker.fetch(from('https://anything.test'), { ...env, ALLOWED_ORIGINS: '' });
+  check('an unset list is permissive, as documented', unset.status === 200,
+    'got ' + unset.status);
+
+  /* Reads are deliberately ungated: a shared link has to open inside WhatsApp
+   * and iMessage, whose in-page browsers send no Origin this worker chose. */
+  const anyGet = await worker.fetch(new Request('https://api.test/trip/abc123', {
+    headers: { Origin: 'https://evil.test' } }), twoOrigins);
+  check('reads stay open, so shared links work from any app', anyGet.status !== 403,
+    'got ' + anyGet.status);
+  globalThis.fetch = stub;
+})();
+
 console.log('\n' + (fail === 0 ? 'ALL ' + pass + ' CHECKS PASSED' : pass + ' passed, ' + fail + ' FAILED'));
 process.exit(fail === 0 ? 0 : 1);

@@ -3246,6 +3246,13 @@ function retargetDest(a) {
  * band itself is unchanged: a preset is a shortcut to the same from/to pair,
  * which keeps one mechanism to reason about and leaves the exact inputs
  * meaningful for the case that actually needs them, like a villa check-in. */
+/* Loosest first, which is the order the landing band above it already runs in
+ * and the order the default sits at the head of. Nonstop-first put the
+ * selected pill third and ran the group tightest-to-loosest while the group
+ * directly above it ran the other way -- two rows of pills, read top to bottom,
+ * disagreeing about which end "everything" belongs at. */
+var STOP_PILLS = [{ v: null, l: 'Any' }, { v: 1, l: 'Up to 1 stop' }, { v: 0, l: 'Nonstop' }];
+
 var BAND_PRESETS = [
     { k: 'any',   l: 'Any time',   from: '',      to: ''      },
     { k: 'morn',  l: 'Morning',    from: '05:00', to: '12:00' },
@@ -3291,7 +3298,7 @@ function renderStepStops() {
     renderBandPresets();
     var host = el('sStops');
     if (!host) return;
-    var o = [{ v: 0, l: 'Nonstop' }, { v: 1, l: 'Up to 1 stop' }, { v: null, l: 'Any' }];
+    var o = STOP_PILLS;
     host.innerHTML = o.map(function (x) {
         var on = state.q.maxStops === x.v;
         return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
@@ -3302,7 +3309,7 @@ function renderStepStops() {
 function renderStopPills() {
     renderAirlinePills();
     renderBandPresets();
-    var o = [{ v: 0, l: 'Nonstop' }, { v: 1, l: 'Up to 1 stop' }, { v: null, l: 'Any' }];
+    var o = STOP_PILLS;
     el('stopPills').setAttribute('role', 'radiogroup');
     el('stopPills').setAttribute('aria-label', 'Maximum stops');
     el('stopPills').innerHTML = '<span class="k">Stops</span>' + o.map(function (x) {
