@@ -1030,6 +1030,15 @@ a { color: var(--accent); }
 .pp-total .k { color: var(--accent); }
 .pp-note { font-size: var(--t-2); color: var(--muted); margin-top: 12px; line-height: var(--lh-text); }
 .share { margin-top: 16px; }
+/* The second route, deliberately quieter than the primary and still a real
+   control rather than a link. */
+.share-alt { text-align: center; margin-top: var(--s2); }
+.share-alt button { min-height: 44px; padding: var(--s2) var(--s4); border-radius: var(--r-pill);
+    border: 1px solid var(--edge-2); background: transparent; color: var(--accent);
+    font-size: var(--t-2); font-weight: 600; transition: background .15s; }
+.share-alt button:active { background: var(--card); }
+.share-alt button:focus-visible { outline: 2px solid var(--brand-line); outline-offset: 2px; }
+
 .share-note { font-size: var(--t-2); color: var(--muted); margin-top: 8px; line-height: var(--lh-text); text-align: center; }
 .share-note.ok { color: var(--good); }
 

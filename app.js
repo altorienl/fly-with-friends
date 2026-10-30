@@ -2816,10 +2816,62 @@ function legLines(leg, heading) {
     return lines;
 }
 
+/* The one sentence the trip is about. Used as the first line of anything that
+ * leaves the app and as the subject of an email, because in an inbox "Fort
+ * Lauderdale, Jan 15" is a calendar entry and "everyone lands within 14
+ * minutes" is the reason to open it. */
+function tripHeadline() {
+    if (!TRIP || !C) return 'Flights';
+    var out = TRIP.legOut;
+    if (!out) return 'Flights';
+    var absent = C.ids.filter(function (id) { return !out.rows[id]; });
+    var apart = (out.plan && out.plan.excluded ? out.plan.excluded.length : 0) + absent.length;
+    if (apart) {
+        return seatsOf(out.plan.included) + ' of ' + seatsAll()
+            + ' land within ' + gapWords(out.spread);
+    }
+    return landsWithin(out.spread);
+}
+
+/* Email, because a trip is addressed to people rather than left on a clipboard.
+ * mailto has no agreed length limit and clients truncate silently somewhere
+ * around two thousand characters, so the body is built shortest-first: the
+ * result, the link, then the detail -- and the detail is what gets dropped if
+ * the group is large enough to overflow. The link always survives, and the link
+ * is the whole plan. */
+var MAILTO_MAX = 1800;
+function emailUrl() {
+    var a = AIRPORTS.get(state.q.dest);
+    var where = a ? a.city : state.q.dest;
+    var subject = where + ', ' + prettyRange(state.q.dep, state.q.ret)
+        + ' \u2014 ' + tripHeadline().toLowerCase();
+
+    var link = shareUrl();
+    var head = [tripHeadline() + '.', '', where + ' \u00b7 '
+        + prettyRange(state.q.dep, state.q.ret) + ' \u00b7 ' + money(TRIP.total)
+        + (hasReturn() ? ' round trip' : ' one way') + ' for ' + seatsAll() + '.', ''];
+    var tail = ['', 'Everyone\u2019s flights, and the Book buttons:', link];
+
+    var detail = chatBlock().split('\n');
+    /* Drop the block's own first three lines: the headline and the destination
+     * are already the first thing in the email, and its trailing link is the
+     * one in the tail. */
+    detail = detail.slice(3, -1);
+    var body = head.concat(detail).concat(tail).join('\n');
+    while (body.length > MAILTO_MAX && detail.length) {
+        detail = detail.slice(0, -1);
+        body = head.concat(detail, ['  \u2026']).concat(tail).join('\n');
+    }
+    if (body.length > MAILTO_MAX) body = head.concat(tail).join('\n');
+    return 'mailto:?subject=' + encodeURIComponent(subject)
+        + '&body=' + encodeURIComponent(body);
+}
+
 function chatBlock() {
     if (!TRIP || !C) return '';
     var a = AIRPORTS.get(state.q.dest);
     var lines = [];
+    lines.push(tripHeadline());
     lines.push((a ? a.city + ' (' + a.code + ')' : state.q.dest) + ' · '
         + prettyRange(state.q.dep, state.q.ret));
     lines.push('');
@@ -3332,7 +3384,29 @@ function renderShare() {
     var canShare = typeof navigator.share === 'function';
     host.innerHTML = '<button class="btn primary wide" id="copyBtn">'
         + (canShare ? 'Send the trip to the group' : 'Copy the whole trip for the group chat')
-        + '</button><div class="share-note" id="copyNote"></div>';
+        + '</button>'
+        /* Email is its own route, not a row in a share sheet. A trip is
+         * addressed to people -- it is the thing a group comes back to, and an
+         * inbox keeps it where a chat buries it. It is also the only route that
+         * works the same on a laptop, where there is no share sheet at all. */
+        + '<div class="share-alt"><button id="emailBtn">Email it to everyone</button></div>'
+        + '<div class="share-note" id="copyNote"></div>';
+
+    el('emailBtn').addEventListener('click', function () {
+        el('copyNote').textContent = 'Getting the link\u2026';
+        el('copyNote').className = 'share-note';
+        /* Saved first for the same reason as the share sheet: an unsaved link is
+         * the self-contained form, and opening one runs a fresh paid search on
+         * each recipient's machine. An email goes to the whole group at once, so
+         * this is the route where that matters most. */
+        saveTrip().then(function () {
+            el('copyNote').textContent = '';
+            location.href = emailUrl();
+        }, function () {
+            el('copyNote').textContent = 'Could not get a link just now. Try again in a moment.';
+            el('copyNote').className = 'share-note';
+        });
+    });
 
     el('copyBtn').addEventListener('click', function () {
         el('copyNote').textContent = 'Getting the link\u2026';
