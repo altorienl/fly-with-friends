@@ -157,6 +157,12 @@ function blankQuery() {
 }
 function partyLabel(p, i) { return (p.name || '').trim() || ('Flight ' + (i + 1)); }
 
+/* Close enough to call it one departure: you can share a ride, or at least wait
+ * for each other. The same line the plan heading uses to decide whether to raise
+ * its voice, named once because both places are making the same judgement. */
+var TOGETHER_MINS = 90;
+function together(spread) { return spread != null && spread <= TOGETHER_MINS; }
+
 /* Spelled out, for the one line that states the result. "10m" is fine in a
  * column of gaps; standing alone as the answer it reads as shorthand nobody
  * asked to decode, and a first-time reader took it for something else. */
@@ -2067,6 +2073,40 @@ function chatBlock() {
     return lines.join('\n');
 }
 
+/* The way home has two honest answers, and the one on screen is a decision the
+ * group is allowed to change. It used to be a grey sentence and an underlined
+ * link, which is the shape of a disclaimer: "no one is going to see that fine
+ * print button." It is now the same pill the choice strip uses for an
+ * alternative that changes the plan and the total, because that is exactly what
+ * this is -- and it carries the price, so the choice can be made without taking
+ * it.
+ *
+ * Rendered in BOTH directions. Offering it only on the unclustered leg made
+ * "Leave together" a one-way door: once taken there was no control on the
+ * screen to take it back. */
+function returnSwitch(b, loose) {
+    /* What clicking actually produces. The handler clears the leg's threshold,
+     * so the clustered plan is whatever the leg recommends and the unclustered
+     * one is the free-tightening threshold -- not the trip-level row. */
+    var altTh = loose ? recommendedIn(b.ctx) : looseReturnTh(b.ctx);
+    var alt = altTh == null ? null : planOf(b.ctx, altTh);
+    if (!alt) return '';
+    /* Only comparable when both plans carry everybody. A subset plan prices a
+     * smaller group, and the difference would read as a saving. */
+    var priced = !(alt.excluded || []).length && !(b.plan.excluded || []).length;
+    var d = priced ? Math.round(alt.cost - b.plan.cost) : 0;
+    return '<div class="win-alt"><button data-clusterback="1">'
+        + '<span>' + (loose ? 'Leave together' : 'Best flight each') + '</span>'
+        + (priced
+            ? '<span class="mono">'
+              + (d === 0 ? 'same price' : d > 0 ? money(d) + ' more' : money(-d) + ' less')
+              + ' · ' + (loose ? 'within ' + FWF.fmtGap(alt.spread)
+                               : FWF.fmtGap(alt.spread) + ' apart')
+              + '</span>'
+            : '')
+        + '</button></div>';
+}
+
 function windowStrip(leg, b, label) {
     if (!b) return '';
     var loose = leg === 'return' && !state.q.clusterReturn;
@@ -2084,26 +2124,36 @@ function windowStrip(leg, b, label) {
 
     var tight = b.ctx.tight;
     var allIn = excluded.length === 0;
-    var tightestRow = b.ctx.ladder
-        ? b.ctx.ladder.rows.filter(function (r) { return r.feasible; })[0] : null;
-    var more = (allIn && tightestRow && tightestRow.result)
-        ? tightestRow.result.cost - b.inWindowTotal : 0;
+
+    /* One question decides how this leg is drawn: is the group actually leaving
+     * as one? Answering it per-element is how the return ended up looking like a
+     * leg with pieces missing -- no band, no claim, and a grey sentence where
+     * the measure should be. The legs are presented identically when the answer
+     * is yes and differently when it is no, and that is the whole asymmetry.
+     *
+     * It is the outcome that decides, not the setting. Free tightening takes the
+     * tightest window that costs nothing, so an unclustered leg often comes out
+     * as a shared departure anyway, and when it does the app should say so. */
+    var shared = !loose || together(b.spread);
+
+    /* What used to sit in this slot on the unclustered leg was "11 hours 10 min
+     * apart" -- a number nobody asked for, right-aligned in grey, which is how a
+     * result gets read as a failure. With no shared departure there is no
+     * measure to report, so the slot is empty and the heading says it all. */
+    var measure = !allIn
+        ? seatsOf(included) + ' of ' + seatsAll() + ' within ' + gapWords(b.spread)
+        : shared ? 'everyone within ' + gapWords(b.spread) + ' of each other'
+        : '';
 
     var html = '<div class="win"><div class="win-head">'
         + '<span class="t">' + label + '</span>'
-        /* On the unclustered leg the spread is an outcome, not a target, so it
-         * is reported without implying we aimed for it. */
-        + '<span class="s">' + (loose
-            ? gapWords(b.spread) + ' apart'
-            : allIn
-                ? 'everyone within ' + gapWords(b.spread) + ' of each other'
-                : seatsOf(included) + ' of ' + seatsAll() + ' within ' + gapWords(b.spread))
-        + '</span></div>'
-        + timeline(picks, included, excluded, !loose)
-        + (loose
-            ? '<div class="win-note">Each on their own best flight home. '
-              + '<button class="linkish" data-clusterback="1">Leave together instead</button></div>'
-            : '')
+        + (measure ? '<span class="s">' + measure + '</span>' : '')
+        + '</div>'
+        + timeline(picks, included, excluded, shared)
+        /* Not offered when the leg is unclustered and came out together anyway:
+         * there is nothing to switch to, and a tighter window for its own sake
+         * is what the choice strip above already prices for the whole trip. */
+        + (leg === 'return' && !(loose && shared) ? returnSwitch(b, loose) : '')
         /* The choice strip above already prices tighter-vs-cheaper for the whole
          * trip, so repeating it per leg was noise pointing the wrong way. */
         + (b.ctx.relaxed && b.ctx.relaxed.length
@@ -2165,9 +2215,13 @@ function hopRow(dir, r, leg, id, seats) {
          * It sits OUTSIDE .hop-right, as its own grid item spanning the row. In
          * the fare column it inherited white-space: nowrap, forced that column
          * to ~220px and wrapped "ORD -> PIT" onto three lines -- and it had no
-         * CSS rule at all, so it rendered at body size over the route. */
+         * CSS rule at all, so it rendered at body size over the route.
+         *
+         * And nobody lands together on the way home: on the return leg this
+         * premium is what the group paid to leave at the same time. */
         + (r.premium > 0
-            ? '<div class="hop-prem">incl. ' + money(r.premium) + ' to land together</div>'
+            ? '<div class="hop-prem">incl. ' + money(r.premium) + ' to '
+              + (leg === 'return' ? 'leave' : 'land') + ' together</div>'
             : '')
         + '</div>';
 }
@@ -2229,18 +2283,31 @@ function renderPlanView() {
      * restatement of the "all within 20m" line directly beneath it, so it was
      * one more thing to read that said less. */
     var verdict = !TRIP.allClustered ? 'not everyone fits'
-        : worst > 90 ? 'same day, but ' + FWF.fmtGap(worst) + ' apart'
+        : !together(worst) ? 'same day, but ' + FWF.fmtGap(worst) + ' apart'
         : '';
     var html = '<div class="plan-head"><div class="t">The plan</div>'
         + (verdict ? '<div class="s warnish">' + esc(verdict) + '</div>' : '')
         + '</div>';
 
     html += windowStrip('outbound', TRIP.legOut, 'Landing together');
-    /* "Leaving together" over flights eleven hours apart is a lie. The heading
-     * follows what the leg is actually doing. */
+    /* The heading reports the outcome, not the setting.
+     *
+     * "Leaving together" over flights eleven hours apart is a lie, so it is
+     * earned by the spread rather than by the flag. And the flag is not the
+     * outcome either: free tightening means an unclustered leg often comes out
+     * together anyway, in which case "each on their own best flight" describes
+     * the method and buries the result.
+     *
+     * Leaving them on their own best flights is a result too, and it is stated
+     * as one. It used to read "Flying home" over a grey apology, which is what
+     * made the answer look like the app giving up. "Flying home" survives for
+     * the one case where neither claim is true: a clustered leg whose window is
+     * too wide to call a shared departure. */
     if (TRIP.legBack) {
         html += windowStrip('return', TRIP.legBack,
-            state.q.clusterReturn ? 'Leaving together' : 'Flying home');
+            together(TRIP.legBack.spread) ? 'Leaving together'
+                : state.q.clusterReturn ? 'Flying home'
+                : 'Everyone on their best flight home');
     }
 
     html += C.ids.map(travellerCard).join('');
@@ -2520,10 +2587,12 @@ function paxRow(id, pick, out, gap) {
         + (state.leg === 'outbound' ? 'dep ' : 'arr ') + clock(other) + '</div></div></div>';
 }
 
-/* band=false on a leg with no target window. The shaded band says "this is the
- * window we were aiming at"; drawn across an unclustered return it turned
- * "each on their own best flight home" into what looks like a failed match
- * spanning eleven hours. The dots still tell the truth about the times. */
+/* band=false on a leg that is not a shared departure. The shaded band says
+ * "everyone is inside this"; drawn across an unclustered return it turned a
+ * deliberate choice into what looks like a failed match spanning eleven hours.
+ * Where the way home IS one departure -- asked for, or free -- the band is
+ * drawn, because then it is telling the truth and the leg should read like the
+ * outbound. The dots always tell the truth about the times. */
 function timeline(picks, included, excluded, band) {
     var times = included.map(function (id) { return picks[id].option.clusterMin; });
     var lo = Math.min.apply(null, times), hi = Math.max.apply(null, times);

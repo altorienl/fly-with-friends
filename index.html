@@ -335,7 +335,11 @@ a { color: var(--accent); }
 /* Buttons lose the UA ring because they are unstyled, so put one back. */
 .btn:focus-visible, .pill:focus-visible, .brow:focus-visible, .icon-btn:focus-visible,
 .gear:focus-visible, .ac-item:focus-visible, .chip button:focus-visible,
-.stepper button:focus-visible, .add-air:focus-visible, footer button:focus-visible {
+.stepper button:focus-visible, .add-air:focus-visible, footer button:focus-visible,
+/* The alternative pills were falling through to Chrome's blue auto ring -- the
+ * one ring in this file with a comment explaining why it is wrong. 10.45:1 on
+ * the dark page and 3.28:1 on the light one. */
+.pick-alt button:focus-visible, .win-alt button:focus-visible {
     outline: 2px solid var(--brand-line); outline-offset: 2px;
 }
 
@@ -597,14 +601,19 @@ a { color: var(--accent); }
 .pick-tot span { display: block; font-size: var(--t-2); font-weight: 400; letter-spacing: 0;
     color: var(--muted); margin-top: 4px; }
 .pick-why { margin-top: 10px; font-size: var(--t-2); color: var(--muted); line-height: var(--lh-text); }
-/* Alternatives: available, deliberately quieter than the pick. */
-.pick-alt { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-.pick-alt button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
-    min-height: 44px; padding: 7px 13px; border: 1px solid var(--edge); border-radius: var(--r-pill);
+/* Alternatives: available, deliberately quieter than the pick. One shape for
+ * "a different plan at a different price", wherever that choice is offered --
+ * the trip's alternatives here, and the way home under its own timeline.
+ * --edge was 1.49:1 against the page in dark and 1.10:1 in light, so the only
+ * thing marking these as controls failed 1.4.11; --edge-2 is 4.05 and 3.21. */
+.pick-alt, .win-alt { display: flex; flex-wrap: wrap; gap: 8px; }
+.pick-alt { margin-top: 14px; }
+.pick-alt button, .win-alt button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+    min-height: 44px; padding: 7px 13px; border: 1px solid var(--edge-2); border-radius: var(--r-pill);
     background: transparent; text-align: left; transition: border-color .15s, background .15s; }
-.pick-alt button span:first-child { font-size: var(--t-2); font-weight: 600; }
-.pick-alt button span.mono { font-size: var(--t-2); font-weight: 400; color: var(--muted); }
-.pick-alt button:active { background: var(--card); }
+.pick-alt button span:first-child, .win-alt button span:first-child { font-size: var(--t-2); font-weight: 600; }
+.pick-alt button span.mono, .win-alt button span.mono { font-size: var(--t-2); font-weight: 400; color: var(--muted); }
+.pick-alt button:active, .win-alt button:active { background: var(--card); }
 
 .leg { display: block; margin-top: 28px; }
 
@@ -614,8 +623,6 @@ a { color: var(--accent); }
 .win-head .t { font-size: var(--t-4); font-weight: 600; }
 .win-head .s { font-size: var(--t-2); color: var(--muted); font-variant-numeric: tabular-nums; }
 .win-note { font-size: var(--t-2); color: var(--muted); margin-top: 8px; line-height: var(--lh-text); }
-.win-note .more { color: var(--accent); font-weight: 600; }
-.linkish { font: inherit; color: var(--accent); font-weight: 600; border-bottom: 1px solid var(--edge-2); padding: 2px 0; }
 
 .trav { border-top: 1px solid var(--edge); padding: var(--s4) 0 var(--s2); }
 .trav.apart { border-color: var(--bad); border-style: dashed; }
@@ -984,7 +991,7 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
 .cal-d:not(:disabled) { transition: background .12s, transform .12s var(--ease); }
 .cal-d:active:not(:disabled) { transform: scale(.9); }
 .ac-item:active { background: var(--card-2); }
-.opts > summary:active, .cal-clear:active, .linkish:active, .book:active { opacity: .55; }
+.opts > summary:active, .cal-clear:active, .book:active { opacity: .55; }
 .trav:has(.btn:active) { border-color: var(--edge-2); }
 /* The whole point of a transform-based press is that it springs back. Keeping
  * the release slower than the press is what separates "responsive" from
