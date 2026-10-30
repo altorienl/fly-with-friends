@@ -1641,15 +1641,7 @@ function chatBlock() {
 
 function windowStrip(leg, b, label) {
     if (!b) return '';
-    if (leg === 'return' && !state.q.clusterReturn) {
-        /* No window on the way home, so there is no window to draw. */
-        return '<div class="win"><div class="win-head"><span class="t">' + label + '</span>'
-            + '<span class="s">best flight home for each</span></div>'
-            + '<div class="win-note">Everyone is going to a different city, so the way home is '
-            + 'each person\u2019s own cheapest sensible flight rather than a shared window. '
-            + '<button class="linkish" data-clusterback="1">Make everyone leave together instead</button>'
-            + '</div></div>';
-    }
+    var loose = leg === 'return' && !state.q.clusterReturn;
     var prevLeg = state.leg, prevC = C;
     state.leg = leg; C = b.ctx;
 
@@ -1671,11 +1663,19 @@ function windowStrip(leg, b, label) {
 
     var html = '<div class="win"><div class="win-head">'
         + '<span class="t">' + label + '</span>'
-        + '<span class="s">' + (allIn
-            ? 'all within ' + FWF.fmtGap(b.spread)
-            : seatsOf(included) + ' of ' + seatsAll() + ' within ' + FWF.fmtGap(b.spread))
+        /* On the unclustered leg the spread is an outcome, not a target, so it
+         * is reported without implying we aimed for it. */
+        + '<span class="s">' + (loose
+            ? FWF.fmtGap(b.spread) + ' apart'
+            : allIn
+                ? 'all within ' + FWF.fmtGap(b.spread)
+                : seatsOf(included) + ' of ' + seatsAll() + ' within ' + FWF.fmtGap(b.spread))
         + '</span></div>'
         + timeline(picks, included, excluded)
+        + (loose
+            ? '<div class="win-note">Each on their own best flight home. '
+              + '<button class="linkish" data-clusterback="1">Leave together instead</button></div>'
+            : '')
         /* The choice strip above already prices tighter-vs-cheaper for the whole
          * trip, so repeating it per leg was noise pointing the wrong way. */
         + (b.ctx.relaxed && b.ctx.relaxed.length
@@ -1797,7 +1797,12 @@ function renderPlanView() {
         + esc(verdict) + '</div></div>';
 
     html += windowStrip('outbound', TRIP.legOut, 'Landing together');
-    if (TRIP.legBack) html += windowStrip('return', TRIP.legBack, 'Leaving together');
+    /* "Leaving together" over flights eleven hours apart is a lie. The heading
+     * follows what the leg is actually doing. */
+    if (TRIP.legBack) {
+        html += windowStrip('return', TRIP.legBack,
+            state.q.clusterReturn ? 'Leaving together' : 'Flying home');
+    }
 
     html += C.ids.map(travellerCard).join('');
 
