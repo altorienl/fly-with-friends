@@ -115,8 +115,9 @@
     }
     var r = document.documentElement;
     r.setAttribute('data-theme', m);
+    var appColor = m === 'light' ? '#ece8e1' : '#0f0d0a';
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', m === 'light' ? '#ece8e1' : '#0f0d0a');
+    if (meta) meta.setAttribute('content', appColor);
     /* Home-screen launch has no browser chrome and no back button, so a handful
      * of rules below only make sense there. navigator.standalone is readable
      * this early; the media query covers the standards-track spelling. */
@@ -127,6 +128,19 @@
              * alone makes an installed app look uninstalled. */
             || window.matchMedia('(display-mode: window-controls-overlay)').matches))) {
         r.classList.add('standalone');
+        /* Two strips of the screen are not the overlay's to paint: the status
+         * bar, which iOS tints from theme-color, and the gutter under the home
+         * indicator, which the ROOT element paints. Both were following the
+         * app's theme while the splash follows the system's, so a dark splash
+         * on a light-themed app came up with a grey bar above it and a cream
+         * band below it. The splash is only the splash if it reaches the
+         * edges, so for as long as it is up, both take its colour. */
+        var sysLight = !!(window.matchMedia
+            && window.matchMedia('(prefers-color-scheme: light)').matches);
+        var splashColor = sysLight ? '#ece8e1' : '#0f0d0a';
+        r.style.background = splashColor;
+        if (meta) meta.setAttribute('content', splashColor);
+
         /* The overlay leaves on a CSS animation with fill: both. This removes
          * the node outright a beat later, so an engine that never ran the
          * animation cannot leave a permanent cover over the app.
@@ -140,6 +154,14 @@
         var arm = function () {
             var ms = parseFloat(getComputedStyle(document.documentElement)
                         .getPropertyValue('--boot-ms')) || 3000;
+            /* Handed back at the fade, not at the removal: the overlay is
+             * already transparent by then, so holding the splash colour nine
+             * hundred milliseconds longer would show the wrong edges against
+             * the app rather than against the splash. */
+            setTimeout(function () {
+                r.style.background = '';
+                if (meta) meta.setAttribute('content', appColor);
+            }, ms + 340);
             setTimeout(function () {
                 var el = document.getElementById('boot');
                 if (el && el.parentNode) el.parentNode.removeChild(el);
@@ -148,6 +170,19 @@
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', arm);
         } else { arm(); }
+    } else {
+        /* Not a home-screen launch, so there is no overlay and never will be:
+         * take the node out rather than leaving a display:none element lying
+         * in the DOM. applyTheme() tests for it to know whether the status bar
+         * currently belongs to the splash, and a permanent hidden copy would
+         * freeze theme-color at whatever the markup shipped with. */
+        var drop = function () {
+            var el = document.getElementById('boot');
+            if (el && el.parentNode) el.parentNode.removeChild(el);
+        };
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', drop);
+        } else { drop(); }
     }
 })();
 </script>

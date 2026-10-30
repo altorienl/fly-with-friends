@@ -229,6 +229,14 @@ function applyTheme() {
         m = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
     }
     document.documentElement.setAttribute('data-theme', m);
+    /* Not while the launch overlay is up. For those three seconds the status
+     * bar belongs to the splash, which follows the SYSTEM scheme because that
+     * is what iOS chose the launch image from -- and this function follows the
+     * app's theme, which can disagree. It ran a moment after the boot script
+     * had handed the bar to the splash and took it straight back, leaving a
+     * light strip above a near-black splash. The boot script restores the app
+     * colour itself when the overlay fades. */
+    if (document.getElementById('boot')) return;
     var meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', m === 'light' ? '#ece8e1' : '#0f0d0a');
 }
