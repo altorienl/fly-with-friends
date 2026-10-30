@@ -152,7 +152,10 @@ section { animation: stepIn .2s var(--ease); }
 .big-inp::placeholder { font-size: 19px; letter-spacing: .5px; text-transform: none; opacity: 1; }
 .hint { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; text-align: center; }
 .hint.bad { color: var(--bad); }
-.hint.good { color: var(--good); }
+/* The confirmed airport is not a success message, it is the name of what is in
+ * the field. Green made it read as a separate notice floating under the form,
+ * so it stays muted and sits tight to the input it belongs to. */
+.hint.good { color: var(--muted); margin-top: 6px; }
 
 /* ---------------- autocomplete ---------------- */
 .ac {
@@ -292,39 +295,28 @@ section { animation: stepIn .2s var(--ease); }
 .s-p em { display: block; font-size: 10px; font-style: normal; font-weight: 700; color: var(--muted); margin-top: 2px; }
 .shift.best .s-p em { color: var(--good); }
 
-.choices { margin-bottom: 16px; }
-.choices > .k { display: block; margin-bottom: 10px; }
-.choice {
-    display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center;
-    width: 100%; text-align: left; padding: 14px 16px; margin-bottom: 8px;
-    border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card);
-    box-shadow: var(--lift); transition: border-color .15s, background .15s, transform .12s var(--ease);
-}
-.choice:active { transform: scale(.99); }
-.choice.on { border-color: var(--brand); background: var(--accent-dim); box-shadow: inset 3px 0 0 var(--brand); }
-.c-l { font-size: 14px; font-weight: 700; }
-.c-w { font-size: 12px; color: var(--muted); white-space: nowrap; }
-.c-p { font-size: 16px; font-weight: 700; text-align: right; white-space: nowrap; }
-.over { color: var(--bad); }
-.c-fit { font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
-.c-p em { display: block; font-size: 10px; font-style: normal; font-weight: 600; color: var(--muted); letter-spacing: .4px; margin-top: 2px; }
-.choice.on .c-p em { color: var(--accent); }
-/* The cost of a tighter window that is not money: spans the full row under the
- * price, because it qualifies the whole choice rather than any one column. */
-.c-ask {
-    grid-column: 1 / -1; font-size: 11px; font-weight: 600; color: var(--warn);
-    display: flex; align-items: center; gap: 6px;
-    padding-top: 9px; margin-top: 2px; border-top: 1px dashed var(--edge);
-}
-.c-ask::before { content: '!'; flex: none;
-    width: 14px; height: 14px; border-radius: 50%; background: var(--warn); color: var(--bg);
-    font-size: 10px; font-weight: 800; text-align: center; line-height: 14px; }
-@media (max-width: 420px) {
-    .choice { grid-template-columns: 1fr auto; row-gap: 4px; }
-    .c-w { grid-column: 1; font-size: 11px; }
-    .c-p { grid-row: 1 / span 2; grid-column: 2; }
-    .c-ask { grid-row: 3; }
-}
+.choices { margin-bottom: 18px; }
+
+/* One recommendation, not a menu. No tinted panel and no border: the number
+ * carries it, and a box around everything is what made every section of this
+ * app read with the same weight. */
+.pick { padding: 2px 0 0; }
+.pick-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.pick-k { font-size: 11px; font-weight: 700; color: var(--accent); margin-bottom: 3px; }
+.pick-w { font-size: 17px; font-weight: 700; letter-spacing: -.2px; }
+.pick-tot { font-size: 30px; font-weight: 800; letter-spacing: -1px; text-align: right;
+    white-space: nowrap; line-height: 1.05; }
+.pick-tot span { display: block; font-size: 10px; font-weight: 600; letter-spacing: 0;
+    color: var(--muted); margin-top: 3px; }
+.pick-why { margin-top: 8px; font-size: 13px; color: var(--muted); line-height: 1.45; }
+/* Alternatives: available, deliberately quieter than the pick. */
+.pick-alt { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.pick-alt button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+    min-height: 44px; padding: 7px 13px; border: 1px solid var(--edge); border-radius: var(--r-pill);
+    background: transparent; text-align: left; transition: border-color .15s, background .15s; }
+.pick-alt button span:first-child { font-size: 12px; font-weight: 700; }
+.pick-alt button span.mono { font-size: 11px; color: var(--muted); }
+.pick-alt button:active { background: var(--card); }
 
 .leg { display: block; margin-top: 28px; }
 
@@ -688,27 +680,13 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
                 <span class="sep">and</span>
                 <input class="inp" id="sTo" type="time" aria-label="Latest landing time">
             </div>
-            <div class="party-note">Most people only know roughly. Pick a part of the day, or set exact
-                times if something is booked. You can change this later for free.</div>
         </div>
 
         <div class="field">
             <span class="k">Stops</span>
             <div class="pills" id="sStops" role="radiogroup" aria-label="Maximum stops"></div>
-            <div class="party-note">A preference, not a rule. If someone flying from a smaller city has
-                no nonstop, they get a connection rather than the whole group losing its plan.</div>
         </div>
 
-        <div class="field">
-            <span class="k">Cap on one person&rsquo;s extra</span>
-            <div class="pills" id="sCap" role="radiogroup" aria-label="Limit on what one traveller pays extra"></div>
-            <div class="party-note">Landing together usually costs one person more than the rest, normally whoever is furthest away. This caps how much.</div>
-        </div>
-
-        <div class="field">
-            <span class="k">Optimise for</span>
-            <div class="pills" id="sRec" role="radiogroup" aria-label="What to optimise for"></div>
-        </div>
 
         <div class="nav">
             <button class="icon-btn" id="back2" aria-label="Back">&larr;</button>
@@ -746,9 +724,6 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
             <div class="filters">
                 <div class="pills" id="stopPills"></div>
                 <div class="pills airlines" id="airlinePills"></div>
-                <div class="pills" id="capPills"></div>
-                <div class="pills" id="recPills"></div>
-                <div class="free hidden" id="freeNote"></div>
             </div>
         </details>
 

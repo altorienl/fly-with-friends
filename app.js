@@ -495,10 +495,6 @@ function renderParties() {
             + ' autocomplete="off" aria-label="Add an airport for ' + esc(partyLabel(p, i)) + '">'
             + '<div class="ac" data-airac></div></div>'
             + closedNote
-            + (p.airports.length > 1
-                ? '<div class="party-note">Whichever of these ' + p.airports.length
-                  + ' is best — still one search.</div>' : '')
-            + (p.seats > 1 ? '<div class="party-note">' + p.seats + ' seats booked together.</div>' : '')
             + '</div>';
     }).join('');
 
@@ -794,7 +790,7 @@ function tripLadder() {
     var rows = [];
     FWF.DEFAULT_THRESHOLDS.forEach(function (T) {
         var total = 0, worst = 0, ok = true, per = {};
-        var reg = { stops: 0, mins: 0, who: null };
+        var reg = { stops: 0, mins: 0, who: null }, conn = {};
         ctxs.forEach(function (c) {
             var r = FWF.minCostAtWindow(c.prep, T, c.costFn);
             if (!r) { ok = false; return; }
@@ -803,7 +799,13 @@ function tripLadder() {
             var g = regretOf(c, r.picks);
             if (g.stops > reg.stops) { reg.stops = g.stops; reg.who = g.who; }
             if (g.mins > reg.mins) { reg.mins = g.mins; if (!reg.who) reg.who = g.who; }
-            c.ids.forEach(function (id) { per[id] = (per[id] || 0) + r.picks[id].cost; });
+            c.ids.forEach(function (id) {
+                per[id] = (per[id] || 0) + r.picks[id].cost;
+                /* Who ends up on a connection, across both legs. Counted per
+                 * person rather than per leg so "two connections" never means
+                 * one person changing planes each way. */
+                if ((r.picks[id].option.stops || 0) > 0) conn[id] = true;
+            });
         });
         if (!ok) return;
         /* Budget is per person, so what matters is the worst-off traveller --
@@ -815,6 +817,7 @@ function tripLadder() {
             if (each > topPer) { topPer = each; topId = id; }
         }
         rows.push({ th: T, total: total, worst: worst, per: per, regret: reg,
+                    conn: Object.keys(conn),
                     topPer: Math.round(topPer), topId: topId });
     });
     if (!rows.length) return null;
@@ -831,68 +834,96 @@ function tripLadder() {
 }
 
 /* Three honest options: as close as possible, the knee, and the cheapest. */
-function tripChoices() {
-    var l = tripLadder();
-    if (!l || l.length < 2) return l || [];
-    var tight = l[0], cheap = l[l.length - 1];
+/* The group wants an answer, not a menu. Three equally-weighted rows made the
+ * reader do the optimising -- and the row labelled "as close as they can get"
+ * reads as the aspirational one even when it is the worst flight on the page.
+ *
+ * So this picks one: the knee of the curve, where another dollar stops buying
+ * much closeness, restricted to plans that do not ask anybody to fly materially
+ * worse than they would alone. Same rule the per-leg recommendation uses. The
+ * alternatives stay one tap away rather than competing for attention. */
+function tripBest(l) {
+    if (!l || !l.length) return null;
+    var fair = l.filter(function (r) { return worthIt(r.regret || { stops: 0, mins: 0 }); });
+    if (!fair.length) fair = l;
+    if (fair.length === 1) return fair[0];
 
-    var knee = null, rate = -1;
-    for (var i = 1; i < l.length; i++) {
-        var added = l[i].worst - l[i - 1].worst;
+    /* l runs cheapest-last, so walk it tightest-first to measure what each step
+     * of looseness refunds. */
+    var best = fair[0], rate = -1;
+    for (var i = 1; i < fair.length; i++) {
+        var added = fair[i].worst - fair[i - 1].worst;
         if (added <= 0) continue;
-        var r = (l[i - 1].total - l[i].total) / added;
-        if (r > rate) { rate = r; knee = l[i]; }
+        var r = (fair[i - 1].total - fair[i].total) / added;
+        if (r > rate) { rate = r; best = fair[i]; }
     }
+    return best;
+}
 
-    var out = [tight];
-    if (knee && knee.th !== tight.th && knee.th !== cheap.th) out.push(knee);
-    if (cheap.th !== tight.th) out.push(cheap);
+/* Why this one, in facts the reader can check against the rows below it. */
+function pickReason(row, l) {
+    var bits = [];
+    var n = (row.conn || []).length;
+    if (!n) bits.push('everyone nonstop');
+    else bits.push(n === 1 ? name(row.conn[0]) + ' changes planes'
+                           : n + ' people change planes');
 
-    /* Cheapest first. It is the floor every other row is a premium on, and
-     * reading down from it answers "why am I paying more than that" without
-     * anyone having to open a filter panel to find it. */
-    return out.reverse();
+    var cheapest = l.reduce(function (a, b) { return b.total < a.total ? b : a; });
+    var extra = row.total - cheapest.total;
+    if (extra > 0) {
+        bits.push(money(extra) + ' over the cheapest, which lands them '
+            + FWF.fmtGap(cheapest.worst) + ' apart');
+    } else bits.push('nothing cheaper on these dates');
+    return bits.join(' \u00b7 ');
 }
 
 function renderChoices() {
     var host = el('choices');
-    var c = tripChoices();
-    if (!c || c.length < 2) { host.className = 'choices hidden'; return; }
+    var l = tripLadder();
+    if (!l || !l.length) { host.className = 'choices hidden'; return; }
 
-    /* Find it by price, not by position -- the list order changed once already. */
-    var cheapest = c.reduce(function (a, b) { return b.total < a.total ? b : a; });
+    var best = tripBest(l);
+    if (!best) { host.className = 'choices hidden'; return; }
     var cur = state.th.outbound;
+    var showing = l.filter(function (r) { return r.th === cur; })[0] || best;
+
+    /* Alternatives are the ends of the range, which is what people actually ask
+     * for next: the cheapest, and the closest they could possibly get. Only
+     * offered when they are genuinely different from what is on screen. */
+    var cheapest = l.reduce(function (a, b) { return b.total < a.total ? b : a; });
+    var tightest = l.reduce(function (a, b) { return b.worst < a.worst ? b : a; });
+    var alts = [];
+    if (cheapest.th !== showing.th) {
+        alts.push({ th: cheapest.th, l: 'Cheapest', v: money(cheapest.total),
+                    s: FWF.fmtGap(cheapest.worst) + ' apart' });
+    }
+    if (tightest.th !== showing.th && tightest.th !== cheapest.th) {
+        alts.push({ th: tightest.th, l: 'As close as possible', v: money(tightest.total),
+                    s: FWF.fmtGap(tightest.worst) + ' apart' });
+    }
+    if (showing.th !== best.th) {
+        alts.unshift({ th: best.th, l: 'Best option', v: money(best.total),
+                       s: FWF.fmtGap(best.worst) + ' apart' });
+    }
 
     host.className = 'choices';
-    host.innerHTML = '<span class="k">The cheapest, and what landing together costs</span>'
-        + c.map(function (r, i) {
-            var on = cur === r.th;
-            var extra = r.total - cheapest.total;
-            var g = r.regret || { stops: 0, mins: 0 };
-            var label = r.th === cheapest.th ? 'Cheapest'
-                : i === c.length - 1 ? 'As close as they can get'
-                : 'A bit closer';
-
-            /* Say what the tighter window actually asks of somebody. This is the
-             * number that stops the app from looking worse than one Google
-             * Flights search, which is the only comparison that matters. */
-            var ask = [];
-            if (g.stops > 0) ask.push(g.stops === 1 ? 'a connection' : g.stops + ' more stops');
-            if (g.mins > 45) ask.push(FWF.fmtGap(g.mins) + ' more flying');
-            var askTxt = ask.length && g.who
-                ? esc(name(g.who)) + ' takes ' + ask.join(' and ')
-                : '';
-            return '<button class="choice' + (on ? ' on' : '') + '" data-choice="'
-                + (r.th === FWF.INF ? 'Infinity' : r.th) + '" aria-pressed="' + on + '">'
-                + '<span class="c-l">' + label + '</span>'
-                + '<span class="c-w mono">' + FWF.fmtGap(r.worst) + ' apart'
-                + '<br><span class="c-fit">' + money(r.topPer) + ' each at most</span></span>'
-                + '<span class="c-p mono">' + money(r.total)
-                + (extra > 0 ? '<em>+' + money(extra) + ' to land together</em>' : '<em>the floor</em>')
-                + '</span>'
-                + (askTxt ? '<span class="c-ask">' + askTxt + '</span>' : '')
-                + '</button>';
-        }).join('');
+    host.innerHTML = '<div class="pick">'
+        + '<div class="pick-top">'
+        + '<div><div class="pick-k">' + (showing.th === best.th ? 'Best option' : 'Showing')
+        + '</div>'
+        + '<div class="pick-w">Everyone lands within ' + FWF.fmtGap(showing.worst) + '</div></div>'
+        + '<div class="pick-tot mono">' + money(showing.total)
+        + '<span>' + money(showing.topPer) + ' each at most</span></div>'
+        + '</div>'
+        + '<div class="pick-why">' + esc(pickReason(showing, l)) + '</div>'
+        + (alts.length
+            ? '<div class="pick-alt">' + alts.map(function (a) {
+                return '<button data-choice="' + (a.th === FWF.INF ? 'Infinity' : a.th) + '">'
+                    + '<span>' + esc(a.l) + '</span>'
+                    + '<span class="mono">' + a.v + ' &middot; ' + esc(a.s) + '</span></button>';
+              }).join('') + '</div>'
+            : '')
+        + '</div>';
 }
 
 /* What the trip costs, for everybody, both ways. */
@@ -932,10 +963,12 @@ function renderTripTotal() {
     host.innerHTML = '<div class="trip-k">Everyone, '
         + (t.back == null ? 'one way' : 'round trip')
         + (SET.priceDisplay === 'fare' ? ' · fares only' : ' · incl. bags') + '</div>'
+        /* One number. Splitting it by leg invited people to shop the legs
+         * separately, which is the opposite of the job: the optimiser is
+         * already free to change carrier or time on either leg to make the
+         * whole trip work, so the per-leg figures are an implementation
+         * detail, not a decision anybody makes. */
         + '<div class="trip-v mono">' + money(t.total) + '</div>'
-        + (t.back != null
-            ? '<div class="trip-split mono">' + money(t.out) + ' out · ' + money(t.back) + ' back</div>'
-            : '')
         + (!t.allClustered
             ? '<div class="trip-split" style="color:var(--bad)">Includes everyone, but not everyone is inside the window — see below.</div>'
             : '');
@@ -951,14 +984,20 @@ function render() {
     el('go').classList.toggle('busy', state.busy);
     if (state.step !== 4) return;
     if (!C) { showStep(3); return; }
-    if (thGet() === null && C.ladder) thSet(recommendedIn(C));
+    /* The trip-level pick is the default, so the headline total always matches
+     * the plan printed underneath it. Falls back to the per-leg recommendation
+     * when a trip ladder cannot be built -- which happens when one leg has
+     * somebody with no options at all. */
+    if (thGet() === null) {
+        var tl0 = tripLadder();
+        var tb0 = tl0 && tripBest(tl0);
+        if (tb0) thSet(tb0.th);
+        else if (C.ladder) thSet(recommendedIn(C));
+    }
     renderResHead();
     renderTripTotal();
     renderChoices();
-    renderFreeNote();
     renderStopPills();
-    renderCapPills();
-    renderRecPills();
     renderPlanView();
     renderShifts();
     renderShare();
@@ -1075,36 +1114,6 @@ function renderResHead() {
         + ' &nbsp;<span class="fresh"><span class="dot ' + cls + '"></span>' + esc(word) + '</span>';
 }
 
-function renderFreeNote() {
-    var f = el('freeNote');
-    if (DATA && !DATA.sample) {
-        f.className = 'free';
-        f.textContent = 'Filtering is free — it narrows flights already fetched, never a new search.';
-    } else f.className = 'free hidden';
-}
-
-function renderStepPrefs() {
-    var cap = el('sCap');
-    if (cap) {
-        cap.innerHTML = [{ v: null, l: 'No limit' }, { v: 50, l: '$50' }, { v: 100, l: '$100' }, { v: 200, l: '$200' }]
-            .map(function (x) {
-                var on = state.q.maxPremium === x.v;
-                return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
-                    + '" data-cap="' + (x.v === null ? '' : x.v) + '">' + x.l + '</button>';
-            }).join('');
-    }
-    var rec = el('sRec');
-    if (rec) {
-        rec.innerHTML = [{ k: 'value', l: 'Best value' }, { k: 'tightest', l: 'Together at any cost' },
-                         { k: 'target', l: 'Cheapest within ' + SET.target + 'm' }]
-            .map(function (x) {
-                var on = state.recommend === x.k;
-                return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
-                    + '" data-rec="' + x.k + '">' + esc(x.l) + '</button>';
-            }).join('');
-    }
-}
-
 /* Nobody thinks in 24-hour clock times when they are picking a flight -- they
  * think "morning", or "not the middle of the night". Two blank time pickers
  * asked for precision the group does not have yet, so these fill them in. The
@@ -1148,7 +1157,6 @@ function renderStepStops() {
     renderBandPresets();
     var host = el('sStops');
     if (!host) return;
-    renderStepPrefs();
     var o = [{ v: 0, l: 'Nonstop' }, { v: 1, l: 'Up to 1 stop' }, { v: null, l: 'Any' }];
     host.innerHTML = o.map(function (x) {
         var on = state.q.maxStops === x.v;
@@ -1229,29 +1237,6 @@ function renderAirlinePills() {
             }).join('')
             : (avoiding ? '<div class="air-row alli">'
                 + '<button class="pill alli-b clear" data-air-clear="1">Allow all</button></div>' : ''));
-}
-
-function renderCapPills() {
-    var o = [{ v: null, l: 'No limit' }, { v: 50, l: '$50' }, { v: 100, l: '$100' }, { v: 200, l: '$200' }];
-    el('capPills').setAttribute('role', 'radiogroup');
-    el('capPills').setAttribute('aria-label', 'Limit on what one traveller pays extra');
-    el('capPills').innerHTML = '<span class="k">Cap on one person&rsquo;s extra</span>' + o.map(function (x) {
-        var on = state.q.maxPremium === x.v;
-        return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
-            + '" data-cap="' + (x.v === null ? '' : x.v) + '">' + x.l + '</button>';
-    }).join('');
-}
-
-function renderRecPills() {
-    var o = [{ k: 'value', l: 'Best value' }, { k: 'tightest', l: 'Together at any cost' },
-             { k: 'target', l: 'Cheapest within ' + SET.target + 'm' }];
-    el('recPills').setAttribute('role', 'radiogroup');
-    el('recPills').setAttribute('aria-label', 'Which plan to put forward');
-    el('recPills').innerHTML = '<span class="k">Optimise for</span>' + o.map(function (x) {
-        var on = state.recommend === x.k;
-        return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
-            + '" data-rec="' + x.k + '">' + esc(x.l) + '</button>';
-    }).join('');
 }
 
 
@@ -1951,11 +1936,10 @@ function renderShifts() {
     if (!done.length) {
         var n = shiftCost();
         if (!shiftsUnlocked()) {
+            /* The lock is the whole message. Explaining the billing model
+             * under it was the app talking about itself. */
             host.innerHTML = '<button class="btn wide locked" id="shiftLock" aria-disabled="true">'
-                + lockIcon(14) + '<span>Is another day cheaper?</span></button>'
-                + '<div class="share-note">Not available yet. Checking nearby dates means searching '
-                + 'them all over again, so it is coming as a paid extra rather than something that '
-                + 'quietly spends the month\'s searches.</div>';
+                + lockIcon(14) + '<span>Is another day cheaper?</span></button>';
             return;
         }
         host.innerHTML = '<button class="btn wide" id="shiftBtn"' + (shiftBusy ? ' disabled' : '') + '>'
@@ -2004,9 +1988,7 @@ function renderShare() {
     var host = el('shareBox');
     if (!TRIP) { host.innerHTML = ''; return; }
     host.innerHTML = '<button class="btn primary wide" id="copyBtn">Copy the whole trip for the group chat</button>'
-        + '<div class="share-note" id="copyNote">Both legs, every person\u2019s flight and what each of them pays, '
-        + 'plus a link that opens on these exact flights. The link costs nothing to open — '
-        + 'everyone in the chat sees this trip without running a new search.</div>';
+        + '<div class="share-note" id="copyNote"></div>';
 
     el('copyBtn').addEventListener('click', function () {
         el('copyNote').textContent = 'Saving the trip so the link is free to open…';
@@ -2279,13 +2261,7 @@ function aboutSheet() {
 document.addEventListener('click', function (ev) {
     var tgt = ev.target;
     if (tgt.closest('#shiftBtn')) { runShiftScan(); return; }
-    if (tgt.closest('#shiftLock')) {
-        state.error = null;
-        el('shifts').querySelector('.share-note').innerHTML =
-            'Coming as a paid extra. Every nearby date is a fresh search for everybody, '
-            + 'so it is the one thing here that genuinely costs money to run.';
-        return;
-    }
+    if (tgt.closest('#shiftLock')) return;
     if (tgt.closest('#gearBtn')) { settingsSheet(); return; }
     if (tgt.closest('#aboutBtn')) { aboutSheet(); return; }
     if (tgt.id === 'sheetClose' || tgt.id === 'scrim') { closeSheet(); return; }
@@ -2295,8 +2271,8 @@ document.addEventListener('click', function (ev) {
         return;
     }
 
-    var t = tgt.closest && tgt.closest('[data-threshold],[data-rec],[data-set],[data-bag],'
-        + '[data-stops],[data-cap],[data-choice],[data-clusterback],[data-seats],'
+    var t = tgt.closest && tgt.closest('[data-threshold],[data-set],[data-bag],'
+        + '[data-stops],[data-choice],[data-clusterback],[data-seats],'
         + '[data-rmparty],[data-addair],[data-rmair],[data-air],[data-alli],'
         + '[data-air-clear],[data-qm]');
     if (!t) return;
@@ -2331,10 +2307,6 @@ document.addEventListener('click', function (ev) {
         state.q.clusterReturn = !state.q.clusterReturn;
         state.th['return'] = null;
         writeHash(); render();
-    } else if (t.hasAttribute('data-cap')) {
-        var rawCap = t.getAttribute('data-cap');
-        state.q.maxPremium = rawCap === '' ? null : +rawCap;
-        thReset(); renderStepStops(); writeHash(); render();
     } else if (t.hasAttribute('data-stops')) {
         var raw = t.getAttribute('data-stops');
         state.q.maxStops = raw === '' ? null : +raw;
@@ -2376,8 +2348,6 @@ document.addEventListener('click', function (ev) {
         var legOf = sect && sect.id === 'legBack' ? 'return' : 'outbound';
         state.th[legOf] = v === 'subset' ? 'subset' : (v === 'Infinity' ? FWF.INF : +v);
         render();
-    } else if (t.hasAttribute('data-rec')) {
-        state.recommend = t.getAttribute('data-rec'); thReset(); renderStepStops(); render();
     } else if (t.hasAttribute('data-set')) {
         var key = t.getAttribute('data-set'), val = t.getAttribute('data-val');
         if (key === 'target') val = +val;
