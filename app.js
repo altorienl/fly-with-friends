@@ -329,6 +329,22 @@ function blankQuery() {
  * in an email subject. Only the first letter of each word is raised -- the rest
  * is left exactly as typed, so "McDonald" and an all-caps "NICK" both survive,
  * and "jim / gary" becomes "Jim / Gary" because the separator is not a letter. */
+/* Where an airport is, for the one question three letters cannot answer: "am I
+ * sure I clicked the right one". ONT is Ontario, California. PDX is Portland,
+ * Oregon, and there is a Portland in Maine. SJC and SJO are both San Jose.
+ * Falls back to the city alone, which is every airport outside the US, Canada
+ * and the one ambiguous pair -- for those the country is the disambiguator and
+ * it is already on the row. */
+function placeOf(a) {
+    if (!a) return '';
+    /* JFK and LGA are in the city of New York in the state of New York, and
+     * "New York, New York" is a lyric, not a disambiguation. The data stays
+     * right -- they ARE in New York state -- and the repeat is suppressed where
+     * it would be read. */
+    if (!a.region || a.region === a.city) return a.city;
+    return a.city + ', ' + a.region;
+}
+
 function titleCase(str) {
     return String(str).replace(/(^|[^\p{L}\p{N}'])(\p{L})/gu, function (m, pre, ch) {
         return pre + ch.toUpperCase();
@@ -845,10 +861,15 @@ function attachAc(input, drop, onPick, opts) {
                 + '" data-ac="' + i + '" role="option" tabindex="-1"'
                 + ' id="' + uid + '-' + i + '" aria-selected="' + (i === idx) + '">'
                 + '<span class="ac-code">' + (a.metro ? String(a.members.length) : esc(a.code)) + '</span>'
-                + '<span class="ac-body"><span class="ac-city">' + esc(a.city)
+                + '<span class="ac-body"><span class="ac-city">'
+                + esc(a.metro ? a.city : placeOf(a))
                 + (a.metro ? ' — any airport' : a.closed ? ' — no service' : '') + '</span>'
                 + '<span class="ac-sub">' + esc(a.name) + '</span></span>'
-                + '<span class="ac-flag">' + esc(a.country) + '</span></button>';
+                /* Only where the place line has not already said it. "Charlotte,
+                 * North Carolina" followed by "US" is the country twice, and
+                 * the second one is the less useful of the two. */
+                + (a.region ? '' : '<span class="ac-flag">' + esc(a.country) + '</span>')
+                + '</button>';
         }).join('');
         drop.classList.add('open');
         input.setAttribute('aria-expanded', 'true');
@@ -5489,7 +5510,7 @@ attachAc(el('dest'), el('destAc'), function (a) {
         el('destHint').textContent = closedDestNote(a);
     } else {
         el('destHint').className = 'hint good';
-        el('destHint').textContent = a.city + ' — ' + a.name;
+        el('destHint').textContent = placeOf(a) + ' — ' + a.name;
     }
 }, { noMetros: true, onEnter: function () { el('to2').click(); } });
 

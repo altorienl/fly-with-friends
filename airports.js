@@ -234,8 +234,61 @@
   ].filter(function (r) { return r[2].indexOf(',') > -1; });   // only real multi-airport cities
 
   var BY_CODE = {};
+  /* Where it actually is, for the one question a three-letter code cannot
+   * answer: "am I sure I clicked the right airport". ONT is Ontario,
+   * California, not Ontario, Canada. PDX is Portland, Oregon, and there is a
+   * Portland in Maine. Charleston is South Carolina here, and there is one in
+   * West Virginia. A code is a thing people half-remember and the city name
+   * alone does not settle it.
+   *
+   * Keyed by code rather than added to the positional rows, so the 98 existing
+   * entries are not retyped -- a transcription slip in a city or an airport
+   * name is a wrong answer that looks right.
+   *
+   * States and provinces only. Everywhere else the country does that job, and
+   * is already on the row.
+   *
+   * Where the airport sits in a different state from the city it serves, this
+   * follows the CITY: Reagan National and Dulles are in Virginia and CVG is in
+   * Kentucky, but nobody flying to them is going anywhere but Washington and
+   * Cincinnati, and the field is there to confirm what the reader meant. */
+  var REGION = {
+    ABQ: 'New Mexico', ALB: 'New York', ANC: 'Alaska', ATL: 'Georgia',
+    AUS: 'Texas', BDL: 'Connecticut', BNA: 'Tennessee', BOI: 'Idaho',
+    BOS: 'Massachusetts', BUF: 'New York', BUR: 'California', BWI: 'Maryland',
+    CHS: 'South Carolina', CLE: 'Ohio', CLT: 'North Carolina', CMH: 'Ohio',
+    COS: 'Colorado', CVG: 'Ohio', DAL: 'Texas', DCA: 'D.C.',
+    DEN: 'Colorado', DFW: 'Texas', DSM: 'Iowa', DTW: 'Michigan',
+    ELP: 'Texas', EWR: 'New Jersey', FAI: 'Alaska', FAT: 'California',
+    FLL: 'Florida', GEG: 'Washington', GRR: 'Michigan', GSP: 'South Carolina',
+    HNL: 'Hawaii', HOU: 'Texas', IAD: 'D.C.', IAH: 'Texas',
+    ICT: 'Kansas', IND: 'Indiana', JAX: 'Florida', JFK: 'New York',
+    KOA: 'Hawaii', LAS: 'Nevada', LAX: 'California', LGA: 'New York',
+    LGB: 'California', LIH: 'Hawaii', LIT: 'Arkansas', MCI: 'Missouri',
+    MCO: 'Florida', MDW: 'Illinois', MEM: 'Tennessee', MIA: 'Florida',
+    MKE: 'Wisconsin', MSN: 'Wisconsin', MSP: 'Minnesota', MSY: 'Louisiana',
+    MYR: 'South Carolina', OAK: 'California', OGG: 'Hawaii', OKC: 'Oklahoma',
+    OMA: 'Nebraska', ONT: 'California', ORD: 'Illinois', ORF: 'Virginia',
+    PBI: 'Florida', PDX: 'Oregon', PHL: 'Pennsylvania', PHX: 'Arizona',
+    PIT: 'Pennsylvania', PSP: 'California', PVD: 'Rhode Island',
+    RDU: 'North Carolina', RIC: 'Virginia', RNO: 'Nevada', ROC: 'New York',
+    RSW: 'Florida', SAN: 'California', SAV: 'Georgia', SEA: 'Washington',
+    SFO: 'California', SJC: 'California', SJU: 'Puerto Rico', SLC: 'Utah',
+    SMF: 'California', SNA: 'California', SRQ: 'Florida', STL: 'Missouri',
+    SYR: 'New York', TPA: 'Florida', TUL: 'Oklahoma', TUS: 'Arizona',
+    YEG: 'Alberta', YHZ: 'Nova Scotia', YOW: 'Ontario', YUL: 'Quebec',
+    YVR: 'British Columbia', YWG: 'Manitoba', YYC: 'Alberta', YYZ: 'Ontario',
+    /* The one city name in this list that exists in two countries, and the
+     * exact mistake the field is here to prevent: SJC is San Jose, California
+     * and SJO is San Jose, Costa Rica. A country rather than a state, because
+     * what disambiguates it is the country -- the field says where it is, not
+     * what kind of place name it is. */
+    SJO: 'Costa Rica'
+  };
+
   var LIST = A.map(function (r) {
-    var o = { code: r[0], city: r[1], name: r[2], country: r[3], closed: false };
+    var o = { code: r[0], city: r[1], name: r[2], country: r[3],
+              region: REGION[r[0]] || '', closed: false };
     BY_CODE[r[0]] = o;
     return o;
   });
@@ -248,7 +301,8 @@
   }).filter(function (m) { return m.members.every(function (c) { return !!BY_CODE[c]; }); });
 
   CLOSED.forEach(function (r) {
-    var o = { code: r[0], city: r[1], name: r[2], country: r[3], closed: true,
+    var o = { code: r[0], city: r[1], name: r[2], country: r[3],
+              region: REGION[r[0]] || '', closed: true,
               note: r[4], alternates: r[5] ? r[5].split(',') : [] };
     BY_CODE[r[0]] = o;
     LIST.push(o);
