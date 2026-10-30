@@ -127,6 +127,14 @@
              * alone makes an installed app look uninstalled. */
             || window.matchMedia('(display-mode: window-controls-overlay)').matches))) {
         r.classList.add('standalone');
+        /* The overlay leaves on a CSS animation with fill: both. This removes
+         * the node outright a beat later, so an engine that never ran the
+         * animation cannot leave a permanent cover over the app. */
+        var ms = parseFloat(getComputedStyle(r).getPropertyValue('--boot-ms')) || 1800;
+        setTimeout(function () {
+            var el = document.getElementById('boot');
+            if (el && el.parentNode) el.parentNode.removeChild(el);
+        }, ms + 600);
     }
 })();
 </script>
@@ -288,6 +296,42 @@ body {
  * toolbar and no back button. In Safari the status bar belongs to Safari and
  * none of this should fire, so it all hangs off .standalone, which the inline
  * script in <head> sets before the first paint. */
+
+/* The launch moment.
+ *
+ * iOS shows a static launch image while an installed app boots and then cuts
+ * to the page; this continues that image rather than adding to it, so the mark
+ * the splash ends on is the mark that turns. One complete rotation, and the
+ * overlay goes whether or not anything else has finished.
+ *
+ * Only on a home-screen launch. In a browser tab you are already looking at
+ * the page, and a splash there is a delay with nothing to cover.
+ *
+ * --boot-ms is the whole control. One rotation at 1800ms reads as deliberate;
+ * three seconds on every open of an app people use to glance at a trip starts
+ * to feel like being held. Change the one number if you disagree. */
+:root { --boot-ms: 1800ms; }
+#boot { display: none; }
+.standalone #boot {
+    display: grid; place-items: center;
+    position: fixed; inset: 0; z-index: 200;
+    background: var(--bg);
+    animation: bootOut 320ms ease var(--boot-ms) both;
+}
+.boot-mark {
+    width: 84px; height: 84px; border-radius: 19px; display: block;
+    animation: bootSpin var(--boot-ms) cubic-bezier(.62, 0, .25, 1) both;
+}
+@keyframes bootSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+/* visibility, not just opacity: a transparent overlay still swallows taps. */
+@keyframes bootOut { to { opacity: 0; visibility: hidden; } }
+/* Somebody who has asked the system not to animate things is not asking for a
+ * spinning logo. The overlay still appears, so the launch image still has
+ * something to cut to, and it leaves almost at once. */
+@media (prefers-reduced-motion: reduce) {
+    :root { --boot-ms: 260ms; }
+    .boot-mark { animation: none; }
+}
 
 /* .ios-bar is gone with black-translucent. It was an opaque band the height of
  * the safe-area inset, dark in both themes, there only to keep a forced-white
@@ -1397,6 +1441,10 @@ footer .sep { color: var(--faint); margin: 0 8px; }
 </head>
 <body>
 
+<!-- Third copy of the 2023 mark, after .mk and .brand-mark. Same geometry,
+     its own gradient id. Keep all of them in step with favicon.svg and
+     icon-512.png. -->
+<div id="boot" aria-hidden="true"><svg class="boot-mark" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="bg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFCB00"/><stop offset="1" stop-color="#FF9501"/></linearGradient></defs><rect width="512" height="512" rx="113" fill="url(#bg2)"/><g fill="#fff"><circle cx="178.85" cy="136.8" r="30.0"/><circle cx="332.25" cy="136.8" r="30.0"/><rect x="62.8" y="183.0" width="385.4" height="24.9" rx="12.45"/><path d="M144.20 207.9 L213.50 207.9 L217.65 286.5 L140.05 286.5 Z"/><path d="M155.80 286.5 L130.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M201.90 286.5 L227.90 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M297.60 207.9 L366.90 207.9 L371.05 286.5 L293.45 286.5 Z"/><path d="M309.20 286.5 L283.70 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M355.30 286.5 L380.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/></g></svg></div>
 
 <div class="install hidden" id="installBanner" role="region" aria-label="Add to Home Screen">
     <svg class="mk" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="bg0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFCB00"/><stop offset="1" stop-color="#FF9501"/></linearGradient></defs><rect width="512" height="512" rx="113" fill="url(#bg0)"/><g fill="#fff"><circle cx="178.85" cy="136.8" r="30.0"/><circle cx="332.25" cy="136.8" r="30.0"/><rect x="62.8" y="183.0" width="385.4" height="24.9" rx="12.45"/><path d="M144.20 207.9 L213.50 207.9 L217.65 286.5 L140.05 286.5 Z"/><path d="M155.80 286.5 L130.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M201.90 286.5 L227.90 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M297.60 207.9 L366.90 207.9 L371.05 286.5 L293.45 286.5 Z"/><path d="M309.20 286.5 L283.70 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M355.30 286.5 L380.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/></g></svg>
