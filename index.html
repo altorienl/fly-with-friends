@@ -336,14 +336,35 @@ body {
     --boot-mark: min(30vmin, 190px);
     --boot-gap: calc(var(--boot-mark) * .28);
     --boot-word: clamp(11px, 3.4vmin, 15px);
-    --boot-glow: rgba(255, 176, 1, .20);
 }
-[data-theme="light"] { --boot-glow: rgba(255, 176, 1, .30); }
+/* The overlay's colours come from the SYSTEM scheme, not from data-theme.
+ *
+ * iOS picks which splash/*.png to show from prefers-color-scheme, before any
+ * script runs -- it cannot know the app's own theme setting. Somebody whose
+ * phone is dark but who has chosen the light theme in Settings therefore gets
+ * a near-black launch image, and the overlay, following data-theme, came up
+ * cream: a hard cut from black to cream a fraction of a second in. "it shows
+ * this screen first ... before it goes into roation screen."
+ *
+ * Matching the system here means the overlay is the launch image continuing,
+ * always, and the 340ms fade becomes the only transition -- it bridges from
+ * whatever the system chose to whatever the app paints, in either direction.
+ *
+ * These are the literal values tools/make-splash.sh renders with. Not the
+ * theme tokens, which are the app's and can disagree. Keep them in step. */
+@media (prefers-color-scheme: dark) {
+    :root { --boot-bg: #0f0d0a; --boot-fg: #f5f1e9; --boot-dim: #b2a899;
+            --boot-glow: rgba(255, 176, 1, .20); }
+}
+@media (prefers-color-scheme: light) {
+    :root { --boot-bg: #ece8e1; --boot-fg: #1b1813; --boot-dim: #534c40;
+            --boot-glow: rgba(255, 176, 1, .30); }
+}
 #boot { display: none; }
 .standalone #boot {
     display: grid; place-items: center;
     position: fixed; inset: 0; z-index: 200;
-    background: var(--bg);
+    background: var(--boot-bg, var(--bg));
     animation: bootOut 340ms ease var(--boot-ms) both;
 }
 /* Optical centre, not geometric: the wordmark hangs below the mark, so the
@@ -369,11 +390,12 @@ body {
 .boot-word {
     margin-top: var(--boot-gap); font-weight: 600;
     font-size: calc(var(--boot-word) * 1.5); letter-spacing: -.01em;
-    color: var(--text); white-space: nowrap;
+    color: var(--boot-fg, var(--text)); white-space: nowrap;
 }
 .boot-sub {
     margin-top: calc(var(--boot-gap) / 2);
-    font-size: calc(var(--boot-word) * 1.1); color: var(--muted); letter-spacing: .2px;
+    font-size: calc(var(--boot-word) * 1.1); color: var(--boot-dim, var(--muted));
+    letter-spacing: .2px;
 }
 @keyframes bootSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 /* visibility, not just opacity: a transparent overlay still swallows taps. */
