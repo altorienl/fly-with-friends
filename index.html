@@ -92,6 +92,15 @@ button { font-family: inherit; color: inherit; cursor: pointer; border: none; ba
 a { color: var(--accent); }
 .k { font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--faint); font-weight: 600; }
 
+/* Each step section and the settings sheet carry tabindex="-1" and are focused
+ * programmatically on open, so that keyboard and screen-reader position follows
+ * the screen change. That focus is not a keyboard action, so the browser's
+ * default blue ring around the whole panel is wrong -- it is the "blue box"
+ * that appeared at random on load, depending on which step was entered. The
+ * focus move stays; only the ring goes. Real keyboard focus is still shown by
+ * the :focus-visible rules below. */
+[tabindex="-1"]:focus { outline: none; }
+
 /* Buttons lose the UA ring because they are unstyled, so put one back. */
 .btn:focus-visible, .pill:focus-visible, .brow:focus-visible, .icon-btn:focus-visible,
 .gear:focus-visible, .ac-item:focus-visible, .chip button:focus-visible,
@@ -714,10 +723,15 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
             <button class="icon-btn" id="back4" aria-label="Change trip">&larr;</button>
             <div class="res-title"><div class="t" id="resT"></div><div class="s" id="resS"></div></div>
         </div>
-        <div class="trip hidden" id="tripTotal" aria-live="polite"></div>
+        <!-- The plan comes first: it is the thing the app exists to produce, and
+             burying it under a total and three prices made the answer the last
+             thing you reached. Price and its alternatives sit underneath it, so
+             changing "cheaper" or "closer" re-reads against the plan you are
+             already looking at. #perPerson was dead markup, never rendered. -->
+        <section id="planView" aria-label="The plan"></section>
 
+        <div class="trip hidden" id="tripTotal" aria-live="polite"></div>
         <div class="choices hidden" id="choices" aria-live="polite"></div>
-        <div class="panel hidden" id="perPerson" aria-live="polite"></div>
 
         <details class="opts" id="adjust">
             <summary>Adjust the search</summary>
@@ -726,8 +740,6 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
                 <div class="pills airlines" id="airlinePills"></div>
             </div>
         </details>
-
-        <section id="planView" aria-label="The plan"></section>
 
         <div class="shifts hidden" id="shifts" aria-live="polite"></div>
         <div class="share" id="shareBox"></div>
