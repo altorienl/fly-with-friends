@@ -20,11 +20,16 @@
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<!-- black-translucent is what puts the page behind the status bar, which is the
-     whole point of viewport-fit=cover. It also forces the clock and battery
-     white, which is why .ios-bar exists: in the light theme that white would be
-     sitting on cream. -->
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- Not black-translucent. That put the page behind the status bar AND forced
+     the clock and battery white, so the light theme had to paint a near-black
+     band under them to keep them legible -- and a dark strip across the top of
+     a cream app reads as a box around it rather than as a full screen: "its
+     like its in a box instead of a fll screen experience".
+     With default, iOS owns the strip, picks a contrast that works, and takes
+     its colour from theme-color -- which the inline script below already keeps
+     in step with the active theme. Cream top with a dark clock in light, ink
+     top with a light clock in dark, no band either way. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="FlyWithFriends">
 <!-- iOS launch screens. apple-touch-startup-image is the only mechanism iOS honours
      for this; the web app manifest cannot do it. iOS uses an image only when its
@@ -284,25 +289,11 @@ body {
  * none of this should fire, so it all hangs off .standalone, which the inline
  * script in <head> sets before the first paint. */
 
-/* black-translucent draws the clock and battery in white over whatever the page
- * puts behind them. Two things follow: content scrolling up into the status bar
- * collides with the clock, and in the light theme white-on-cream vanishes. One
- * opaque band fixes both. It is deliberately the dark surface in both themes --
- * a near-black strip above a cream app reads as a title bar, where a cream strip
- * would read as a bug. z-index sits under the scrim so a sheet still covers it. */
-.ios-bar { display: none; }
-.standalone .ios-bar {
-    display: block;
-    position: fixed; top: 0; left: 0; right: 0; z-index: 70;
-    height: env(safe-area-inset-top); background: var(--bg);
-    pointer-events: none;
-}
-/* In the dark theme the band is the background and cannot be seen. In the light
- * theme it has to be dark for the white clock to survive, so it uses that
- * theme's own ink rather than importing the dark theme's surface -- a strip of
- * the light theme's own ink above cream reads as a title bar; the dark
- * theme's page colour there would read as a different app. */
-[data-theme="light"].standalone .ios-bar { background: var(--text); }
+/* .ios-bar is gone with black-translucent. It was an opaque band the height of
+ * the safe-area inset, dark in both themes, there only to keep a forced-white
+ * clock readable over cream. Nothing needs it now: the status bar is the
+ * system's own strip, and whatever inset remains is painted by the body in the
+ * page's own colour, so the top is seamless in both themes. */
 /* Nothing here is a document, so the long-press magnifier and the text-selection
  * callout are pure noise. Inputs and the results prose stay selectable. */
 button, summary, .chip, .pill, .mrow, .choice, .ac-item, .datefield, .rail, .grip, .ava, .tl-dot {
@@ -1406,7 +1397,6 @@ footer .sep { color: var(--faint); margin: 0 8px; }
 </head>
 <body>
 
-<div class="ios-bar" aria-hidden="true"></div>
 
 <div class="install hidden" id="installBanner" role="region" aria-label="Add to Home Screen">
     <svg class="mk" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="bg0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFCB00"/><stop offset="1" stop-color="#FF9501"/></linearGradient></defs><rect width="512" height="512" rx="113" fill="url(#bg0)"/><g fill="#fff"><circle cx="178.85" cy="136.8" r="30.0"/><circle cx="332.25" cy="136.8" r="30.0"/><rect x="62.8" y="183.0" width="385.4" height="24.9" rx="12.45"/><path d="M144.20 207.9 L213.50 207.9 L217.65 286.5 L140.05 286.5 Z"/><path d="M155.80 286.5 L130.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M201.90 286.5 L227.90 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M297.60 207.9 L366.90 207.9 L371.05 286.5 L293.45 286.5 Z"/><path d="M309.20 286.5 L283.70 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M355.30 286.5 L380.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/></g></svg>
