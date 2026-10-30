@@ -79,7 +79,14 @@ cd worker && npx wrangler deploy -c ./wrangler.toml
 
 `dist/` is assembled by copying and is gitignored. A missing launch image does
 not error — it means iOS opens that phone size to a white screen, which is the
-one failure nobody reports.
+one failure nobody reports. `dist/splash` is removed first because the copy does
+not prune: images deleted from `splash/` would otherwise go on being served.
+
+The app is light-only by design, not by default, and the launch images carry no
+colour-scheme clause, so iOS cannot pick a dark one. **iOS reads the launch-image
+and status-bar configuration only when the icon is added to the Home Screen** —
+after any change here, delete the icon and re-add it, or you are testing the old
+build. This has already cost one evening.
 
 ## Running the tests
 

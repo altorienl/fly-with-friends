@@ -25,37 +25,34 @@ trap 'rm -rf "$WORK"' EXIT
 
 # logical-width logical-height dpr  devices
 DEVICES=(
-  "375 667 2 iPhone SE 2nd/3rd gen, 6, 6s, 7, 8"
-  "414 736 3 iPhone 6+, 6s+, 7+, 8+"
-  "375 812 3 iPhone X, XS, 11 Pro, 12 mini, 13 mini"
-  "414 896 2 iPhone XR, 11"
-  "414 896 3 iPhone XS Max, 11 Pro Max"
-  "390 844 3 iPhone 12, 12 Pro, 13, 13 Pro, 14"
-  "428 926 3 iPhone 12 Pro Max, 13 Pro Max, 14 Plus"
-  "393 852 3 iPhone 14 Pro, 15, 15 Pro, 16, 16e"
-  "430 932 3 iPhone 14 Pro Max, 15 Plus, 15 Pro Max, 16 Plus"
-  "402 874 3 iPhone 16 Pro, 17, 17 Pro"
-  "440 956 3 iPhone 16 Pro Max, 17 Pro Max"
-  "420 912 3 iPhone Air"
+  "375 667 2 20 iPhone SE 2nd/3rd gen, 6, 6s, 7, 8"
+  "414 736 3 20 iPhone 6+, 6s+, 7+, 8+"
+  "375 812 3 44 iPhone X, XS, 11 Pro, 12 mini, 13 mini"
+  "414 896 2 48 iPhone XR, 11"
+  "414 896 3 44 iPhone XS Max, 11 Pro Max"
+  "390 844 3 47 iPhone 12, 12 Pro, 13, 13 Pro, 14"
+  "428 926 3 47 iPhone 12 Pro Max, 13 Pro Max, 14 Plus"
+  "393 852 3 59 iPhone 14 Pro, 15, 15 Pro, 16, 16e"
+  "430 932 3 59 iPhone 14 Pro Max, 15 Plus, 15 Pro Max, 16 Plus"
+  "402 874 3 62 iPhone 16 Pro, 17, 17 Pro"
+  "440 956 3 62 iPhone 16 Pro Max, 17 Pro Max"
+  "420 912 3 62 iPhone Air"
 )
 
 page() { # page <css-w> <css-h> <scheme>
-  local W=$1 H=$2 SCHEME=$3
-  local BG FG DIM GLOW
-  if [ "$SCHEME" = light ]; then
-    BG="#ece8e1"; FG="#1b1813"; DIM="#534c40"; GLOW="rgba(255,176,1,.30)"
-  else
-    BG="#0f0d0a"; FG="#f5f1e9"; DIM="#b2a899"; GLOW="rgba(255,176,1,.20)"
-  fi
-  # Mark is sized off the short edge so portrait and landscape stay in step.
-  local SHORT=$(( W < H ? W : H ))
-  local MARK=$(( SHORT * 30 / 100 ))
-  [ "$MARK" -gt 190 ] && MARK=190
-  local GAP=$(( MARK * 28 / 100 ))
-  local WORD=$(( SHORT * 34 / 1000 ))
-  [ "$WORD" -lt 11 ] && WORD=11
-  [ "$WORD" -gt 15 ] && WORD=15
-  local TRACK=$(( WORD * 26 / 100 ))
+  local W=$1 H=$2 INSET=$3
+  # The launch image IS the app's first frame: the ink masthead at the top and
+  # cream below it, and nothing else. No centred logo, no wordmark, no tagline.
+  #
+  # That is the whole point. The old image drew a lockup the app then replaced
+  # with a different one -- measured, the mark jumped 4.6px and the type grew
+  # 4% at the cut, because this file does integer bash maths with
+  # line-height:normal and the stylesheet does calc() with line-height 1.35.
+  # There is no lockup now, so there is nothing to drift. Keep this in step
+  # with .brand in index.html; it is the only coupling left in the launch path.
+  local BG="#ece8e1" TOP="#17150f" ON="#f5f1e9"
+  local BAND=$(( INSET + 60 ))
+  local SIDE=$(( W > 680 ? (W - 640) / 2 : 20 ))
 
   cat <<HTML
 <!DOCTYPE html><html><head><meta charset="utf-8">
@@ -65,41 +62,32 @@ page() { # page <css-w> <css-h> <scheme>
   .canvas{
     width:${W}px;height:${H}px;background:${BG};
     position:relative;overflow:hidden;
-    display:flex;align-items:center;justify-content:center;
   }
-  /* Optical centre, not geometric: the wordmark hangs below the mark, so the
-     pair is nudged up to sit where the eye expects the middle. */
-  .stack{display:flex;flex-direction:column;align-items:center;
-         transform:translateY(-$(( GAP / 2 ))px);}
-  /* The field is left flat on purpose. A full-screen radial haze behind the
-     mark looked good and cost 350kB a file, because PNG cannot cheaply store a
-     thousand-pixel-wide smooth gradient; the warmth lives in the halo below,
-     which spans a couple of hundred pixels instead of two thousand. */
-  .halo{position:absolute;width:$(( MARK * 3 / 2 ))px;height:$(( MARK * 3 / 2 ))px;
-        border-radius:50%;background:radial-gradient(circle,${GLOW} 0%,transparent 70%);
-        transform:translateY(-$(( GAP / 2 + MARK / 3 ))px);}
-  svg{width:${MARK}px;height:${MARK}px;display:block;position:relative;}
+  .band{
+    position:absolute;top:0;left:0;right:0;height:${BAND}px;background:${TOP};
+    display:flex;align-items:flex-end;justify-content:space-between;
+    padding:0 ${SIDE}px 8px ${SIDE}px;box-sizing:border-box;
+  }
+  .left{display:flex;align-items:center;gap:12px;height:44px;}
+  svg.mk{width:40px;height:40px;display:block;}
   .word{
-    margin-top:${GAP}px;
     font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;
-    font-weight:600;font-size:$(( WORD * 15 / 10 ))px;letter-spacing:-.01em;
-    color:${FG};white-space:nowrap;
+    font-weight:600;font-size:17px;letter-spacing:-.01em;color:${ON};white-space:nowrap;
+    line-height:1.35;
   }
-  .sub{
-    margin-top:$(( GAP / 2 ))px;
-    font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
-    font-size:$(( WORD * 11 / 10 ))px;color:${DIM};letter-spacing:.2px;
-  }
+  .gear{width:44px;height:44px;display:flex;align-items:center;justify-content:center;
+        margin-right:-11px;}
+  .gear svg{width:16px;height:16px;display:block;}
 </style></head><body>
 <div class="canvas">
-  <div class="halo"></div>
-  <div class="stack">
-    <!-- Same geometry as icon-512.png: round-capped strokes so the two
-         torsos stay separate instead of fusing. Keep in step with the mark
-         in index.html if either changes. -->
-    <svg viewBox="0 0 512 512"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFCB00"/><stop offset="1" stop-color="#FF9501"/></linearGradient></defs><rect width="512" height="512" rx="113" fill="url(#g)"/><g fill="#fff"><circle cx="178.85" cy="136.8" r="30.0"/><circle cx="332.25" cy="136.8" r="30.0"/><rect x="62.8" y="183.0" width="385.4" height="24.9" rx="12.45"/><path d="M144.20 207.9 L213.50 207.9 L217.65 286.5 L140.05 286.5 Z"/><path d="M155.80 286.5 L130.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M201.90 286.5 L227.90 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M297.60 207.9 L366.90 207.9 L371.05 286.5 L293.45 286.5 Z"/><path d="M309.20 286.5 L283.70 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M355.30 286.5 L380.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/></g></svg>
-    <div class="word">Fly with Friends</div>
-    <div class="sub">Everyone lands together</div>
+  <div class="band">
+    <div class="left">
+      <!-- Same geometry as icon-512.png, knocked out of the ink instead of
+           plated in amber. Keep in step with .brand-mark in index.html. -->
+      <svg class="mk" viewBox="0 0 512 512"><g fill="${ON}"><circle cx="178.85" cy="136.8" r="30.0"/><circle cx="332.25" cy="136.8" r="30.0"/><rect x="62.8" y="183.0" width="385.4" height="24.9" rx="12.45"/><path d="M144.20 207.9 L213.50 207.9 L217.65 286.5 L140.05 286.5 Z"/><path d="M155.80 286.5 L130.30 391.0" stroke="${ON}" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M201.90 286.5 L227.90 391.0" stroke="${ON}" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M297.60 207.9 L366.90 207.9 L371.05 286.5 L293.45 286.5 Z"/><path d="M309.20 286.5 L283.70 391.0" stroke="${ON}" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M355.30 286.5 L380.30 391.0" stroke="${ON}" stroke-width="31.5" stroke-linecap="round" fill="none"/></g></svg>
+      <div class="word">Fly with Friends</div>
+    </div>
+    <div class="gear"><svg viewBox="0 0 24 24" fill="none" stroke="${ON}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
   </div>
 </div>
 </body></html>
@@ -146,18 +134,20 @@ links() {
      the light ones are listed afterwards and win wherever the scheme query is
      understood. Regenerate both the files and this block with tools/make-splash.sh. -->
 HEAD
-  local scheme orient dev W H DPR NAME suffix iw ih
-  for scheme in dark light; do
-    if [ "$scheme" = light ]; then suffix=' and (prefers-color-scheme: light)'; else suffix=''; fi
-    for orient in portrait landscape; do
-      echo "<!-- $scheme, $orient -->"
-      for dev in "${DEVICES[@]}"; do
-        read -r W H DPR NAME <<< "$dev"
-        if [ "$orient" = portrait ]; then iw=$(( W * DPR )); ih=$(( H * DPR ));
-        else iw=$(( H * DPR )); ih=$(( W * DPR )); fi
-        printf '<link rel="apple-touch-startup-image" href="splash/%s-%sx%s.png" media="(device-width: %spx) and (device-height: %spx) and (-webkit-device-pixel-ratio: %s) and (orientation: %s)%s"><!-- %s -->\n' \
-          "$scheme" "$iw" "$ih" "$W" "$H" "$DPR" "$orient" "$suffix" "$NAME"
-      done
+  local orient dev W H DPR INSET NAME iw ih
+  # No colour-scheme clause anywhere. iOS cannot consult the system scheme
+  # because nothing in the list asks about it -- which is what stops the launch
+  # image and the app ever disagreeing. Flat filenames too: there is only one
+  # set now, and the rename guarantees iOS fetches the new art rather than
+  # serving the old one from its launch-image cache.
+  for orient in portrait landscape; do
+    echo "<!-- $orient -->"
+    for dev in "${DEVICES[@]}"; do
+      read -r W H DPR INSET NAME <<< "$dev"
+      if [ "$orient" = portrait ]; then iw=$(( W * DPR )); ih=$(( H * DPR ));
+      else iw=$(( H * DPR )); ih=$(( W * DPR )); fi
+      printf '<link rel="apple-touch-startup-image" href="splash/%sx%s.png" media="(device-width: %spx) and (device-height: %spx) and (-webkit-device-pixel-ratio: %s) and (orientation: %s)"><!-- %s -->\n' \
+        "$iw" "$ih" "$W" "$H" "$DPR" "$orient" "$NAME"
     done
   done
 }
@@ -165,15 +155,15 @@ HEAD
 if [ "${1:-}" = "--links" ]; then links; exit 0; fi
 
 mkdir -p "$OUT"
-for scheme in dark light; do
-  for dev in "${DEVICES[@]}"; do
-    read -r W H DPR NAME <<< "$dev"
-    pw=$(( W * DPR )); ph=$(( H * DPR ))
-    echo "  $scheme  ${pw}x${ph}  portrait   $NAME"
-    render "$W" "$H" "$DPR" "$scheme" "$OUT/$scheme-${pw}x${ph}.png"
-    echo "  $scheme  ${ph}x${pw}  landscape  $NAME"
-    render "$H" "$W" "$DPR" "$scheme" "$OUT/$scheme-${ph}x${pw}.png"
-  done
+for dev in "${DEVICES[@]}"; do
+  read -r W H DPR INSET NAME <<< "$dev"
+  pw=$(( W * DPR )); ph=$(( H * DPR ))
+  echo "  ${pw}x${ph}  portrait   $NAME"
+  render "$W" "$H" "$DPR" "$INSET" "$OUT/${pw}x${ph}.png"
+  # iOS reports a top inset of 0 in landscape on all of these, so the band is
+  # the bare 60 there rather than inset + 60.
+  echo "  ${ph}x${pw}  landscape  $NAME"
+  render "$H" "$W" "$DPR" 0 "$OUT/${ph}x${pw}.png"
 done
 echo
 echo "$(ls -1 "$OUT" | wc -l | tr -d ' ') images in $OUT/"

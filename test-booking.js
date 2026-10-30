@@ -84,6 +84,79 @@ eq('unpinnable input returns null',
    ctx.deepLink([{ from: 'DEN', to: 'IAH', depart: '2027-02-04 10:01', stops: 0 }], 1), null);
 eq('empty input returns null', ctx.deepLink([], 1), null);
 
+
+/* ------------------------------------- a round trip across two airlines
+ *
+ * The defect the owner hit: Book dead-ended on "the itinerary you selected is
+ * no longer available" for one traveller while the other two worked, on fares
+ * an hour old. Southwest out, Delta back.
+ *
+ * Southwest was the obvious suspect and is innocent. Measured across 29 live
+ * Google Flights loads: 9 of 9 same-carrier round trips resolve, 6 of 6 single
+ * legs resolve, 9 of 11 MIXED-carrier round trips dead-end -- including two
+ * oneworld partners -- and the two survivors only resolved as separate tickets
+ * through an OTA. Google will not ticket a pinned round trip it cannot sell as
+ * one, and every trip here is assembled from two independent one-way searches,
+ * so nothing was constraining the carrier to match.
+ *
+ * A dead end is the worst outcome available, because the reader cannot tell a
+ * sold-out fare from a link the app built wrong. */
+console.log('\n-- a trip on two airlines is two tickets --');
+(function () {
+    var seg = function (f, t, c, n, d) {
+        return { from: f, to: t, carrier: c, number: n, date: d };
+    };
+    var wnOut = { from: 'PHL', to: 'LAX', depart: '2026-12-09 06:00', stops: 1,
+        segs: [seg('PHL','STL','WN','3375','2026-12-09'), seg('STL','LAX','WN','4625','2026-12-09')] };
+    var dlBack = { from: 'LAX', to: 'PHL', depart: '2026-12-16 23:56', stops: 1,
+        segs: [seg('LAX','ATL','DL','1150','2026-12-16'), seg('ATL','PHL','DL','2294','2026-12-17')] };
+    var wnBack = { from: 'LAX', to: 'PHL', depart: '2026-12-16 10:00', stops: 1,
+        segs: [seg('LAX','DEN','WN','111','2026-12-16'), seg('DEN','PHL','WN','222','2026-12-16')] };
+    var links = function (opts) {
+        return ctx.tripBookLinks('PHL', 'LAX', '2026-12-09', '2026-12-16', 1, opts, 'Nick');
+    };
+    var pinned = function (l) { return l.url.indexOf('tfs=') > -1; };
+
+    var mixed = links([wnOut, dlBack]);
+    check('the shape that dead-ended gives two links, not one', mixed.length === 2,
+          mixed.map(function (l) { return l.label; }).join(' | '));
+    check('...and both are pinned, so both land on a booking screen',
+          mixed.every(pinned));
+    check('...labelled as the two tickets they are',
+          mixed[0].label === 'Book the way out' && mixed[1].label === 'Book the way home',
+          mixed.map(function (l) { return l.label; }).join(' | '));
+    /* Each half must be a ONE-WAY request. Field 19 is 2 for one-way and 1 for
+     * round trip; pinning half a trip as a round trip is the same bug again. */
+    check('...and each is a one-way request, not half a round trip',
+          mixed.every(function (l) {
+              var tfs = /tfs=([^&]+)/.exec(l.url)[1].replace(/-/g, '+').replace(/_/g, '/');
+              var raw = Buffer.from(tfs + '==='.slice((tfs.length + 3) % 4), 'base64');
+              return raw[raw.length - 1] === 2;
+          }));
+
+    /* Southwest, exonerated. */
+    var wnBoth = links([wnOut, wnBack]);
+    check('Southwest both ways is still one pinned round trip -- WN is innocent',
+          wnBoth.length === 1 && pinned(wnBoth[0]), JSON.stringify(wnBoth.map(function (l) { return l.label; })));
+    check('a one-way trip is one pinned link', links([wnOut]).length === 1
+          && pinned(links([wnOut])[0]));
+
+    /* No segments means nothing can be pinned at all, and the search link is
+     * the honest answer -- it has always worked. */
+    var bare = links([{ from: 'PHL', to: 'LAX', depart: '2026-12-09 06:00', stops: 0, segs: null },
+                      { from: 'LAX', to: 'PHL', depart: '2026-12-16 10:00', stops: 0, segs: null }]);
+    check('no segments falls back to one search link', bare.length === 1 && !pinned(bare[0]),
+          JSON.stringify(bare.map(function (l) { return l.label; })));
+
+    /* The predicate on its own. A single leg flown by two carriers is fine --
+     * what breaks is combining two LEGS that disagree. */
+    check('oneCarrierThroughout is false across a mixed pair',
+          ctx.oneCarrierThroughout([wnOut, dlBack]) === false);
+    check('...true when both legs match', ctx.oneCarrierThroughout([wnOut, wnBack]) === true);
+    check('...and false when a carrier is missing entirely',
+          ctx.oneCarrierThroughout([{ segs: [seg('A','B','','1','2026-01-01')] }]) === false);
+}());
+
 console.log('\n' + (fail ? 'FAILED ' + fail + ' of ' + (pass + fail) : 'ALL ' + pass + ' CHECKS PASSED'));
 
 if (process.argv.indexOf('--live') > -1) {

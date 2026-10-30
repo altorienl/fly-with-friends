@@ -143,7 +143,7 @@ function clock(m) { return FWF.fmtClock(m, SET.time24); }
 /* ------------------------------------------------------------- settings */
 
 function defaults() {
-    return { meId: null, theme: 'system', target: APP.target, priceDisplay: 'allin',
+    return { meId: null, target: APP.target, priceDisplay: 'allin',
              time24: false, bags: { carry_on: 1, checked: 0 } };
 }
 function loadSet() {
@@ -212,34 +212,8 @@ function loadGroup() {
 function forgetGroup() { try { localStorage.removeItem(GROUP_LS); } catch (e) {} }
 function hasGroup() { return !!loadGroup(); }
 
-/* Names the group for the Forget control. Naming them is the point -- it is the
- * only place the saved roster is visible, so it is how somebody finds out it is
- * being kept at all -- but eight names of up to 22 characters would wrap a pill
- * onto four lines, and a wrapped pill reads as a broken pill. Three names and a
- * count stays on one line at 393px and still says whose group it is. */
-function groupNames(roster) {
-    var names = (roster || []).map(function (p, i) { return partyLabel(p, i); });
-    if (names.length <= 4) return names.join(', ');
-    return names.slice(0, 3).join(', ') + ' and ' + (names.length - 3) + ' more';
-}
-
-function applyTheme() {
-    var m = SET.theme;
-    if (m === 'system') {
-        m = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-    }
-    document.documentElement.setAttribute('data-theme', m);
-    /* Not while the launch overlay is up. For those three seconds the status
-     * bar belongs to the splash, which follows the SYSTEM scheme because that
-     * is what iOS chose the launch image from -- and this function follows the
-     * app's theme, which can disagree. It ran a moment after the boot script
-     * had handed the bar to the splash and took it straight back, leaving a
-     * light strip above a near-black splash. The boot script restores the app
-     * colour itself when the overlay fades. */
-    if (document.getElementById('boot')) return;
-    var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', m === 'light' ? '#ece8e1' : '#0f0d0a');
-}
+/* applyTheme() is gone with the second theme. The app is light, the status bar
+ * colour is the masthead, and there is nothing left to decide at runtime. */
 
 /* ---------------------------------------------------------- query model */
 
@@ -3699,6 +3673,33 @@ function pinnable(options) {
     });
 }
 
+/* Google will only resolve a pinned ROUND TRIP against a round trip it can
+ * actually sell. Each person's trip here is assembled from two independent
+ * one-way searches, so the two legs are frequently on different airlines --
+ * and a pinned round trip across two carriers dead-ends on "the itinerary you
+ * selected is no longer available" even though both legs exist and each books
+ * perfectly on its own.
+ *
+ * Measured across 29 live Google Flights loads on two route/date pairs: 9 of 9
+ * same-carrier round trips resolve, 6 of 6 single legs resolve, and 9 of 11
+ * mixed-carrier round trips dead-end -- including two oneworld partners. The
+ * two survivors only resolved as separate tickets through an OTA.
+ *
+ * Southwest was the obvious suspect and is innocent: WN books through a pinned
+ * link one-way, with a connection, overnight, and round trip both ways. It
+ * only ever failed paired with a different carrier, exactly as AA+DL and
+ * DL+AA did. */
+function oneCarrierThroughout(options) {
+    var seen = null;
+    return options.every(function (o) {
+        return (o.segs || []).every(function (sg) {
+            if (!sg || !sg.carrier) return false;
+            if (seen === null) seen = sg.carrier;
+            return sg.carrier === seen;
+        });
+    });
+}
+
 function deepLink(options, seats) {
     if (!pinnable(options)) return null;
     try {
@@ -3714,13 +3715,41 @@ function deepLink(options, seats) {
  * screen for the exact flights this app picked when every segment is pinnable,
  * and degrades to a round-trip search covering both dates when it is not. The
  * card prints the two times either way, so the fallback is still usable. */
-function tripBookUrl(origin, dest, dep, ret, seats, options) {
-    var deep = options && options.length ? deepLink(options, seats) : null;
-    if (deep) return deep;
+/* One link when one link works, two when the trip is honestly two tickets.
+ *
+ * Returns a list so the card can render what is actually true. A trip whose
+ * legs are on different airlines cannot be ticketed as one round trip by
+ * Google, and the old single button pinned it as one anyway and dead-ended --
+ * which is the worst outcome available, because the reader has no way to tell
+ * a sold-out fare from a link the app built wrong. */
+function tripBookLinks(origin, dest, dep, ret, seats, options, name) {
+    var opts = options || [];
+    if (opts.length && (opts.length === 1 || oneCarrierThroughout(opts))) {
+        var one = deepLink(opts, seats);
+        if (one) return [{ label: 'Book ' + name + '\u2019s trip', url: one }];
+    }
+    /* Different airlines out and back. Two pinned one-ways both land on a real
+     * booking screen, where one pinned round trip lands on nothing -- and two
+     * buttons is the truth: it is two tickets. */
+    if (opts.length === 2 && deepLink([opts[0]], seats) && deepLink([opts[1]], seats)) {
+        return [{ label: 'Book the way out', url: deepLink([opts[0]], seats) },
+                { label: 'Book the way home', url: deepLink([opts[1]], seats) }];
+    }
+    return [{ label: 'Find ' + name + '\u2019s trip',
+              url: tripSearchUrl(origin, dest, dep, ret, seats) }];
+}
+
+function tripSearchUrl(origin, dest, dep, ret, seats) {
     var q = 'Flights from ' + origin + ' to ' + dest + ' on ' + dep
         + (ret ? ' returning ' + ret : '')
         + (seats > 1 ? ' ' + seats + ' passengers' : '');
     return 'https://www.google.com/travel/flights?q=' + encodeURIComponent(q);
+}
+
+/* Kept for anything still asking for a single url. */
+function tripBookUrl(origin, dest, dep, ret, seats, options) {
+    return tripBookLinks(origin, dest, dep, ret, seats, options, 'this').url
+        || tripBookLinks(origin, dest, dep, ret, seats, options, 'this')[0].url;
 }
 
 function bookUrl(o, seats) {
@@ -4179,10 +4208,16 @@ function travellerCard(id, i) {
          * Not "departure"/"arrival": both legs have one of each. */
         + hopRow('Depart', o, 'outbound', id, t.seats)
         + (b ? hopRow('Return', b, 'return', id, t.seats) : '')
+        /* One button, or two when the trip is two tickets. See tripBookLinks:
+         * a round trip pinned across two airlines dead-ends on Google, so a
+         * mixed-carrier trip gets the two links that actually resolve. */
         + '<div class="trav-book">'
-        + '<a class="btn primary" style="display:block;text-align:center;text-decoration:none" href="'
-        + esc(tripBookUrl(origin, state.q.dest, state.q.dep, state.q.ret || null, t.seats, chosen))
-        + '" target="_blank" rel="noopener">Book ' + esc(t.name) + '&rsquo;s trip &rarr;</a>'
+        + tripBookLinks(origin, state.q.dest, state.q.dep, state.q.ret || null,
+                        t.seats, chosen, t.name).map(function (lk) {
+            return '<a class="btn primary" style="display:block;text-align:center;'
+                + 'text-decoration:none" href="' + esc(lk.url)
+                + '" target="_blank" rel="noopener">' + esc(lk.label) + ' &rarr;</a>';
+        }).join('')
         + control
         + '</div></div></div>';
 }
@@ -4880,12 +4915,6 @@ function settingsSheet() {
         + pill(!SET.meId, 'meId', '', 'Not set')
         + '</div></div>'
 
-        + '<div class="grp"><span class="k">Theme</span><div class="pills">'
-        + pill(SET.theme === 'dark', 'theme', 'dark', 'Dark')
-        + pill(SET.theme === 'light', 'theme', 'light', 'Light')
-        + pill(SET.theme === 'system', 'theme', 'system', 'System')
-        + '</div></div>'
-
         /* "Landing window" + "The window everyone has to land inside for the trip
          * to count as working" is the app's own word twice and its own scoring
          * once. "Land within: 30 min" is the whole setting. */
@@ -5074,7 +5103,6 @@ document.addEventListener('click', function (ev) {
         else if (key === 'time24') val = val === '24';
         else if (key === 'meId' && val === '') val = null;
         SET[key] = val; saveSet();
-        if (key === 'theme') applyTheme();
         thReset();
         settingsSheet(); render();
     } else if (t.hasAttribute('data-bag')) {
@@ -5496,12 +5524,6 @@ document.addEventListener('click', function (ev) {
     if (pre) setBand(pre.from, pre.to);
 });
 
-if (window.matchMedia) {
-    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function () {
-        if (SET.theme === 'system') applyTheme();
-    });
-}
-
 /* What makes the trip a living document rather than a stored one, and the whole
  * reason it is worth coming back to: somebody who switches back to this tab,
  * or re-opens the app from the home screen, sees what the group did while they
@@ -5514,7 +5536,6 @@ document.addEventListener('visibilitychange', function () {
 /* ----------------------------------------------------------------- boot */
 
 SET = loadSet();
-applyTheme();
 
 var sharedId = tripIdFromUrl();
 var shared = readHash();
