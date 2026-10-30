@@ -234,12 +234,14 @@ check('...and 180 of its 200 an hour',
   planCaps({ perMonth: 1000, hourLimit: 200 }).hourly === 180);
 check('the hourly cap follows the plan too, not a constant',
   planCaps({ perMonth: 250, hourLimit: 50 }).hourly === 45);
-/* One day must not be able to eat the month. */
-check('a day is a fraction of the month, never all of it',
-  planCaps({ perMonth: 1000, hourLimit: 200 }).daily === 380);
-check('and never less than the free-tier floor',
-  planCaps({ perMonth: 250, hourLimit: 50 }).daily === LIMITS.daily,
-  'got ' + planCaps({ perMonth: 250, hourLimit: 50 }).daily);
+/* There is no daily cap, by instruction and on the merits: the provider
+ * refuses rather than billing for overage, so spending the month quickly costs
+ * nothing but having spent it, and the only thing a daily cap bought was
+ * telling a real group "come back tomorrow" on the day they were planning. */
+check('no daily cap is reported at all',
+  planCaps({ perMonth: 1000, hourLimit: 200 }).daily === undefined
+  && LIMITS.daily === undefined,
+  JSON.stringify(planCaps({ perMonth: 1000, hourLimit: 200 })));
 /* No account call, a failed one, or a nonsense one: fall back to the floor.
  * Spending less than allowed costs a search; spending more costs a group their
  * trip mid-search. */
@@ -247,12 +249,12 @@ check('and never less than the free-tier floor',
   const c = planCaps(a);
   check('  unreadable account #' + (i + 1) + ' falls back to the free-tier floor',
     c.monthly === LIMITS.monthly && c.hourly === LIMITS.globalHourly
-    && c.daily === LIMITS.daily, JSON.stringify(c));
+    && c.daily === undefined, JSON.stringify(c));
 });
 check('every cap it reports is a whole number of searches',
   [250, 1000, 5000].every(m => {
     const c = planCaps({ perMonth: m, hourLimit: 200 });
-    return Number.isInteger(c.monthly) && Number.isInteger(c.daily) && Number.isInteger(c.hourly);
+    return Number.isInteger(c.monthly) && Number.isInteger(c.hourly);
   }));
 /* And it must always leave the provider some room, because their counter is the
  * one that refuses and ours can be low. */
@@ -337,23 +339,29 @@ check('...and costs 21 KV writes (16 cache + 4 counters + 1 provider snapshot)',
  * a day would overtake SerpApi and become the real limit. Stated per plan so
  * the next upgrade has the number in front of it rather than finding out. */
 (function () {
-  const tripsByWrites = Math.floor(1000 / coldWrites);        // Cloudflare KV, free plan
-  const tripsOnFree = Math.floor(planCaps({ perMonth: 250, hourLimit: 50 }).daily / 16);
-  const tripsOnPaid = Math.floor(planCaps({ perMonth: 1000, hourLimit: 200 }).daily / 16);
-  check('an 8-party round trip costs 21 KV writes, so 47 of them a day fit the '
-    + 'free KV ceiling', tripsByWrites === 47, 'got ' + tripsByWrites);
-  check('on the free search tier 7 trips a day bind first -- searches, by 7x',
-    tripsOnFree === 7 && tripsOnFree < tripsByWrites,
-    'searches allow ' + tripsOnFree + ', writes allow ' + tripsByWrites);
-  check('on the $25 tier 23 a day bind first -- still searches, but only by 2x',
-    tripsOnPaid === 23 && tripsOnPaid < tripsByWrites,
-    'searches allow ' + tripsOnPaid + ', writes allow ' + tripsByWrites);
+  /* With no daily cap the two ceilings are in different units, which is
+   * clearer than it was: KV writes bound a DAY and are the same on every plan,
+   * and searches bound a MONTH and move with the plan. */
+  const tripsPerDay = Math.floor(1000 / coldWrites);                 // Cloudflare KV, free plan
+  const perMonthFree = Math.floor(planCaps({ perMonth: 250, hourLimit: 50 }).monthly / 16);
+  const perMonthPaid = Math.floor(planCaps({ perMonth: 1000, hourLimit: 200 }).monthly / 16);
+  check('an 8-party round trip costs 21 KV writes, so 47 a day fit the free KV ceiling',
+    tripsPerDay === 47, 'got ' + tripsPerDay);
+  check('the free search tier is 14 such trips a MONTH', perMonthFree === 14,
+    'got ' + perMonthFree);
+  check('the $25 tier is 59 a month', perMonthPaid === 59, 'got ' + perMonthPaid);
+  /* So the month still runs out long before any single day could hit KV --
+   * which is what makes removing the daily cap safe rather than merely
+   * permitted. */
+  check('the month runs out before a day can hit the write ceiling',
+    perMonthPaid < tripsPerDay * 28,
+    perMonthPaid + ' a month vs ' + tripsPerDay + ' a day');
   /* The one that matters next: the KV write ceiling is NOT derived from
    * anything and will not move on its own when the search plan does. */
-  check('a 5,000-search plan would be bounded by KV writes, not by searches',
-    Math.floor(planCaps({ perMonth: 5000, hourLimit: 1000 }).daily / 16) > tripsByWrites,
-    'searches would allow '
-      + Math.floor(planCaps({ perMonth: 5000, hourLimit: 1000 }).daily / 16));
+  check('a 5,000-search plan could exceed the write ceiling on a heavy day',
+    Math.floor(planCaps({ perMonth: 5000, hourLimit: 1000 }).monthly / 16) > tripsPerDay,
+    'would allow ' + Math.floor(planCaps({ perMonth: 5000, hourLimit: 1000 }).monthly / 16)
+      + ' a month against ' + tripsPerDay + ' a day');
 }());
 
 /* The same request again: the cache is the product. */

@@ -26,6 +26,14 @@ const LIMITS = {
    *
    * What remains is only what cannot be wished away:
    *   - monthly is the provider's actual allowance. SerpApi simply stops at it.
+   *
+   * There is no daily cap. There was one, and it was the wrong shape: the
+   * provider does not bill for overage, it refuses, so spending a month's
+   * allowance quickly costs nothing except having spent it. The only thing a
+   * daily cap bought was telling a real group "come back tomorrow" on the one
+   * day they were actually planning a trip, which is the worst day to say it.
+   * "any use is good use" -- so the month is the month, and it is the owner's
+   * to spend however fast it goes.
    *   - globalHourly is a runaway brake, set far above any human session, so a
    *     script cannot convert the whole month into one minute before anyone
    *     notices. It is deliberately generous: a burst it blocks is a burst no
@@ -37,11 +45,9 @@ const LIMITS = {
    * line and redeploy. These apply when the account call fails, which is the
    * safe direction to be wrong in. */
   monthly: 230,      // of the free tier's 250, leaving headroom for manual scans
-  daily: 120,
   globalHourly: 60,
   planHeadroom: 0.95,   // of the plan's monthly allowance
   hourHeadroom: 0.9,    // of the plan's hourly throughput
-  dailyShare: 0.4,      // so one day cannot eat the month
   perIpRequestsHourly: 240,   // anti-script only; ~40 group searches an hour
   perIpTripWrites: 40,
 
@@ -483,7 +489,6 @@ function planCaps(acct) {
   const monthly = perMonth ? Math.floor(perMonth * LIMITS.planHeadroom) : LIMITS.monthly;
   return {
     monthly: monthly,
-    daily: Math.max(LIMITS.daily, Math.floor(monthly * LIMITS.dailyShare)),
     hourly: perHour ? Math.floor(perHour * LIMITS.hourHeadroom) : LIMITS.globalHourly,
   };
 }
@@ -667,7 +672,9 @@ async function handleSearch(request, env) {
 
   const caps = planCaps(acct);
   const budget = {
-    used, limit: caps.monthly, usedToday, dailyLimit: caps.daily,
+    /* usedToday is reported, not enforced: it is the number that tells you
+     * whether something is running away, and nothing refuses on it. */
+    used, limit: caps.monthly, usedToday,
     resetsAt: monthResetsAt(), wouldSpend: toSpend,
     /* The provider's own figure, next to ours. When these disagree, ours is the
      * one that is wrong -- see the note on PROVIDER_SNAPSHOT. */
@@ -694,11 +701,11 @@ async function handleSearch(request, env) {
       + 'Shared links and recent searches still work, and it resets on ' + budget.resetsAt + '.',
       budget, exhausted: 'month' }, 429);
   }
-  if (toSpend > 0 && usedToday + toSpend > caps.daily) {
-    return json({ error: 'Fly with Friends has used today\'s flight-data allowance. '
-      + 'Shared links and recent searches still work, and more is available tomorrow.',
-      budget, exhausted: 'day' }, 429);
-  }
+  /* The hourly brake stays, and it is not a quota. It is set far above any
+   * human session so that a script cannot convert a whole month into one
+   * minute before anybody notices -- a burst it blocks is a burst no group of
+   * friends could produce. Removing it would not give a real group anything,
+   * and would hand a runaway loop the entire allowance. */
   if (toSpend > 0 && usedHour + toSpend > caps.hourly) {
     return json({ error: 'Unusually heavy traffic in the last hour, so searching is '
       + 'briefly paused to protect the allowance. Shared links still work.',
@@ -1076,7 +1083,7 @@ export default {
        * -- understating the allowance, which is the harmless direction. */
       const caps = planCaps(snap);
       return new Response(JSON.stringify({ used, limit: caps.monthly, usedToday,
-          dailyLimit: caps.daily, resetsAt: monthResetsAt(),
+          resetsAt: monthResetsAt(),
           providerUsed: snap && isFinite(snap.used) ? snap.used : null,
           providerLeft, providerAt: (snap && snap.at) || null,
           low: used > caps.monthly * 0.8

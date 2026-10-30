@@ -898,6 +898,12 @@ function attachAc(input, drop, onPick, opts) {
         var a = matches[i];
         if (!a) return;
         close();
+        /* The choice is made, so the keyboard has nothing left to type into --
+         * and on iOS it stays up until something blurs, covering half the
+         * screen and the confirmation line that says which airport was picked.
+         * Before onPick, because onPick can move focus itself and blurring
+         * afterwards would take that focus away again. */
+        if (input && input.blur) input.blur();
         onPick(a);
     }
 
