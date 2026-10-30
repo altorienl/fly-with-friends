@@ -87,3 +87,35 @@ check('cleared list avoids nothing', !ctx.isAvoided('United'));
 
 console.log('\n' + (fail ? 'FAILED ' + fail + ' of ' + (pass + fail) : 'ALL ' + pass + ' CHECKS PASSED'));
 process.exitCode = fail ? 1 : 0;
+
+/* ---- budget-carrier classification -------------------------------------
+ * Not a taste judgement: these carriers exclude a carry-on, a seat and any
+ * change from the headline fare, so the number is not comparable. Southwest is
+ * deliberately NOT one of them -- it includes two checked bags, so its fare is
+ * comparable to a mainline fare. Getting that wrong would penalise the one
+ * cheap carrier whose price is honest. */
+(function () {
+    var src2 = fs.readFileSync(__dirname + '/app.js', 'utf8');
+    var a = src2.indexOf('/* Ultra-low-cost carriers.');
+    var b = src2.indexOf('var ALLIANCE_OF = {};');
+    if (a < 0 || b < 0) { console.log('\n  FAIL  could not locate ULCC block'); process.exitCode = 1; return; }
+    var c2 = { normAirline: ctx.normAirline };
+    vm.createContext(c2);
+    vm.runInContext(src2.slice(a, b), c2);
+
+    console.log('\n-- budget carriers --');
+    [['Frontier', true], ['Spirit', true], ['Allegiant', true], ['Ryanair', true],
+     ['Southwest', false], ['Delta', false], ['United', false], ['American', false],
+     ['JetBlue', false], ['Alaska', false]
+    ].forEach(function (t) {
+        var got = c2.isUlcc({ airlines: [t[0]] });
+        console.log((got === t[1] ? '  PASS  ' : '  FAIL  ') + t[0] + ' budget=' + got);
+        if (got !== t[1]) process.exitCode = 1;
+    });
+    var mixed = c2.isUlcc({ airlines: ['Delta', 'Frontier'] });
+    console.log((mixed ? '  PASS  ' : '  FAIL  ') + 'any budget segment taints the itinerary');
+    if (!mixed) process.exitCode = 1;
+    var none = c2.isUlcc({ airlines: [] });
+    console.log((!none ? '  PASS  ' : '  FAIL  ') + 'no airline data is not treated as budget');
+    if (none) process.exitCode = 1;
+})();

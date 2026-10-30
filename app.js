@@ -225,6 +225,30 @@ function compute(leg) {
             else { blocked.push({ id: id, rule: 'airline' }); kept = []; }
         }
 
+        /* A budget fare has to actually be a bargain. If Frontier is $8 under
+         * Delta it is not cheaper, it is the same price without a bag, a seat
+         * or a rebooking -- and picking it is how the app ends up recommending
+         * the flight people dread. So a budget option must beat the best
+         * mainline option by a real margin or it is dropped. Only applied when
+         * a mainline option exists: on routes only a budget carrier flies, the
+         * choice is that or nothing. */
+        if (kept.length) {
+            var mainline = kept.filter(function (o) { return !isUlcc(o); });
+            if (mainline.length) {
+                var bestMain = null;
+                mainline.forEach(function (o) {
+                    var c = costFn(o, id);
+                    if (bestMain === null || c < bestMain) bestMain = c;
+                });
+                var seatsOfParty = Math.max(1, (tv.filter(function (z) { return z.id === id; })[0] || {}).seats || 1);
+                var margin = Math.max(40 * seatsOfParty, bestMain * 0.18);
+                var worthIt = kept.filter(function (o) {
+                    return !isUlcc(o) || costFn(o, id) <= bestMain - margin;
+                });
+                if (worthIt.length) kept = worthIt;
+            }
+        }
+
         /* A 7h18m one-stop beating a 2h43m nonstop because it saved $45 is the
          * kind of answer that loses a user permanently. Duration only ever broke
          * exact price ties, which never happens, so it was effectively ignored. */
@@ -792,10 +816,17 @@ function tripLadder() {
         var total = 0, worst = 0, ok = true, per = {};
         var reg = { stops: 0, mins: 0, who: null }, conn = {};
         ctxs.forEach(function (c) {
-            var r = FWF.minCostAtWindow(c.prep, T, c.costFn);
+            /* The way home is unclustered by default, and the plan on screen
+             * renders it that way -- so pricing it inside the window quoted a
+             * trip nobody was being shown. The per-person cards summed to $23
+             * less than the headline because of exactly this. Its spread is
+             * excluded too: an eleven-hour spread on a leg we are deliberately
+             * not clustering would otherwise dominate every row's "apart". */
+            var loose = c.leg === 'return' && !state.q.clusterReturn;
+            var r = FWF.minCostAtWindow(c.prep, loose ? FWF.INF : T, c.costFn);
             if (!r) { ok = false; return; }
             total += r.cost;
-            worst = Math.max(worst, r.spread);
+            if (!loose) worst = Math.max(worst, r.spread);
             var g = regretOf(c, r.picks);
             if (g.stops > reg.stops) { reg.stops = g.stops; reg.who = g.who; }
             if (g.mins > reg.mins) { reg.mins = g.mins; if (!reg.who) reg.who = g.who; }
@@ -954,26 +985,6 @@ function tripTotal() {
     };
 }
 
-function renderTripTotal() {
-    var host = el('tripTotal');
-    var t = tripTotal();
-    if (!t) { host.className = 'trip hidden'; return; }
-    TRIP = t;
-    host.className = 'trip';
-    host.innerHTML = '<div class="trip-k">Everyone, '
-        + (t.back == null ? 'one way' : 'round trip')
-        + (SET.priceDisplay === 'fare' ? ' · fares only' : ' · incl. bags') + '</div>'
-        /* One number. Splitting it by leg invited people to shop the legs
-         * separately, which is the opposite of the job: the optimiser is
-         * already free to change carrier or time on either leg to make the
-         * whole trip work, so the per-leg figures are an implementation
-         * detail, not a decision anybody makes. */
-        + '<div class="trip-v mono">' + money(t.total) + '</div>'
-        + (!t.allClustered
-            ? '<div class="trip-split" style="color:var(--bad)">Includes everyone, but not everyone is inside the window — see below.</div>'
-            : '');
-}
-
 function render() {
     C = compute();
     renderNotices();
@@ -995,7 +1006,10 @@ function render() {
         else if (C.ladder) thSet(recommendedIn(C));
     }
     renderResHead();
-    renderTripTotal();
+    /* The plan is rendered from TRIP, so it still has to be computed -- it just
+     * no longer prints a panel of its own. */
+    TRIP = tripTotal();
+    if (!TRIP) { el('planView').innerHTML = ''; return; }
     renderChoices();
     renderStopPills();
     renderPlanView();
@@ -1375,6 +1389,27 @@ var ALLIANCES = [
 function normAirline(n) {
     return String(n == null ? '' : n).toLowerCase().replace(/[^a-z0-9]/g, '')
         .replace(/(airlines|airways|airline|airlrs)$/, '');
+}
+
+/* Ultra-low-cost carriers. These are not a taste judgement -- their fares are
+ * not comparable to a mainline fare at the same number, because they exclude a
+ * carry-on, a seat assignment, and any change or cancellation. Google reports
+ * the base fare, so a Frontier row looks cheapest right up until the group
+ * reaches the airport with bags.
+ *
+ * allInCost already adds a carry-on fee when the data says one is not included,
+ * but that data is free text and frequently absent, so it corrects only some of
+ * the gap. The rest is handled by requiring a real saving before one of these is
+ * offered at all -- see the margin rule in compute(). */
+var ULCC = {};
+['Frontier', 'Spirit', 'Allegiant', 'Ryanair', 'Wizz Air', 'Play', 'Norse Atlantic',
+ 'VivaAerobus', 'Volaris', 'Jetstar', 'Scoot', 'Sun Country', 'Avelo', 'Breeze'
+].forEach(function (n) { ULCC[normAirline(n)] = true; });
+function isUlcc(option) {
+    var names = (option && option.airlines) || [];
+    /* Any segment on a budget carrier makes the whole itinerary one. */
+    for (var i = 0; i < names.length; i++) if (ULCC[normAirline(names[i])]) return true;
+    return false;
 }
 
 var ALLIANCE_OF = {};
@@ -1795,12 +1830,15 @@ function renderPlanView() {
      * headline read "7h 25m apart" about a 20-minute arrival. */
     var worst = TRIP.legOut ? TRIP.legOut.spread : 0;
     if (TRIP.legBack && state.q.clusterReturn) worst = Math.max(worst, TRIP.legBack.spread);
+    /* Only speak up when something is wrong. "everyone together" was a vaguer
+     * restatement of the "all within 20m" line directly beneath it, so it was
+     * one more thing to read that said less. */
     var verdict = !TRIP.allClustered ? 'not everyone fits'
-        : worst <= 90 ? 'everyone together'
-        : 'everyone on the same day, but ' + FWF.fmtGap(worst) + ' apart';
+        : worst > 90 ? 'same day, but ' + FWF.fmtGap(worst) + ' apart'
+        : '';
     var html = '<div class="plan-head"><div class="t">The plan</div>'
-        + '<div class="s' + (TRIP.allClustered && worst > 90 ? ' warnish' : '') + '">'
-        + esc(verdict) + '</div></div>';
+        + (verdict ? '<div class="s warnish">' + esc(verdict) + '</div>' : '')
+        + '</div>';
 
     html += windowStrip('outbound', TRIP.legOut, 'Landing together');
     /* "Leaving together" over flights eleven hours apart is a lie. The heading
@@ -1811,11 +1849,6 @@ function renderPlanView() {
     }
 
     html += C.ids.map(travellerCard).join('');
-
-    html += '<div class="total"><span class="k">Everyone, '
-        + (TRIP.back != null ? 'round trip' : 'one way')
-        + (SET.priceDisplay === 'fare' ? ' · fares only' : ' · incl. bags') + '</span>'
-        + '<span class="v mono">' + money(TRIP.total) + '</span></div>';
 
     host.innerHTML = html;
 }
