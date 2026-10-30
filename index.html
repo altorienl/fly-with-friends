@@ -744,11 +744,18 @@ a { color: var(--accent); }
 
 /* Changing where everyone is going: the city in the title is the control.
  * The dotted rule marks exactly the word that can change and stops at it, so
- * the seat count and the dates stay plainly what they are. No caption -- an
- * underlined word in a title is already the oldest "this one is editable"
- * idiom there is, and a sentence explaining it would be louder than the
- * control. The hit box is grown by a pseudo-element the way .gear does it:
- * 44px under the thumb, nothing added to the eye. */
+ * the seat count and the dates stay plainly what they are.
+ *
+ * It used to carry no caption, on the argument that an underlined word in a
+ * title is the oldest "this one is editable" idiom there is and a sentence
+ * explaining it would be louder than the control. That argument lost to use:
+ * "no one will know how to work this or what they re lookign at first run".
+ * An idiom only works on somebody who already knows it, and the first run is
+ * exactly the case where nobody does. So the word is there now -- one word,
+ * inside the same button, at caption size.
+ *
+ * The hit box is grown by a pseudo-element the way .gear does it: 44px under
+ * the thumb, nothing added to the eye. */
 .dest-btn {
     position: relative; font: inherit; letter-spacing: inherit; color: inherit;
     padding: 0; border: 0; background: none; vertical-align: baseline;
@@ -756,7 +763,15 @@ a { color: var(--accent); }
     text-decoration-thickness: 1px; text-underline-offset: 4px;
 }
 .dest-btn::after { content: ''; position: absolute; left: -6px; right: -6px; top: 50%; height: 44px; transform: translateY(-50%); }
+/* inline-block, not inline: text-decoration propagates from the ancestor that
+   set it and a descendant cannot switch it off, so the dotted rule marking the
+   editable word ran under "Edit" too. An inline-block starts its own
+   decoration context, which is the only way to end it. */
+.dest-edit { display: inline-block; font-size: var(--t-1); font-weight: 500;
+    color: var(--muted); margin-left: 6px; text-decoration: none;
+    vertical-align: 1px; }
 .dest-btn:active { color: var(--accent); }
+.dest-btn:active .dest-edit { color: var(--accent); }
 .dest-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 3px; }
 /* Positioning context for the suggestions, which hang below the field and span
  * the rest of the header row. */
@@ -947,10 +962,24 @@ a { color: var(--accent); }
 .tst-line { font-size: var(--t-3); color: var(--muted); line-height: var(--lh-text); }
 .tst-line b { font-weight: 600; color: var(--text); }
 .opts { margin-top: var(--s5); border-top: 1px solid var(--edge); }
-.opts > summary { padding: var(--s4) 0; font-size: var(--t-3); font-weight: 500; color: var(--muted); cursor: pointer; list-style: none; }
+/* A control, shaped like one. It was muted text with a small caret, which on a
+   page of muted captions reads as another caption -- "lets make the adjust to
+   search more recognizable so people can see it". It is now the pill the rest
+   of this screen already uses for things you tap, at full text colour.
+   Deliberately not animated: the owner floated a periodic jump, and an element
+   that moves on its own while somebody is reading prices is the thing that
+   makes an app feel like it is selling to you. Shape and contrast do the same
+   job and stay done. Not amber either -- there is one amber thing on the
+   screen and it is the action that leaves it. */
+.opts > summary { display: inline-flex; align-items: center; gap: 6px;
+    margin: var(--s3) 0; padding: var(--s2) var(--s3);
+    border: 1px solid var(--edge-2); border-radius: var(--r-pill);
+    background: var(--card);
+    font-size: var(--t-3); font-weight: 500; color: var(--text);
+    cursor: pointer; list-style: none; }
 .opts > summary::-webkit-details-marker { display: none; }
-.opts > summary::after { content: ' ▾'; color: var(--faint); }
-.opts[open] > summary::after { content: ' ▴'; }
+.opts > summary::after { content: '▾'; color: var(--muted); }
+.opts[open] > summary::after { content: '▴'; }
 .opts > .filters { margin: 0; }
 .leg-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--edge); }
 .leg-head h2 { font-size: var(--t-5); font-weight: 600; letter-spacing: var(--tr-5); }
@@ -1409,13 +1438,18 @@ footer .sep { color: var(--faint); margin: 0 8px; }
         <div class="step-head">
             <h2 id="h-s2">When?</h2>
         </div>
+        <!-- No "Dates" label here. The heading directly above is "When?", so a
+             label saying Dates and a placeholder asking "When are you going?"
+             were the same question a third and a second time -- "feels like its
+             asking the same question twice". Step 3 goes straight from its
+             heading to its content for the same reason; Stops below keeps its
+             label because the heading does not say Stops. -->
         <div class="field">
-            <span class="k">Dates</span>
             <button class="datefield" id="dateBtn" aria-haspopup="dialog" aria-expanded="false">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
                     <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/>
                 </svg>
-                <span id="dateLabel">When are you going?</span>
+                <span id="dateLabel">Add dates</span>
                 <span class="caret" aria-hidden="true">▾</span>
             </button>
             <input type="hidden" id="dep"><input type="hidden" id="ret">

@@ -3121,7 +3121,17 @@ function renderResHead() {
      * a tap that leads nowhere is worse than no tap at all. */
     el('resT').innerHTML = (canRetarget()
             ? '<button class="dest-btn" id="destBtn" aria-label="Change destination, currently '
-                + esc(city) + '">' + esc(city) + '</button>'
+                + esc(city) + '">' + esc(city)
+                /* The word, because the dotted rule did not carry it. "no one
+                 * will know how to work this or what they re lookign at first
+                 * run" -- and a dotted underline is an idiom you have to
+                 * already know. Inside the button, so the label and the thing
+                 * it labels are one target rather than a hint next to a
+                 * mystery. aria-hidden: the button's own label already says
+                 * "Change destination", and a screen reader reading "Cancun
+                 * Edit, Change destination, currently Cancun" is the same
+                 * instruction three times. */
+                + '<span class="dest-edit" aria-hidden="true">Edit</span></button>'
             : esc(city))
         /* British spelling in the one place the app counts people, next to an
          * en-dash date range and a dollar total. "people" needs no spelling
@@ -3338,9 +3348,6 @@ function renderAirlinePills() {
     if (carriers.length < 2) { host.className = 'pills airlines hidden'; return; }
     host.className = 'pills airlines';
 
-    var present = {};
-    carriers.forEach(function (c) { if (c.alliance) present[c.alliance] = true; });
-    var shown = ALLIANCES.filter(function (a) { return present[a.k]; });
     var avoiding = (state.q.avoid || []).length;
 
     host.innerHTML = '<span class="k">Airlines</span>'
@@ -3360,41 +3367,22 @@ function renderAirlinePills() {
                 + esc(c.name) + '<span class="air-n">' + c.n + '</span></button>';
         }).join('')
         + '</div>'
-        /* Alliances, because "only the one I have status with" is the common
-         * version of this request and naming twenty carriers by hand is not a
-         * thing anybody will do on a phone. */
-        + (shown.length ? '<div class="air-row alli">'
-            + shown.map(function (a) {
-                /* One bubble, two targets. The ? used to sit outside as its own
-                 * circle, which made three alliances read as six controls. It
-                 * cannot be a button inside a button, so the bubble is a span
-                 * and both halves are buttons within it. */
-                return '<span class="alli-g">'
-                    + '<button class="alli-b" data-alli="' + a.k + '">Only ' + esc(a.name) + '</button>'
-                    + '<button class="qm" data-qm="' + a.k + '" aria-expanded="false"'
-                    + ' aria-label="Which airlines are in ' + esc(a.name) + '">?</button>'
-                    + '</span>';
-            }).join('')
-            + (avoiding ? '<button class="pill alli-b clear" data-air-clear="1">Allow all</button>' : '')
-            + '</div>'
-            + shown.map(function (a) {
-                /* Membership moves between alliances, so this prints what we
-                 * actually believe rather than asking anyone to trust it. The
-                 * ones on this route are marked; the rest are context. */
-                return '<div class="qm-pop hidden" id="qm-' + a.k + '">'
-                    + '<b>' + esc(a.name) + '</b>'
-                    + '<div class="qm-list">' + a.members.map(function (m) {
-                        var here = carriers.filter(function (c) { return c.key === normAirline(m); }).length > 0;
-                        return '<span' + (here ? ' class="here"' : '') + '>' + esc(m) + '</span>';
-                    }).join('') + '</div>'
-                    /* The second sentence explained what the button next to it
-                     * already says. "Only Star Alliance" is not ambiguous. */
-                    + '<div class="qm-f">Bold carriers fly this route.</div></div>';
-            }).join('')
-            : (avoiding ? '<div class="air-row alli">'
-                + '<button class="pill alli-b clear" data-air-clear="1">Allow all</button></div>' : ''));
+        /* The only other control this needs is the way back. Three "Only Star
+         * Alliance / Only SkyTeam / Only oneworld" bubbles used to sit here,
+         * each with a "?" that opened a membership list -- six targets and three
+         * popovers for a question nobody on this screen was asking. Taking out
+         * one airline you will not fly is the request people actually have, and
+         * the pills above already are that: one tap, by name, with the number
+         * of options it costs printed on it.
+         *
+         * ALLIANCES and allianceOf() stay. The membership is curated and
+         * asserted in test-airlines.js -- SAS moved to SkyTeam in September
+         * 2024, Alaska is oneworld -- and test-pruning.js slices app.js on it.
+         * Deleting verified data to remove a control is how the control comes
+         * back later with wrong answers in it. */
+        + (avoiding ? '<div class="air-row">'
+            + '<button class="pill clear" data-air-clear="1">Allow all</button></div>' : '');
 }
-
 
 function seatsOf(ids) {
     return (ids || []).reduce(function (n, id) {
@@ -3983,9 +3971,24 @@ function windowStrip(leg, b, label) {
     var hero = leg === 'outbound';
     /* On the unclustered leg the spread is an outcome, not a target, so it is
      * reported without implying we aimed for it. */
-    var measure = loose ? gapWords(b.spread) + ' apart'
-        : allIn ? withinEachOther(b.spread)
-        : seatsOf(included) + ' of ' + seatsAll() + ' within ' + gapWords(b.spread);
+    /* The number, not a sentence containing it.
+     *
+     * This was "everyone within 1 hour 13 minutes of each other" set at display
+     * size, which wrapped onto two lines and read as a claim rather than as a
+     * figure -- "its hard to find the time it takes to land everyone together
+     * like the problem we are trying to solve just looks like a statement".
+     * It is the one number the whole product exists to produce, and it was the
+     * hardest thing on the screen to pick out.
+     *
+     * fmtGap, not gapWords: "1h 13m" is the form the chooser rows directly
+     * above already use, so the screen states the gap one way rather than two,
+     * and a short string at --t-6 lands on one line. The sentence survives
+     * where a sentence belongs -- legLines, for pasting into a group chat.
+     *
+     * "of each other" is carried by the dots underneath: two marks on a line
+     * with a span drawn between them is what "apart" means. */
+    var measure = (allIn ? '' : seatsOf(included) + ' of ' + seatsAll() + ' \u00b7 ')
+        + FWF.fmtGap(b.spread) + ' apart';
     /* "N paid $92 more than flying whenever they liked" used to sit here, under
      * the hero, as its caption. It was the sentence no other product could
      * write -- and it was still a sentence, under a headline, above a timeline,
@@ -4949,8 +4952,8 @@ document.addEventListener('click', function (ev) {
 
     var t = tgt.closest && tgt.closest('[data-threshold],[data-set],[data-bag],'
         + '[data-stops],[data-match],[data-clusterback],[data-seats],'
-        + '[data-rmparty],[data-addair],[data-rmair],[data-air],[data-alli],'
-        + '[data-air-clear],[data-qm]');
+        + '[data-rmparty],[data-addair],[data-rmair],[data-air],'
+        + '[data-air-clear]');
     if (!t) return;
     var card = t.closest('.party');
     var p = card ? party(card.getAttribute('data-pid')) : null;
@@ -4991,31 +4994,9 @@ document.addEventListener('click', function (ev) {
         var at = state.q.avoid.indexOf(key);
         if (at > -1) state.q.avoid.splice(at, 1); else state.q.avoid.push(key);
         thReset(); writeHash(); render();
-    } else if (t.hasAttribute('data-alli')) {
-        /* "Only this alliance" = avoid every carrier on the route outside it.
-         * Expressed as exclusions so there is one mechanism to reason about,
-         * and so a carrier that appears later is not silently let in. */
-        var want = t.getAttribute('data-alli');
-        state.q.avoid = carriersInResults()
-            .filter(function (c) { return c.alliance !== want; })
-            .map(function (c) { return c.key; });
-        thReset(); writeHash(); render();
     } else if (t.hasAttribute('data-air-clear')) {
         state.q.avoid = [];
         thReset(); writeHash(); render();
-    } else if (t.hasAttribute('data-qm')) {
-        var pop = el('qm-' + t.getAttribute('data-qm'));
-        if (pop) {
-            var open = pop.className.indexOf('hidden') > -1;
-            /* One open at a time: these are tall on a phone. */
-            Array.prototype.forEach.call(document.querySelectorAll('.qm-pop'), function (x) {
-                x.className = 'qm-pop hidden';
-            });
-            Array.prototype.forEach.call(document.querySelectorAll('.qm'), function (x) {
-                x.setAttribute('aria-expanded', 'false');
-            });
-            if (open) { pop.className = 'qm-pop'; t.setAttribute('aria-expanded', 'true'); }
-        }
     } else if (t.hasAttribute('data-threshold')) {
         var v = t.getAttribute('data-threshold');
         var sect = t.closest('.leg');
@@ -5198,10 +5179,11 @@ function renderCal() {
         body = '<div class="cal-months' + (n === 2 ? ' two' : '') + '">' + months + '</div>';
     }
 
-    /* Two states, not three. The third used to repeat the range that the
-     * trigger button directly above already shows, and the second repeated the
-     * one-way advice that #s2sub already gives -- at 393px that spilled onto
-     * three lines and pushed the footer taller than the row of actions. */
+    /* Two states, not three, and neither is a restatement: which END you are
+     * picking is the one thing this footer knows that nothing else on the
+     * screen does. The third state used to repeat the range the trigger button
+     * directly above already shows, which at 393px spilled onto three lines and
+     * pushed the footer taller than the row of actions. */
     var hint = calView === 'months' ? ''
         : !state.q.dep ? 'Pick the day you fly out'
         : !state.q.ret ? 'Now pick the return' : '';
@@ -5236,7 +5218,8 @@ function calFocusDay(from, delta) {
 
 function setDateLabel() {
     var b = el('dateBtn'), l = el('dateLabel');
-    if (!state.q.dep) { b.className = 'datefield empty'; l.textContent = 'When are you going?'; return; }
+    /* An action, not the heading restated. "When?" is directly above it. */
+    if (!state.q.dep) { b.className = 'datefield empty'; l.textContent = 'Add dates'; return; }
     b.className = 'datefield';
     l.textContent = prettyRange(state.q.dep, state.q.ret);
 }
