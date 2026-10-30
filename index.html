@@ -1136,19 +1136,17 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
     <section id="s1" tabindex="-1" aria-labelledby="h-s1">
         <div class="step-head">
             <h2 id="h-s1">Everyone lands together</h2>
-            <p>Friends in different cities, one destination. This finds the flights that put
-               you all on the ground within minutes of each other, and tells you what that
-               costs compared with everyone booking separately.</p>
+            <p>Friends in different cities, one destination.</p>
         </div>
         <div class="field">
             <label class="k" for="dest" style="display:block;text-align:center;margin-bottom:8px">Destination</label>
-            <input class="inp big-inp" id="dest" placeholder="Cabo, or SJD" maxlength="26"
+            <input class="inp big-inp" id="dest" placeholder="Cabo or SJD" maxlength="26"
                    autocapitalize="characters" autocomplete="off" enterkeyhint="next"
                    role="combobox" aria-expanded="false" aria-controls="destAc"
                    aria-autocomplete="list" aria-describedby="destHint">
             <div class="ac" id="destAc" role="listbox" aria-label="Matching airports"></div>
         </div>
-        <div class="hint" id="destHint">Airport code or city — try “cabo”</div>
+        <div class="hint" id="destHint">Airport code or city</div>
         <div class="nav">
             <button class="btn primary wide" id="to2">Next: when</button>
         </div>
@@ -1158,7 +1156,6 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
     <section id="s2" class="hidden" tabindex="-1" aria-labelledby="h-s2">
         <div class="step-head">
             <h2 id="h-s2">When?</h2>
-            <p id="s2sub">Leave the return blank for a one-way.</p>
         </div>
         <div class="field">
             <span class="k">Dates</span>
@@ -1190,7 +1187,7 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
     <section id="s3" class="hidden" tabindex="-1" aria-labelledby="h-s3">
         <div class="step-head">
             <h2 id="h-s3">Who’s coming?</h2>
-            <p>One card per airport. Two people leaving from the same place share a card — one search, one booking.</p>
+            <p>People leaving from the same airport share a card.</p>
         </div>
         <div id="parties"></div>
         <button class="btn ghost wide" id="addParty">+ Add another departure city</button>
@@ -1201,7 +1198,7 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
     </section>
 
     <!-- step 4 -->
-    <section id="s4" class="hidden" tabindex="-1" aria-label="Flight plan">
+    <section id="s4" class="hidden" tabindex="-1" aria-label="Your trip">
         <div class="res-head">
             <button class="icon-btn" id="back4" aria-label="Change trip">&larr;</button>
             <div class="res-title" id="resTitle"><div class="t" id="resT"></div><div class="s" id="resS"></div></div>

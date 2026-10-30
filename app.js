@@ -3,6 +3,56 @@
  * Split out of index.html so the markup stays readable and the maths stays
  * testable. optimizer.js holds the window/cost algorithms; airports.js holds the
  * lookup; this file is the glue, the steps, and the rendering.
+ *
+ * ---------------------------------------------------------------------------
+ * THE WORDS
+ *
+ * Seven captions have already been deleted for saying out loud what the screen
+ * was already showing. These are the rules that survived that, written down so
+ * the next string does not have to be argued about:
+ *
+ * 1. State the fact, never the feature. "Jo has no flights on the way out" is a
+ *    fact. "This finds the flights that put you all on the ground within minutes
+ *    of each other" is the app describing itself, and nobody reads it twice.
+ *    If a line would still be true with the feature switched off, cut it.
+ *
+ * 2. Say it once. If the heading, the label and the hint all describe the same
+ *    field, two of them go. A caption that restates the number beside it is the
+ *    first thing to delete.
+ *
+ * 3. Use the words the reader already owns, not the ones in the code. These
+ *    leak and must not reach the screen: window, spread, cluster, premium,
+ *    subset, leg, party, detour, filter, search service. Where the domain has
+ *    its own word, use the airline's: Depart and Return for the two legs of a
+ *    round trip (never "departure"/"arrival" -- both legs have one of each),
+ *    nonstop, fare, seats.
+ *
+ * 4. Numbers. Minutes are spelled out on the one line that states the result
+ *    ("everyone within 20 minutes of each other") and in the pick card, because
+ *    standing alone as the answer "20m" reads as shorthand nobody asked to
+ *    decode. In a column of gaps, "10m" beside "7h 21m" is still the right form,
+ *    so FWF.fmtGap stays there. Money is whole dollars with a thousands comma.
+ *    Dates are "Feb 12 – Feb 15"; ISO belongs in the data, never on screen.
+ *    Clock times follow the 12/24h setting, everywhere, including inside
+ *    sentences.
+ *
+ * 5. The group. "Everyone" said to two people is the app talking past them --
+ *    two travellers have names, so use them (nameList/landsWithin below). Three
+ *    or more and "everyone" is the only word that stays short. Singulars and
+ *    plurals agree: no "1 searches", no "2 stop", no "Alex, Sam only has".
+ *
+ * 6. The reader is the organiser. The app addresses them about the group:
+ *    "Who's coming?", "Book Alex's trip". It never speaks as "we" and never
+ *    explains its own economics, caching or quota design.
+ *
+ * 7. Errors say what happened and what to do, in that order, and never quote a
+ *    browser or a provider at the reader. "Failed to fetch" is not a sentence.
+ *    Empty states name the person who is missing and offer the next move.
+ *
+ * 8. American spelling on screen (traveler, organize, math, nonstop). The
+ *    comments in here are the author's own and stay British; nothing in a
+ *    comment reaches a reader.
+ * ---------------------------------------------------------------------------
  */
 (function () {
 'use strict';
@@ -17,6 +67,12 @@ var LS = 'fwf_settings';
 var API = 'https://fly-with-friends-api.altorien.workers.dev';
 
 var APP = { bagFee: 35, carryOnFee: 30, target: 30, maxParties: 8, maxSeats: 9 };
+
+/* Also hard-coded in the markup, so the first paint is not blank. The two must
+ * stay in step. The placeholder already shows a city and a code by example, so
+ * this says what the field takes and nothing more -- it used to add "try
+ * “cabo”" as well, which made three captions for one input. */
+var DEST_HINT = 'Airport code or city';
 
 /* Assigned in order so each party keeps its colour across the timeline, the
  * avatar and the plan rows. */
@@ -48,6 +104,17 @@ function thSet(v) { state.th[state.leg] = v; }
  * quotes a total per match that the itineraries underneath have to sum to. */
 function thBoth(v) { state.th.outbound = v; state.th['return'] = v; }
 function thReset() { state.th.outbound = null; state.th.return = null; }
+
+/* .low and .exhausted were derived in the search response handler only, so the
+ * allowance notices -- the whole "what does somebody see when the budget is
+ * gone" answer -- could never appear on a plain load or a shared link, and
+ * canRetarget() never saw an exhausted month either. One place now. */
+function setBudget(b) {
+    if (!b) return;
+    BUDGET = b;
+    BUDGET.low = BUDGET.used > BUDGET.limit * 0.8;
+    BUDGET.exhausted = BUDGET.used >= BUDGET.limit;
+}
 
 var el = function (id) { return document.getElementById(id); };
 function esc(s) {
@@ -184,14 +251,59 @@ function together(spread) { return spread != null && spread <= TOGETHER_MINS; }
 
 /* Spelled out, for the one line that states the result. "10m" is fine in a
  * column of gaps; standing alone as the answer it reads as shorthand nobody
- * asked to decode, and a first-time reader took it for something else. */
+ * asked to decode, and a first-time reader took it for something else.
+ *
+ * Both halves are spelled out. "11 hours 10 min" was half-abbreviating inside
+ * the very sentence form that exists not to abbreviate. */
 function gapWords(minutes) {
     if (minutes == null) return '';
     var abs = Math.round(Math.abs(minutes));
     var h = Math.floor(abs / 60), m = abs % 60;
     if (h === 0) return m + (m === 1 ? ' minute' : ' minutes');
     var out = h + (h === 1 ? ' hour' : ' hours');
-    return m ? out + ' ' + m + ' min' : out;
+    return m ? out + ' ' + m + (m === 1 ? ' minute' : ' minutes') : out;
+}
+
+/* Joins a list the way a person would, so a sentence about two people reads as
+ * one. Oxford comma left out to match the rest of the copy. */
+function listOf(items, conj) {
+    var xs = (items || []).filter(function (x) { return x != null && x !== ''; });
+    if (xs.length < 2) return xs.join('');
+    return xs.slice(0, -1).join(', ') + ' ' + (conj || 'and') + ' ' + xs[xs.length - 1];
+}
+function nameList(ids) { return listOf((ids || []).map(name)); }
+
+/* "Everyone" said to a group of two is the app talking past the two people in
+ * front of it -- a tester's reaction to exactly that is why this exists. Two
+ * travellers have names, so the result line uses them; three or more and
+ * "everyone" is the only word that stays short enough to fit. Counted in seats,
+ * because two cards can still be five people. */
+function isPair() {
+    return !!(C && C.ids && C.ids.length === 2 && seatsAll() === 2);
+}
+/* The subject of the result sentence, with its verb already agreed. */
+function landsWithin(minutes) {
+    return isPair()
+        ? nameList(C.ids) + ' land within ' + gapWords(minutes)
+        : 'Everyone lands within ' + gapWords(minutes);
+}
+/* The same fact mid-sentence, where it follows a heading rather than opening. */
+function withinEachOther(minutes) {
+    return (isPair() ? nameList(C.ids) : 'everyone')
+        + ' within ' + gapWords(minutes) + ' of each other';
+}
+function groupWord() { return isPair() ? nameList(C.ids) : 'Everyone'; }
+
+/* One sentence for a closed airport, in both places one is shown. Codes get
+ * "or" before the last, because a bare comma list of four codes reads as data
+ * rather than as advice. */
+function codeList(codes) { return listOf(codes, 'or'); }
+function closedDestNote(a) {
+    return a.note + (a.alternates.length ? ' Try ' + codeList(a.alternates) + ' instead.' : '');
+}
+function closedOriginNote(a) {
+    return a.note + (a.alternates.length
+        ? ' People fly from ' + codeList(a.alternates) + ' instead.' : '');
 }
 
 /* Resolves a party's rules against the group controls. An ABSENT key inherits
@@ -711,9 +823,8 @@ function renderParties() {
         var closedNote = p.airports.map(function (code) {
             var a = AIRPORTS.get(code);
             if (!a || !a.closed) return '';
-            return '<div class="party-note" style="color:var(--bad)">' + esc(a.note)
-                + (a.alternates.length ? ' People fly from ' + esc(a.alternates.join(', ')) + ' instead.' : '')
-                + '</div>';
+            return '<div class="party-note" style="color:var(--bad)">'
+                + esc(closedOriginNote(a)) + '</div>';
         }).join('');
 
         return '<div class="party" data-pid="' + esc(p.id) + '">'
@@ -791,17 +902,18 @@ function readNames() {
 function validate() {
     var q = state.q;
     if (!AIRPORTS.isKnown(q.dest)) return 'Pick a destination from the list.';
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(q.dep)) return 'Pick a departure date.';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(q.dep)) return 'Pick your dates first.';
     if (q.ret && q.ret < q.dep) return 'The return date is before the departure date.';
     var withAir = q.parties.filter(function (p) { return p.airports.length; });
-    if (withAir.length < 2) return 'Add departure airports for at least two cities.';
+    if (withAir.length < 2) return 'At least two people need somewhere to fly from.';
     var dead = [];
     q.parties.forEach(function (p, i) {
         var live = p.airports.filter(function (c) { var a = AIRPORTS.get(c); return a && !a.closed; });
         if (p.airports.length && !live.length) dead.push(partyLabel(p, i));
     });
     if (dead.length) {
-        return dead.join(', ') + ' only has closed airports. Add one that is open.';
+        return listOf(dead) + (dead.length > 1 ? ' have ' : ' has ')
+            + 'only closed airports. Add one that is open.';
     }
     return null;
 }
@@ -852,11 +964,7 @@ function doSearch() {
         return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
         state.busy = false;
-        if (res.body.budget) {
-            BUDGET = res.body.budget;
-            BUDGET.low = BUDGET.used > BUDGET.limit * 0.8;
-            BUDGET.exhausted = BUDGET.used >= BUDGET.limit;
-        }
+        if (res.body.budget) setBudget(res.body.budget);
         if (!res.ok) { state.error = res.body.error || 'Search failed.'; render(); return; }
         DATA = res.body;
         SHIFTS = {}; shiftErr = null; TRIP_ID = null;
@@ -864,7 +972,11 @@ function doSearch() {
         showStep(4); render();
     }).catch(function (e) {
         state.busy = false;
-        state.error = 'Could not reach the search service: ' + e.message;
+        /* The reader is not debugging a fetch. The browser's own wording went
+         * straight to the screen here -- "Failed to fetch" is not a sentence,
+         * and "the search service" is a thing only this codebase knows about. */
+        if (window.console) console.error('search failed', e);
+        state.error = 'Could not search just now. Check your connection and try again.';
         render();
     });
 }
@@ -892,7 +1004,8 @@ function loadDemo() {
             fillForm(); renderParties(); showStep(4); render();
         })
         .catch(function (e) {
-            state.error = 'Could not load the example. ' + ((e && e.message) || 'Try reloading the page.');
+            if (window.console) console.error('example failed', e);
+            state.error = 'Could not load the example. Try reloading the page.';
             render();
         });
 }
@@ -1548,12 +1661,17 @@ function render() {
     /* The plan is rendered from TRIP, so it still has to be computed -- it just
      * no longer prints a panel of its own. */
     TRIP = tripTotal();
-    /* No plan means no matches either. The list used to sit below the plan, so
-     * a stale one was merely odd; above it, it would be the first thing read. */
     if (!TRIP) {
+        /* The plan was cleared here and nothing else was, so the pick card from
+         * the previous filter stayed on screen -- "$1,788, everyone lands within
+         * 20 minutes" sitting directly under "No total until everyone has a
+         * flight". The controls still have to render, because loosening one of
+         * them is the only way out of this state. */
         el('planView').innerHTML = '';
         el('choices').className = 'choices hidden';
-        el('choices').innerHTML = '';
+        el('shifts').className = 'shifts hidden';
+        el('shareBox').innerHTML = '';
+        renderStopPills();
         return;
     }
     renderChoices();
@@ -1588,7 +1706,8 @@ function renderNotices() {
     var s = el('nSample');
     if (DATA && DATA.sample) {
         s.className = 'notice warn';
-        s.innerHTML = '<b>Example data.</b> These fares are invented so you can see how it works. '
+        /* "so you can see how it works" was the app narrating its own demo. */
+        s.innerHTML = '<b>Example data.</b> These fares are invented. '
             + 'Start a new trip to search for real.';
     } else s.className = 'notice hidden';
 
@@ -1599,8 +1718,13 @@ function renderNotices() {
         st.innerHTML = '<b>These fares are ' + days + ' days old.</b> Search again before anyone books.';
     } else st.className = 'notice warn hidden';
 
+    /* The standing allowance notice below says this already, and in better
+     * words than the provider's own 429 body. Two red bars saying one thing is
+     * how a reader stops reading either. */
+    var dupQuota = !!(state.error && BUDGET && BUDGET.exhausted
+        && /allowance|flight-data/i.test(state.error));
     var e = el('nErr');
-    if (state.error) { e.className = 'notice bad'; e.innerHTML = esc(state.error); }
+    if (state.error && !dupQuota) { e.className = 'notice bad'; e.innerHTML = esc(state.error); }
     else e.className = 'notice bad hidden';
 
     /* Nobody is rationed per person, so the only thing worth saying is when the
@@ -1608,13 +1732,16 @@ function renderNotices() {
      * than to start turning people away. */
     var q = el('nQuota');
     if (BUDGET && BUDGET.exhausted) {
+        /* The date arrived as 2026-11-01 and went to the screen that way. ISO
+         * belongs in the data; every other date in the app is "Nov 1". */
         q.className = 'notice bad';
-        q.innerHTML = '<b>This month\u2019s flight data is used up.</b> Shared links and recent '
-            + 'searches still work. New searches resume on ' + esc(BUDGET.resetsAt) + '.';
+        q.innerHTML = '<b>Out of searches until ' + esc(prettyDate(BUDGET.resetsAt) || 'next month')
+            + '.</b> Shared links still open, and so does anything already searched.';
     } else if (BUDGET && BUDGET.low) {
+        var left = Math.max(BUDGET.limit - BUDGET.used, 0);
         q.className = 'notice warn';
-        q.innerHTML = '<b>' + Math.max(BUDGET.limit - BUDGET.used, 0) + ' searches left this month.</b> '
-            + 'Shared links are always free to open.';
+        q.innerHTML = '<b>' + left + (left === 1 ? ' search' : ' searches') + ' left this month.</b> '
+            + 'Opening a shared link does not use one.';
     } else q.className = 'notice warn hidden';
 
     var sh = el('nShort');
@@ -1629,15 +1756,24 @@ function renderNotices() {
         var none = C.prep.missing.filter(function (id) { return blocked.indexOf(id) === -1; });
         var bits = [];
         if (blocked.length) {
-            bits.push('<b>' + esc(blocked.map(name).join(', ')) + ' can’t meet your filters.</b> '
-                + 'They have flights, just none that ' + filterText() + '. Loosen one above.');
+            /* "your filters" named a thing that appears nowhere on screen, and
+             * "Loosen one above" pointed up the page at a panel that is below
+             * this notice -- the controls live under the plan, not over it. */
+            bits.push('<b>' + (blocked.length === C.ids.length
+                    ? 'Nobody can fly any of these.'
+                    : esc(nameList(blocked)) + ' can’t fly any of these.')
+                + '</b> There are flights, just none that ' + esc(filterText())
+                + '. Loosen the search below.');
         }
         if (none.length) {
-            bits.push('<b>No flights found</b> for ' + esc(none.map(name).join(', ')) + ' on this leg.');
+            bits.push('<b>No flights for ' + esc(nameList(none)) + ' on the way '
+                + (state.leg === 'outbound' ? 'out' : 'home') + '.</b> '
+                + 'Try other dates, or another airport.');
         }
-        bits.push('A total covering ' + seatsOf(C.ids.filter(function (id) {
-                return C.prep.missing.indexOf(id) === -1; }))
-            + ' of ' + seatsAll() + ' travellers would be a wrong number, not a partial one.');
+        /* One short fact instead of a paragraph about why a partial total would
+         * be dishonest. The reader can see the plan is short; they only need to
+         * know the money is not on screen yet. */
+        bits.push('No total until everyone has a flight.');
         sh.className = 'notice bad';
         sh.innerHTML = bits.join('<br><br>');
     } else sh.className = 'notice bad hidden';
@@ -1648,15 +1784,20 @@ function name(id) {
     return t ? t.name : id;
 }
 function legVerb() { return state.leg === 'outbound' ? 'land' : 'leave'; }
+/* Sentence-ready, and on the reader's clock. This printed raw 24-hour strings
+ * from the band inputs, so a 12-hour user was told "land between 05:00–12:00",
+ * and the en dash sat in the middle of a sentence where "and" belongs. */
 function bandText() {
     var b = currentBand();
-    if (b.from && !b.to) return 'after ' + b.from;
-    if (!b.from && b.to) return 'by ' + b.to;
-    return b.from + '–' + b.to;
+    var f = FWF.parseTimeOfDay(b.from), t = FWF.parseTimeOfDay(b.to);
+    if (f != null && t == null) return 'after ' + clock(f);
+    if (f == null && t != null) return 'by ' + clock(t);
+    if (f == null && t == null) return '';
+    return 'between ' + clock(f) + ' and ' + clock(t);
 }
 function filterText() {
     var bits = [];
-    if (C.band) bits.push(legVerb() + ' between ' + bandText());
+    if (C.band && bandText()) bits.push(legVerb() + ' ' + bandText());
     if (C.maxStops === 0) bits.push('are nonstop');
     else if (C.maxStops != null) bits.push('have at most ' + esc(C.maxStops) + ' stop');
     if (C.cap != null) bits.push('cost them no more than ' + money(C.cap) + ' over their own cheapest');
@@ -1680,7 +1821,10 @@ function renderResHead() {
             ? '<button class="dest-btn" id="destBtn" aria-label="Change destination, currently '
                 + esc(city) + '">' + esc(city) + '</button>'
             : esc(city))
-        + ' · ' + seats + ' travelling';
+        /* British spelling in the one place the app counts people, next to an
+         * en-dash date range and a dollar total. "people" needs no spelling
+         * decision and is the word the group uses. */
+        + ' · ' + seats + ' people';
     var gen = DATA.generated_at ? new Date(DATA.generated_at) : null;
     var hrs = gen ? Math.round((Date.now() - gen.getTime()) / 3600000) : null;
     /* Mid-retarget the title already reads as the new city, so the status line
@@ -1692,7 +1836,7 @@ function renderResHead() {
         : hrs == null ? 'fresh-mid' : hrs < 6 ? 'fresh-ok' : hrs < 24 ? 'fresh-mid' : 'fresh-old';
     var word = state.busy ? 'searching…'
         : DATA.sample ? 'example data'
-        : hrs == null ? 'unknown age' : hrs < 1 ? 'fares just now' : 'fares ' + hrs + 'h old';
+        : hrs == null ? 'age unknown' : hrs < 1 ? 'fares just now' : 'fares ' + hrs + 'h old';
     el('resS').innerHTML = esc(prettyRange(q.dep, q.ret))
         + ' &nbsp;<span class="fresh"><span class="dot ' + cls + '"></span>' + esc(word) + '</span>';
 }
@@ -1762,7 +1906,7 @@ function retargetDest(a) {
      * owns, with the field left open so the next guess is one keystroke away. */
     if (a.closed) {
         destEditErr = true;
-        state.error = a.note + (a.alternates.length ? ' Try ' + a.alternates.join(', ') + '.' : '');
+        state.error = closedDestNote(a);
         render();
         el('resDest').focus();
         return;
@@ -1888,9 +2032,16 @@ function renderAirlinePills() {
         + '<div class="air-row">'
         + carriers.map(function (c) {
             var off = isAvoided(c.name);
+            /* The name stays put and aria-pressed carries the state. It used to
+             * be the other way round: the label flipped to "Allow American" at
+             * the same moment aria-pressed went true, so a screen reader was
+             * told "Allow American, pressed" about an airline nobody is flying.
+             * The label also replaces the content, which was "American8" --
+             * .air-n is an option count, not part of the airline's name. */
             return '<button class="pill air' + (off ? ' off' : '') + '" data-air="' + esc(c.key)
                 + '" aria-pressed="' + off + '"'
-                + ' title="' + esc(off ? 'Allow ' + c.name : 'Avoid ' + c.name) + '">'
+                + ' aria-label="Avoid ' + esc(c.name) + '"'
+                + ' title="Avoid ' + esc(c.name) + '">'
                 + esc(c.name) + '<span class="air-n">' + c.n + '</span></button>';
         }).join('')
         + '</div>'
@@ -1921,8 +2072,9 @@ function renderAirlinePills() {
                         var here = carriers.filter(function (c) { return c.key === normAirline(m); }).length > 0;
                         return '<span' + (here ? ' class="here"' : '') + '>' + esc(m) + '</span>';
                     }).join('') + '</div>'
-                    + '<div class="qm-f">Bold carriers fly this route. '
-                    + 'Picking one alliance avoids everything outside it.</div></div>';
+                    /* The second sentence explained what the button next to it
+                     * already says. "Only Star Alliance" is not ambiguous. */
+                    + '<div class="qm-f">Bold carriers fly this route.</div></div>';
             }).join('')
             : (avoiding ? '<div class="air-row alli">'
                 + '<button class="pill alli-b clear" data-air-clear="1">Allow all</button></div>' : ''));
@@ -2295,9 +2447,19 @@ function legLines(leg, heading) {
     state.leg = leg; C = b.ctx;
 
     var verb = leg === 'outbound' ? 'lands' : 'leaves';
-    var lines = [heading + ' — ' + (b.plan.excluded && b.plan.excluded.length
-        ? seatsOf(b.plan.included) + ' of ' + seatsAll() + ' within ' + FWF.fmtGap(b.spread)
-        : 'everyone within ' + FWF.fmtGap(b.spread))];
+    /* Pasted into a chat this is a sentence, not a column, so the gap is spelled
+     * out here the same way it is on the line that states the result.
+     *
+     * The way home is unclustered by default, so "everyone within 11 hours 10
+     * minutes of each other" claimed a target nobody aimed at -- the same lie
+     * the shaded band was removed from the return timeline for. Report it the
+     * way the screen does: an outcome, stated as a gap. */
+    var loose = leg === 'return' && !state.q.clusterReturn;
+    var lines = [heading + ' — ' + (loose
+        ? gapWords(b.spread) + ' apart'
+        : b.plan.excluded && b.plan.excluded.length
+            ? seatsOf(b.plan.included) + ' of ' + seatsAll() + ' within ' + gapWords(b.spread)
+            : withinEachOther(b.spread))];
 
     b.ctx.ids.slice().sort(function (x, y) {
         var ox = b.rows[x], oy = b.rows[y];
@@ -2311,8 +2473,8 @@ function legLines(leg, heading) {
             + clock(leg === 'outbound' ? o.arriveMin : o.departMin)
             + ', ' + money(r.cost) + (t.seats > 1 ? ' for ' + t.seats : '')
             + ((o.airlines || []).length ? ', ' + o.airlines.join('/') : '')
-            + (o.stops === 0 ? ', nonstop' : ', ' + o.stops + ' stop')
-            + (r.inWindow ? '' : '  (not in the window)'));
+            + (o.stops === 0 ? ', nonstop' : ', ' + o.stops + (o.stops === 1 ? ' stop' : ' stops'))
+            + (r.inWindow ? '' : '  (' + (leg === 'outbound' ? 'lands apart' : 'leaves apart') + ')'));
     });
 
     state.leg = prevLeg; C = prevC;
@@ -2340,7 +2502,7 @@ function chatBlock() {
     });
 
     lines.push('');
-    lines.push('Everyone, ' + (hasReturn() ? 'round trip' : 'one way') + ': ' + money(TRIP.total)
+    lines.push(groupWord() + ', ' + (hasReturn() ? 'round trip' : 'one way') + ': ' + money(TRIP.total)
         + (SET.priceDisplay === 'fare' ? ' (fares only)' : ' including bags'));
     var gen = DATA && DATA.generated_at ? new Date(DATA.generated_at) : null;
     lines.push('Fares as of ' + (gen ? gen.toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : 'unknown')
@@ -2445,60 +2607,62 @@ function windowStrip(leg, b, label) {
     });
 
     var tight = b.ctx.tight;
-    var allIn = excluded.length === 0;
+    /* Somebody with no flights at all has no row, so they were not in `excluded`
+     * either -- which let the heading say "everyone within 20 minutes" over a
+     * timeline with one of the five missing from it. */
+    var absent = b.ctx.ids.filter(function (id) { return !b.rows[id]; });
+    var allIn = excluded.length === 0 && absent.length === 0;
+    var tightestRow = b.ctx.ladder
+        ? b.ctx.ladder.rows.filter(function (r) { return r.feasible; })[0] : null;
+    var more = (allIn && tightestRow && tightestRow.result)
+        ? tightestRow.result.cost - b.inWindowTotal : 0;
 
-    /* One question decides how this leg is drawn: is the group actually leaving
-     * as one? Answering it per-element is how the return ended up looking like a
-     * leg with pieces missing -- no band, no claim, and a grey sentence where
-     * the measure should be. The legs are presented identically when the answer
-     * is yes and differently when it is no, and that is the whole asymmetry.
-     *
-     * It is the outcome that decides, not the setting. Free tightening takes the
-     * tightest window that costs nothing, so an unclustered leg often comes out
-     * as a shared departure anyway, and when it does the app should say so. */
-    var shared = !loose || together(b.spread);
-
-    /* What used to sit in this slot on the unclustered leg was "11 hours 10 min
-     * apart" -- a number nobody asked for, right-aligned in grey, which is how a
-     * result gets read as a failure. With no shared departure there is no
-     * measure to report, so the slot is empty and the heading says it all. */
-    var measure = !allIn
-        ? seatsOf(included) + ' of ' + seatsAll() + ' within ' + gapWords(b.spread)
-        : shared ? 'everyone within ' + gapWords(b.spread) + ' of each other'
-        : '';
-
+    /* The arrival leg is the whole product -- the one fact no flight site can
+     * hand you -- and it was a muted caption to the right of a generic heading.
+     * Here it is the headline and the leg name drops to the quiet line above.
+     * The way home does not get the same treatment: two headlines is no
+     * headline, and it has its own claim and its own price below. */
     var hero = leg === 'outbound';
-    /* At display size the line wants to break at the first space, which put the
-     * number on one line and its unit on the next -- and the number is the only
-     * part anybody reads. The gap phrase is one word in the hero. */
-    var heroGap = measure ? measure.replace(/ /g, '\u00a0') : '';
+    /* On the unclustered leg the spread is an outcome, not a target, so it is
+     * reported without implying we aimed for it. */
+    var measure = loose ? gapWords(b.spread) + ' apart'
+        : allIn ? withinEachOther(b.spread)
+        : seatsOf(included) + ' of ' + seatsAll() + ' within ' + gapWords(b.spread);
+    /* At display size the line breaks at the first space, which put the number
+     * on one line and its unit on the next. The number is the only part anybody
+     * reads, so in the hero the phrase is one word. */
     var html = '<div class="win">'
         + (hero
-            ? '<div class="win-head hero"><div class="t">' + label + '</div>'
-              + (measure ? '<div class="r">' + heroGap + '</div>' : '') + '</div>'
-            : '<div class="win-head"><span class="t">' + label + '</span>'
-              + (measure ? '<span class="s">' + measure + '</span>' : '')
-              + '</div>')
-        + timeline(picks, included, excluded, shared)
-        /* Not offered when the leg is unclustered and came out together anyway:
-         * there is nothing to switch to, and a tighter window for its own sake
-         * is what the choice strip above already prices for the whole trip. */
+            ? '<div class="win-head hero"><div class="t">' + esc(label) + '</div>'
+              + '<div class="r">' + esc(measure).replace(/ /g, '\u00a0') + '</div></div>'
+            : '<div class="win-head"><span class="t">' + esc(label) + '</span>'
+              + '<span class="s">' + esc(measure) + '</span></div>')
+        + timeline(picks, included, excluded, !loose)
+        /* Not fine print: the way home states what it cost and offers the other
+         * answer as a priced control. */
         + (leg === 'return' ? returnNote(b, allIn) : '')
         /* The choice strip above already prices tighter-vs-cheaper for the whole
-         * trip, so repeating it per leg was noise pointing the wrong way. */
+         * trip, so repeating it per leg was noise pointing the wrong way.
+         *
+         * Who it is, what they get, in that order -- "a connection was allowed
+         * rather than dropping the plan" was the optimiser narrating its own
+         * fallback, and "short-enough option" described duration when the rule
+         * it is relaxing is about stops. */
         + (b.ctx.relaxed && b.ctx.relaxed.length
-            ? '<div class="win-note">' + esc(b.ctx.relaxed.map(function (id) {
-                    var t = b.ctx.travelers.filter(function (z) { return z.id === id; })[0];
-                    return t ? t.name : id;
-                }).join(', '))
-              + ' had no ' + (b.ctx.maxStops === 0 ? 'nonstop' : 'short-enough')
-              + ' option, so a connection was allowed rather than dropping the plan.</div>'
+            ? '<div class="win-note">No '
+              + (b.ctx.maxStops === 0 ? 'nonstop' : 'flight with that few stops')
+              + ' for ' + esc(nameList(b.ctx.relaxed))
+              + ', so this plan has them changing planes.</div>'
             : '')
-        + (!allIn
+        /* "cannot make this window" named the algorithm's word for the thing the
+         * line above has just stated in minutes. */
+        + (excluded.length
             ? '<div class="win-note" style="color:var(--bad)">'
-              + esc(excluded.map(function (x) { return name(x.id); }).join(', '))
-              + ' cannot make this window. The closest the whole group can get is '
-              + (tight ? FWF.fmtGap(tight.spread) : 'not possible on these filters') + '.</div>'
+              + esc(nameList(excluded.map(function (x) { return x.id; })))
+              + ' cannot land that close. '
+              + (tight
+                  ? 'The closest the whole group can get is ' + gapWords(tight.spread) + '.'
+                  : 'Nothing on these dates gets the whole group closer.') + '</div>'
             : '')
         + '</div>';
 
@@ -2581,7 +2745,7 @@ function travellerCard(id, i) {
         + esc(partyInitials(state.q.parties[idx] || { name: t.name }, idx < 0 ? 0 : idx)) + '</div>'
         + '<div><div class="trav-name">' + esc(t.name)
         + (t.seats > 1 ? ' <span class="badge seats">' + t.seats + ' seats</span>' : '')
-        + (apart ? ' <span class="badge out">not in the window</span>' : '') + '</div></div>'
+        + (apart ? ' <span class="badge out">not with the group</span>' : '') + '</div></div>'
         + '<div class="trav-tot mono">' + money(pp.total)
         + '<span>' + (t.seats > 1 ? money(each) + ' each' : 'all in') + '</span></div>'
         + '</div>'
@@ -2718,13 +2882,16 @@ function runShiftScan() {
     })).then(function (res) {
         shiftBusy = false;
         res.forEach(function (x) {
-            if (x.body && x.body.budget) BUDGET = x.body.budget;
+            if (x.body && x.body.budget) setBudget(x.body.budget);
             if (!x.ok) { shiftErr = x.body.error || 'Could not check other dates.'; return; }
             SHIFTS[shiftKey(x.c)] = { c: x.c, priced: priceShift(x.body) };
         });
         renderShifts();
     }).catch(function (e) {
-        shiftBusy = false; shiftErr = 'Could not check other dates: ' + e.message; renderShifts();
+        shiftBusy = false;
+        if (window.console) console.error('date scan failed', e);
+        shiftErr = 'Could not check other dates. Try again in a moment.';
+        renderShifts();
     });
 }
 
@@ -2769,10 +2936,14 @@ function renderShifts() {
                 + lockIcon(14) + '<span>Is another day cheaper?</span></button>';
             return;
         }
+        /* "of your remaining searches" was wrong twice over: the allowance is
+         * shared, not yours, and "there is no way to see nearby dates for free"
+         * is the app explaining its own billing to somebody about to tap a
+         * button. The number is the only part that changes a decision. */
         host.innerHTML = '<button class="btn wide" id="shiftBtn"' + (shiftBusy ? ' disabled' : '') + '>'
             + (shiftBusy ? 'Checking…' : 'Is another day cheaper?') + '</button>'
-            + '<div class="share-note">Checks the day before and after. Costs <b>' + n
-            + '</b> of your remaining searches — there is no way to see nearby dates for free.'
+            + '<div class="share-note">Checks the day before and the day after. Uses <b>'
+            + n + '</b> of this month\u2019s searches.'
             + (shiftErr ? '<br><span style="color:var(--bad)">' + esc(shiftErr) + '</span>' : '')
             + '</div>';
         return;
@@ -2805,10 +2976,13 @@ function renderShifts() {
                 + (r.here ? '' : '<em>' + (diff < 0 ? '−' + money(-diff) : diff > 0 ? '+' + money(diff) : 'same') + '</em>')
                 + '</span></div>';
         }).join('')
+        /* The second sentence pointed at "the previous screen", which is the Who
+         * step -- the dates are two screens back. A wrong direction is worse
+         * than none, and Back is where people look anyway. */
         + (best && !best.here
             ? '<div class="share-note" style="color:var(--good)">Moving the trip to ' + esc(best.label)
-              + ' saves <b>' + money(TRIP.total - best.total) + '</b>. Change the dates on the previous screen to use it.</div>'
-            : '<div class="share-note">Your dates are the cheapest of the three.</div>');
+              + ' saves <b>' + money(TRIP.total - best.total) + '</b>.</div>'
+            : '<div class="share-note">Your dates are the cheapest.</div>');
 }
 
 function renderShare() {
@@ -2818,7 +2992,8 @@ function renderShare() {
         + '<div class="share-note" id="copyNote"></div>';
 
     el('copyBtn').addEventListener('click', function () {
-        el('copyNote').textContent = 'Saving the trip so the link is free to open…';
+        /* What it was doing, not why. The reader did not ask about read costs. */
+        el('copyNote').textContent = 'Getting the link\u2026';
         saveTrip().then(function () { doCopy(); });
     });
 
@@ -2826,7 +3001,7 @@ function renderShare() {
         var text = chatBlock();
         var done = function (ok) {
             el('copyNote').textContent = ok ? 'Copied. Paste it in the group chat.'
-                : 'Could not copy automatically — select the plan above instead.';
+                : 'Could not copy it for you. Select the plan above and copy it by hand.';
             el('copyNote').className = 'share-note' + (ok ? ' ok' : '');
         };
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -3095,11 +3270,15 @@ function settingsSheet() {
     };
     var gen = DATA && DATA.generated_at ? new Date(DATA.generated_at) : null;
 
-    openSheet('<h2 id="sheetTitle">Settings</h2><div class="sub">Kept on this device. No account, no sign-in.</div>'
-        + '<div class="grp"><span class="k">Which one is you</span><div class="pills">'
+    openSheet('<h2 id="sheetTitle">Settings</h2><div class="sub">Kept on this device.</div>'
+        /* "Which one is you" was not a sentence. The tip under it said it
+         * highlights your row everywhere, which nothing on the results screen
+         * has done since the per-leg rows were replaced -- a setting that
+         * promises a thing it no longer does is worse than one with no tip. */
+        + '<div class="grp"><span class="k">Which one are you</span><div class="pills">'
         + people.map(function (p, i) { return pill(SET.meId === p.id, 'meId', p.id, p.name); }).join('')
         + pill(!SET.meId, 'meId', '', 'Not set')
-        + '</div><div class="tip">Highlights your row everywhere.</div></div>'
+        + '</div></div>'
 
         + '<div class="grp"><span class="k">Theme</span><div class="pills">'
         + pill(SET.theme === 'dark', 'theme', 'dark', 'Dark')
@@ -3107,15 +3286,18 @@ function settingsSheet() {
         + pill(SET.theme === 'system', 'theme', 'system', 'System')
         + '</div></div>'
 
-        + '<div class="grp"><span class="k">Landing window</span><div class="pills">'
+        /* "Landing window" + "The window everyone has to land inside for the trip
+         * to count as working" is the app's own word twice and its own scoring
+         * once. "Land within: 30 min" is the whole setting. */
+        + '<div class="grp"><span class="k">Land within</span><div class="pills">'
         + [15, 30, 45, 60].map(function (n) { return pill(SET.target === n, 'target', n, n + ' min'); }).join('')
-        + '</div><div class="tip">The window everyone has to land inside for the trip to count as working.</div></div>'
+        + '</div></div>'
 
         + '<div class="grp"><span class="k">Bags</span><div class="pills">'
         + '<button class="pill' + (SET.bags.carry_on > 0 ? ' on' : '') + '" data-bag="carry_on">Carry-on</button>'
         + '<button class="pill' + (SET.bags.checked > 0 ? ' on' : '') + '" data-bag="checked">Checked bag</button>'
-        + '</div><div class="tip">Applied to everyone so totals stay comparable. Where Google publishes no fee, '
-        + money(APP.bagFee) + ' is assumed and the row says so. An unknown fee is never treated as free.</div></div>'
+        + '</div><div class="tip">Counted for everyone. Where Google publishes no fee, '
+        + money(APP.bagFee) + ' is assumed rather than nothing.</div></div>'
 
         + '<div class="grp"><span class="k">Prices</span><div class="pills">'
         + pill(SET.priceDisplay === 'allin', 'priceDisplay', 'allin', 'All-in')
@@ -3138,20 +3320,21 @@ function aboutSheet() {
         + 'opens Google Flights alone, and the group ends up with one person landing at 7am and another '
         + 'at 11pm, with nobody able to say whether the $80 someone saved cost the group five hours in '
         + 'an arrivals hall.</p>'
-        + '<p>This works out the opposite: the set of flights that puts everyone on the ground inside '
-        + 'the same short window, and what that costs compared with everyone booking separately.</p>'
+        + '<p>This works out the opposite: the flights that put everyone on the ground inside '
+        + 'the same few minutes, and what that costs compared with everyone booking separately.</p>'
 
         + '<h3>How it decides</h3>'
-        + '<p>It finds the tightest window everyone can actually make, then prices the trade — because '
+        + '<p>It finds the closest everyone can actually get, then prices the trade — because '
         + '<strong>landing together and landing cheaply pull against each other</strong>. There is rarely '
-        + 'one right answer, so it shows the curve and lets the group pick the knee.</p>'
-        + '<p>Where a group is big enough that one person wrecks the window, it says so by name rather '
-        + 'than quietly widening it for everyone.</p>'
+        + 'one right answer, so it picks one and shows what the cheapest and the closest would cost '
+        + 'instead.</p>'
+        + '<p>Where a group is big enough that one person wrecks the timing, it says so by name rather '
+        + 'than quietly spreading everyone out.</p>'
 
         + '<h3>Why I built this</h3>'
         + '<p>I’m <strong>Altorien Lockwood</strong> — FP&amp;A Analyst and CPA candidate. I kept trying '
-        + 'to organise trips with friends spread across the country and doing the arithmetic by hand in a '
-        + 'spreadsheet. The maths is not hard, it is just tedious and nobody does it, so groups end up '
+        + 'to organize trips with friends spread across the country and doing the arithmetic by hand in a '
+        + 'spreadsheet. The math is not hard, it is just tedious and nobody does it, so groups end up '
         + 'landing hours apart by default. This does it in a second.</p>'
 
         + '<h3>Honest limits</h3>'
@@ -3442,7 +3625,7 @@ document.addEventListener('click', function (ev) {
 el('to2').addEventListener('click', function () {
     if (!AIRPORTS.isKnown(state.q.dest)) {
         el('destHint').className = 'hint bad';
-        el('destHint').textContent = 'Pick one from the list so we search the right airport';
+        el('destHint').textContent = 'Pick an airport from the list.';
         el('dest').focus();
         el('dest').scrollIntoView({ block: 'center', behavior: 'smooth' });
         return;
@@ -3484,7 +3667,7 @@ function newTrip() {
 el('newBtn').addEventListener('click', newTrip);
 el('addParty').addEventListener('click', function () {
     if (state.q.parties.length >= APP.maxParties) {
-        state.error = 'Maximum ' + APP.maxParties + ' departure cities.'; render(); return;
+        state.error = APP.maxParties + ' departure cities is the limit.'; render(); return;
     }
     readNames();
     state.q.parties.push(newParty(state.q.parties.length));
@@ -3575,7 +3758,7 @@ attachAc(el('dest'), el('destAc'), function (a) {
     el('dest').value = a.code;
     if (a.closed) {
         el('destHint').className = 'hint bad';
-        el('destHint').textContent = a.note + (a.alternates.length ? ' Try ' + a.alternates.join(', ') + '.' : '');
+        el('destHint').textContent = closedDestNote(a);
     } else {
         el('destHint').className = 'hint good';
         el('destHint').textContent = a.city + ' — ' + a.name;
@@ -3585,7 +3768,7 @@ attachAc(el('dest'), el('destAc'), function (a) {
 el('dest').addEventListener('input', function () {
     if (!AIRPORTS.isKnown(state.q.dest) || el('dest').value.indexOf(state.q.dest) !== 0) state.q.dest = '';
     el('destHint').className = 'hint';
-    el('destHint').textContent = 'Airport code or city — try “cabo”';
+    el('destHint').textContent = DEST_HINT;
 });
 
 /* The same autocomplete, the same rule: a destination is one airport, because a
@@ -3700,7 +3883,7 @@ render();
 
 if (API) {
     fetch(API + '/budget').then(function (r) { return r.json(); })
-        .then(function (b) { BUDGET = b; if (state.step === 4) render(); }).catch(function () {});
+        .then(function (b) { setBudget(b); if (state.step === 4) render(); }).catch(function () {});
 }
 
 if (sharedId) {
@@ -3711,7 +3894,8 @@ if (sharedId) {
         return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
         if (!res.ok || !res.body || !res.body.data) {
-            state.error = (res.body && res.body.error) || 'That shared trip could not be loaded.';
+            state.error = (res.body && res.body.error)
+                || 'Could not open that trip. Ask for a fresh link, or start a new trip.';
             TRIP_ID = null; render(); return;
         }
         var pay = res.body.payload || {};
@@ -3732,7 +3916,8 @@ if (sharedId) {
         fillForm(); renderParties();
         showStep(4); render();
     }).catch(function (e) {
-        state.error = 'Could not load that shared trip: ' + e.message;
+        if (window.console) console.error('shared trip failed', e);
+        state.error = 'Could not open that trip. Check your connection, or start a new trip.';
         TRIP_ID = null; render();
     });
 } else if (shared && shared.q && shared.q.parties && validate() === null) {
