@@ -20,16 +20,16 @@
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<!-- Not black-translucent. That put the page behind the status bar AND forced
-     the clock and battery white, so the light theme had to paint a near-black
-     band under them to keep them legible -- and a dark strip across the top of
-     a cream app reads as a box around it rather than as a full screen: "its
-     like its in a box instead of a fll screen experience".
-     With default, iOS owns the strip, picks a contrast that works, and takes
-     its colour from theme-color -- which the inline script below already keeps
-     in step with the active theme. Cream top with a dark clock in light, ink
-     top with a light clock in dark, no band either way. -->
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<!-- black-translucent, and it has to be. It is the ONLY value that gives the
+     page the whole screen: with default or black, iOS reserves the status bar
+     strip and paints it itself, and nothing the page does -- not a background,
+     not theme-color -- reaches it. That is what the grey strip above the splash
+     and the cream band below it were. "still there isk its the top and bottom."
+     The cost is that the clock and battery are forced white, which is wrong on
+     cream, so the light theme carries a scrim for them -- see .sb-scrim. A soft
+     gradient rather than the opaque band this used to have, because a hard dark
+     edge across the top of a cream app is the box that got taken out. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FlyWithFriends">
 <!-- iOS launch screens. apple-touch-startup-image is the only mechanism iOS honours
      for this; the web app manifest cannot do it. iOS uses an image only when its
@@ -460,11 +460,32 @@ body {
 .install .s .arr { color: var(--faint); }
 .install .s .ham { width: 15px; height: 10px; flex-shrink: 0; }
 
-/* .ios-bar is gone with black-translucent. It was an opaque band the height of
- * the safe-area inset, dark in both themes, there only to keep a forced-white
- * clock readable over cream. Nothing needs it now: the status bar is the
- * system's own strip, and whatever inset remains is painted by the body in the
- * page's own colour, so the top is seamless in both themes. */
+/* The clock, over cream.
+ *
+ * black-translucent is the only status bar style that lets the page reach the
+ * top of the screen, and it forces the clock and battery white. On the near-
+ * black theme that is perfect and this does nothing. On cream it is invisible,
+ * so something has to sit behind them.
+ *
+ * This replaced an opaque band the full height of the inset, which is what
+ * "its like its in a box instead of a fll screen experience" was about: a hard
+ * dark edge across the top of a cream app reads as a frame around it. A
+ * gradient has no edge to read. It is strongest where the glyphs actually are
+ * and gone before the content starts, so it registers as depth rather than as
+ * a bar -- the same thing iOS does over photos.
+ *
+ * Only where all three are true: a home-screen launch, the light theme, and a
+ * device that reserves space at the top at all. */
+.sb-scrim { display: none; }
+[data-theme="light"].standalone .sb-scrim {
+    display: block; position: fixed; top: 0; left: 0; right: 0; z-index: 60;
+    height: env(safe-area-inset-top);
+    background: linear-gradient(to bottom, rgba(0, 0, 0, .38), rgba(0, 0, 0, .14) 62%, transparent);
+    pointer-events: none;
+}
+/* Above the scrim, because for the three seconds it is up the splash owns the
+ * whole screen and the clock is white on near-black anyway. */
+.standalone #boot { z-index: 200; }
 /* Nothing here is a document, so the long-press magnifier and the text-selection
  * callout are pure noise. Inputs and the results prose stay selectable. */
 button, summary, .chip, .pill, .mrow, .choice, .ac-item, .datefield, .rail, .grip, .ava, .tl-dot {
@@ -1571,6 +1592,7 @@ footer .sep { color: var(--faint); margin: 0 8px; }
 <!-- Third copy of the 2023 mark, after .mk and .brand-mark. Same geometry,
      its own gradient id. Keep all of them in step with favicon.svg and
      icon-512.png. -->
+<div class="sb-scrim" aria-hidden="true"></div>
 <div id="boot" aria-hidden="true"><div class="boot-halo"></div><div class="boot-stack"><svg class="boot-mark" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="bg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFCB00"/><stop offset="1" stop-color="#FF9501"/></linearGradient></defs><rect width="512" height="512" rx="113" fill="url(#bg2)"/><g fill="#fff"><circle cx="178.85" cy="136.8" r="30.0"/><circle cx="332.25" cy="136.8" r="30.0"/><rect x="62.8" y="183.0" width="385.4" height="24.9" rx="12.45"/><path d="M144.20 207.9 L213.50 207.9 L217.65 286.5 L140.05 286.5 Z"/><path d="M155.80 286.5 L130.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M201.90 286.5 L227.90 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M297.60 207.9 L366.90 207.9 L371.05 286.5 L293.45 286.5 Z"/><path d="M309.20 286.5 L283.70 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M355.30 286.5 L380.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/></g></svg><div class="boot-word">Fly with Friends</div><div class="boot-sub">Everyone lands together</div></div></div>
 
 <div class="install hidden" id="installBanner" role="region" aria-label="Add to Home Screen">
