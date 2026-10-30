@@ -4228,13 +4228,43 @@ function shiftDays(iso, n) {
     return d.toISOString().slice(0, 10);
 }
 
+/* The four things a group actually says when a price is close.
+ *
+ * It was two: the whole trip a day earlier, and the whole trip a day later.
+ * Those answer "is the week cheaper", which is a real question, but neither is
+ * "leave next day and save" or "stay for extra day and save" -- and those are
+ * the two somebody says out loud, because they move one end of the trip rather
+ * than all of it.
+ *
+ * They are also the cheap ones to ask. The worker caches per leg, so a
+ * candidate that moves only the departure re-searches only the outbound: the
+ * return is the same route on the same date and comes back free. */
 function shiftCandidates() {
     if (!state.q || !state.q.dep) return [];
-    return [-1, 1].map(function (n) {
-        var dep = shiftDays(state.q.dep, n);
-        if (dep < todayISO()) return null;
-        return { n: n, dep: dep, ret: state.q.ret ? shiftDays(state.q.ret, n) : null };
-    }).filter(Boolean);
+    var dep = state.q.dep, ret = state.q.ret;
+    var out = [
+        { k: 'all-', label: 'The whole trip a day earlier',
+          dep: shiftDays(dep, -1), ret: ret ? shiftDays(ret, -1) : null },
+        { k: 'all+', label: 'The whole trip a day later',
+          dep: shiftDays(dep, 1), ret: ret ? shiftDays(ret, 1) : null }
+    ];
+    if (ret) {
+        out.push({ k: 'dep+', label: 'Leave a day later', dep: shiftDays(dep, 1), ret: ret });
+        out.push({ k: 'ret+', label: 'Stay an extra day', dep: dep, ret: shiftDays(ret, 1) });
+    }
+    /* A departure in the past cannot be searched, and a return on or before the
+     * departure is not a trip. */
+    return out.filter(function (c) {
+        return c.dep >= todayISO() && (!c.ret || c.ret > c.dep);
+    });
+}
+
+/* Which legs a candidate actually changes, and therefore pays for. Quoting
+ * parties x legs for all four over-charged the single-ended ones by double --
+ * and this button's whole job is to state a cost before somebody spends it. */
+function shiftLegs(c) {
+    return (c.dep !== state.q.dep ? 1 : 0)
+         + (state.q.ret && c.ret !== state.q.ret ? 1 : 0);
 }
 
 function shiftKey(c) { return c.dep + '|' + (c.ret || ''); }
@@ -4262,9 +4292,9 @@ function shiftRoutes() {
 }
 
 function shiftCost() {
-    var legs = hasReturn() ? 2 : 1;
-    return shiftCandidates().filter(function (c) { return !SHIFTS[shiftKey(c)]; }).length
-        * shiftRoutes() * legs;
+    var routes = shiftRoutes();
+    return shiftCandidates().filter(function (c) { return !SHIFTS[shiftKey(c)]; })
+        .reduce(function (n, c) { return n + shiftLegs(c) * routes; }, 0);
 }
 
 /* Prices one alternative trip from an already-fetched payload. */
@@ -4337,20 +4367,7 @@ function runShiftScan() {
  * Drawn rather than set in an emoji font: the glyph should match the type and
  * the palette, and a system emoji renders as a different colour and weight on
  * every platform. Inherits currentColor so it works in both themes. */
-function lockIcon(px) {
-    var n = px || 13;
-    return '<svg class="lk" width="' + n + '" height="' + n + '" viewBox="0 0 24 24"'
-        + ' fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"'
-        + ' stroke-linejoin="round" aria-hidden="true" focusable="false">'
-        + '<rect x="4" y="10.5" width="16" height="11" rx="2.5"></rect>'
-        + '<path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"></path></svg>';
-}
 
-/* Unlocked per device. There is no paid tier yet, so this is how the feature
- * stays testable without being on for everyone. */
-function shiftsUnlocked() {
-    try { return localStorage.getItem('fwf_unlock_dates') === '1'; } catch (e) { return false; }
-}
 
 function renderShifts() {
     var host = el('shifts');
@@ -4358,16 +4375,24 @@ function renderShifts() {
 
     var cands = shiftCandidates();
     if (!cands.length) { host.className = 'shifts hidden'; return; }
+    /* Nobody with an airport we can search means the scan would send nothing
+     * and quote zero -- a button offering a free check that cannot check
+     * anything. The notice above already names whoever has no flights. */
+    if (!shiftRoutes()) { host.className = 'shifts hidden'; return; }
     host.className = 'shifts';
 
     var done = cands.filter(function (c) { return SHIFTS[shiftKey(c)]; });
     if (!done.length) {
         var n = shiftCost();
-        if (!shiftsUnlocked()) {
-            /* The lock is the whole message. Explaining the billing model
-             * under it was the app talking about itself. */
-            host.innerHTML = '<button class="btn wide locked" id="shiftLock" aria-disabled="true">'
-                + lockIcon(14) + '<span>Is another day cheaper?</span></button>';
+        /* The allowance is a hard stop -- the provider refuses, it does not
+         * bill over -- so a button quoting 30 searches with 12 left is a button
+         * that fails halfway through and leaves two of the four dates priced.
+         * canRetarget() already refuses a new destination on the same grounds;
+         * this is the same rule for the other thing that spends. */
+        var left = BUDGET ? Math.max(0, BUDGET.limit - BUDGET.used) : null;
+        if (left != null && left < n) {
+            host.innerHTML = '<div class="share-note">Checking other dates needs <b>'
+                + n + '</b> searches and <b>' + left + '</b> are left this month.</div>';
             return;
         }
         /* "of your remaining searches" was wrong twice over: the allowance is
@@ -4376,46 +4401,69 @@ function renderShifts() {
          * button. The number is the only part that changes a decision. */
         host.innerHTML = '<button class="btn wide" id="shiftBtn"' + (shiftBusy ? ' disabled' : '') + '>'
             + (shiftBusy ? 'Checking…' : 'Is another day cheaper?') + '</button>'
-            + '<div class="share-note">Checks the day before and the day after. Uses up to <b>'
+            /* The number and nothing else. "Checks the day before and the day
+             * after" was already describing the old two-date scan, and a
+             * sentence listing four variants would be longer than the rows
+             * that come back and say them. The cost is the only part of this
+             * that changes a decision. */
+            + '<div class="share-note">Uses up to <b>'
             + n + '</b> of this month\u2019s searches.'
             + (shiftErr ? '<br><span style="color:var(--bad)">' + esc(shiftErr) + '</span>' : '')
             + '</div>';
         return;
     }
 
-    var rows = [{ label: prettyRange(state.q.dep, state.q.ret),
-                  total: TRIP.total, worst: null, here: true }];
+    var rows = [{ label: 'Your dates', range: prettyRange(state.q.dep, state.q.ret),
+                  total: TRIP.total, here: true }];
     cands.forEach(function (c) {
         var got = SHIFTS[shiftKey(c)];
         if (!got) return;
-        rows.push({ label: prettyRange(c.dep, c.ret),
-                    total: got.priced ? got.priced.total : null,
-                    worst: got.priced ? got.priced.worst : null, here: false });
+        rows.push({ label: c.label, range: prettyRange(c.dep, c.ret),
+                    total: got.priced ? got.priced.total : null, here: false });
     });
-    rows.sort(function (a, b) { return (a.label < b.label) ? -1 : 1; });
+    /* Cheapest first, for the reason the match rows run that way: a column of
+     * prices in order is read as a ranking at a glance rather than four prices
+     * read one at a time. Rows with no plan sink to the bottom -- they have no
+     * price to compare and they are not an option. */
+    rows.sort(function (x, y) {
+        if (x.total == null) return 1;
+        if (y.total == null) return -1;
+        return x.total - y.total;
+    });
 
-    var best = rows.filter(function (r) { return r.total != null; })
-        .reduce(function (a, b) { return b.total < a.total ? b : a; });
+    var priced = rows.filter(function (r) { return r.total != null; });
+    var best = priced.length ? priced[0] : null;
 
     host.innerHTML = '<span class="k">Other dates</span>'
         + rows.map(function (r) {
+            /* The label is what the row MEANS. It used to be the date range --
+             * "Dec 4 - Dec 8" -- which makes the reader do the subtraction to
+             * work out that it is the whole trip moved a day, and cannot
+             * express "leave a day later" at all, because that has the same
+             * return date as the trip they are looking at. The dates are on
+             * the line below the best one, where somebody is about to act. */
             if (r.total == null) {
-                return '<div class="shift"><span class="s-d mono">' + esc(r.label)
+                return '<div class="shift"><span class="s-d">' + esc(r.label)
                     + '</span><span class="s-n">nothing covers everyone</span></div>';
             }
             var diff = r.total - TRIP.total;
-            return '<div class="shift' + (r.here ? ' here' : '') + (r === best && !r.here ? ' best' : '') + '">'
-                + '<span class="s-d mono">' + esc(r.label) + (r.here ? ' · your dates' : '') + '</span>'
+            return '<div class="shift' + (r.here ? ' here' : '')
+                + (r === best && !r.here ? ' best' : '') + '">'
+                + '<span class="s-d">' + esc(r.label) + '</span>'
                 + '<span class="s-p mono">' + money(r.total)
-                + (r.here ? '' : '<em>' + (diff < 0 ? '−' + money(-diff) : diff > 0 ? '+' + money(diff) : 'same') + '</em>')
+                + (r.here ? '' : '<em>' + (diff < 0 ? '\u2212' + money(-diff)
+                    : diff > 0 ? '+' + money(diff) : 'same') + '</em>')
                 + '</span></div>';
         }).join('')
-        /* The second sentence pointed at "the previous screen", which is the Who
-         * step -- the dates are two screens back. A wrong direction is worse
-         * than none, and Back is where people look anyway. */
+        /* One line, and it carries the dates -- the rows say which trade, this
+         * says which days, which is what somebody needs to go and change them.
+         * The second sentence used to point at "the previous screen", which is
+         * the Who step; the dates are two screens back. A wrong direction is
+         * worse than none. */
         + (best && !best.here
-            ? '<div class="share-note" style="color:var(--good)">Moving the trip to ' + esc(best.label)
-              + ' saves <b>' + money(TRIP.total - best.total) + '</b>.</div>'
+            ? '<div class="share-note" style="color:var(--good)">' + esc(best.label)
+              + ' \u2014 ' + esc(best.range) + ' \u2014 saves <b>'
+              + money(TRIP.total - best.total) + '</b>.</div>'
             : '<div class="share-note">Your dates are the cheapest.</div>');
 }
 
@@ -4904,16 +4952,6 @@ function aboutSheet() {
 document.addEventListener('click', function (ev) {
     var tgt = ev.target;
     if (tgt.closest('#shiftBtn')) { runShiftScan(); return; }
-    if (tgt.closest('#shiftLock')) {
-        var lk = el('shifts').querySelector('.share-note');
-        if (!lk) {
-            lk = document.createElement('div');
-            lk.className = 'share-note';
-            el('shifts').appendChild(lk);
-        }
-        lk.textContent = 'Coming soon.';
-        return;
-    }
     if (tgt.closest('#gearBtn')) { settingsSheet(); return; }
     /* Both read their party id back out of the markup, so both are validated
      * against the roster rather than trusted -- data-* attributes are the one
@@ -5312,11 +5350,6 @@ el('go').addEventListener('click', function () { if (!state.busy) doSearch(); })
  * not offer a detour around it. The example itself stays reachable at ?demo=1,
  * because it renders every screen in the app without spending a search. */
 if (/[?&]demo=1\b/.test(location.search)) loadDemo();
-/* ?unlock=dates turns the nearby-date search on for this device and remembers
- * it, so the feature can be used and tested before there is anything to buy. */
-if (/[?&]unlock=dates\b/.test(location.search)) {
-    try { localStorage.setItem('fwf_unlock_dates', '1'); } catch (e) {}
-}
 /* The mark doubles as the home button. Same action as "New trip", which was
  * only reachable by scrolling to the footer. */
 if (el('homeBtn')) el('homeBtn').addEventListener('click', function () { newTrip(); });

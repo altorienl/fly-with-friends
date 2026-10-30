@@ -167,40 +167,11 @@ ck('a trip id is still found when the view comes first',
 ck('a malformed view does not take the trip id down with it',
    readAt('#t=abc234&s=!!!not-base64!!!').id === 'abc234');
 
-console.log('\n-- what "is another day cheaper?" actually costs --');
-var s0 = src.indexOf('function shiftDays');
-var s1 = src.indexOf('/* Prices one alternative trip');
-ctx.todayISO = function () { return '2026-10-30'; };
-ctx.AIRPORTS = new Map([['SFO', {}], ['OAK', {}], ['SJC', {}], ['ORD', {}], ['ATL', {}],
-                        ['DEN', {}], ['CLO', { closed: true }]]);
-ctx.SHIFTS = {};
-ctx.state = { q: { dep: '2027-02-12', ret: '2027-02-15' } };
-vm.runInContext(src.slice(s0, s1), ctx);
-
-function quote(origins, hasRet) {
-    ctx.state.q.ret = hasRet ? '2027-02-15' : null;
-    ctx.hasReturn = function () { return !!hasRet; };
-    ctx.travelers = function () {
-        return origins.map(function (o, i) { return { id: 'p' + i, origins: o }; });
-    };
-    return ctx.shiftCost();
-}
-/* 2 candidate dates x distinct origin sets x legs. Four people from four
- * cities really is 16 of the month's searches. */
-ck('4 cities, round trip: 16', quote([['SFO'], ['ORD'], ['ATL'], ['DEN']], true) === 16);
-ck('4 cities, one-way: 8', quote([['SFO'], ['ORD'], ['ATL'], ['DEN']], false) === 8);
-/* The fix: two of them share a city, so the worker is charged for three routes,
- * not four. Quoting parties x legs charged the button for 16. */
-ck('two of the four share SFO: 12, not 16',
-   quote([['SFO'], ['SFO'], ['ATL'], ['DEN']], true) === 12);
-ck('a whole group from one city: 4, not 16',
-   quote([['SFO'], ['SFO'], ['SFO'], ['SFO']], true) === 4);
-ck('origin order is not a second route',
-   quote([['SFO', 'OAK'], ['OAK', 'SFO']], true) === 4);
-ck('closed airports are dropped from the quote as well as the request',
-   quote([['SFO'], ['SFO', 'CLO']], true) === 4);
-ck('somebody with no usable airport is not charged for',
-   quote([['SFO'], ['CLO']], true) === 4);
+/* What "is another day cheaper?" costs used to be asserted here, against the
+ * two-candidate model. It moved to test-dates.js when the candidate set grew to
+ * four: the quote is now summed per candidate from the legs that candidate
+ * actually changes, and one copy of that arithmetic in the suite that owns the
+ * feature beats two copies in two suites, one of which is about share links. */
 
 console.log('\n' + (fail ? 'FAILED ' + fail + ' of ' + (pass + fail) : 'ALL ' + pass + ' CHECKS PASSED'));
 process.exitCode = fail ? 1 : 0;
