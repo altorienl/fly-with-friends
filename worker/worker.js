@@ -514,10 +514,13 @@ async function oneSearch(env, params, provider) {
    * first read's value down would spend a search a sibling had just bought. */
   const hit = await env.FWF.get(key, 'json');
   if (hit) {
-    /* Entries cached before insights existed are a bare array. */
+    /* Entries cached before insights existed are a bare array, and entries
+     * cached before `at` existed carry no fetch time at all -- both age out
+     * within the week, and until they do the caller reports the age it can
+     * actually stand behind, which is none. */
     const cached = Array.isArray(hit)
-      ? { options: hit, insights: null }
-      : { options: hit.options || [], insights: hit.insights || null };
+      ? { options: hit, insights: null, at: null }
+      : { options: hit.options || [], insights: hit.insights || null, at: hit.at || null };
     return { ...cached, spent: 0, empty: !cached.options.length };
   }
 
@@ -527,8 +530,18 @@ async function oneSearch(env, params, provider) {
     ? await duffelSearch(env, params)
     : await serpapiSearch(env, params);
 
-  await env.FWF.put(key, JSON.stringify(got), { expirationTtl: legTtl(params.outbound_date) });
-  return { options: got.options, insights: got.insights, spent: 1, empty: !got.options.length };
+  /* Stamped with the moment it was actually fetched. Without it a cached leg
+   * is indistinguishable from a fresh one, and the app reported every response
+   * as "fares just now" -- including a three-day-old quote for a flight that
+   * had since sold out. Somebody tapped Book, landed on "the itinerary you
+   * selected is no longer available", and could only conclude the app was
+   * broken: "I just searched for this flight and its already gone??" They had
+   * not just searched it. The app said they had. */
+  const at = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+  await env.FWF.put(key, JSON.stringify({ ...got, at }),
+                    { expirationTtl: legTtl(params.outbound_date) });
+  return { options: got.options, insights: got.insights, at, spent: 1,
+           empty: !got.options.length };
 }
 
 function validate(body) {
@@ -681,14 +694,15 @@ async function handleSearch(request, env) {
 
   const searched = await Promise.all(uniqueSearches.map(async u => {
     try {
-      const { options, insights, spent, empty } = await oneSearch(env, u.params, provider);
-      return { ...u, options, insights, spent,
+      const { options, insights, at, spent, empty } = await oneSearch(env, u.params, provider);
+      return { ...u, options, insights, at, spent,
                error: empty ? 'no results for this route and date' : null };
     } catch (err) {
       /* The provider's own text names the account and the plan. The top-level
        * catch already withholds it; this path did not. */
       console.log('leg failed:', u.key, err && err.message);
-      return { ...u, options: [], insights: null, spent: 0, error: 'could not be searched right now' };
+      return { ...u, options: [], insights: null, at: null, spent: 0,
+               error: 'could not be searched right now' };
     }
   }));
 
@@ -722,8 +736,18 @@ async function handleSearch(request, env) {
     if (r.error) errors.push({ traveler_id: r.id, leg: r.leg, reason: r.error });
   }
 
+  /* The OLDEST leg on the screen, not the moment the response was built. A
+   * trip is as current as its stalest fare: quoting the freshest one, or the
+   * clock, is how a three-day-old price gets a green dot. A leg whose age is
+   * unknown makes the whole thing unknown rather than optimistic -- the app
+   * already says "age unknown" for that, and it is the honest answer. */
+  const ages = searched.filter(u => !u.error).map(u => u.at);
+  const asOf = ages.length && ages.every(Boolean)
+    ? ages.reduce((a, b) => (a < b ? a : b))
+    : null;
+
   return json({
-    generated_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
+    generated_at: asOf,
     currency, provider, sample: false, trips, insights, errors,
     budget: { ...budget, used: used + spent, usedToday: usedToday + spent },
     provider_errors: errors.length,

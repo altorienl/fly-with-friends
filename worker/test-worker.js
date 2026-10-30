@@ -453,6 +453,123 @@ await (async () => {
     kv.writes === 5, 'writes ' + kv.writes);
 })();
 
+/* ------------------------------------------------- how old the fares are
+ *
+ * The app prints one chip saying how much to trust the prices under it, and it
+ * reads generated_at. That used to be the moment the RESPONSE was built, so a
+ * trip served entirely from a three-day-old cache came back stamped with the
+ * current clock and the chip said "fares just now" over it, in green. Somebody
+ * tapped Book, got "the itinerary you selected is no longer available", and
+ * concluded the app was broken -- "I just searched for this flight and its
+ * already gone??" They had not just searched it.
+ *
+ * Nothing here asserted that, which is why it shipped: the whole suite passed
+ * against both versions. */
+await (async () => {
+  const OLD = '2026-10-27T09:00:00Z';
+  const stub = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('/account.json')) {
+      return { json: async () => ({ this_month_usage: billed, total_searches_left: 250 - billed,
+                                    searches_per_month: 250, account_rate_limit_per_hour: 50,
+                                    this_hour_searches: billed }) };
+    }
+    if (u.includes('serpapi.com/search.json')) {
+      billed++;
+      return { json: async () => ({ best_flights: [{ price: 400, total_duration: 300,
+        flights: [{ airline: 'United', flight_number: 'UA 500',
+          departure_airport: { id: 'SFO', time: '2027-02-12 08:00' },
+          arrival_airport: { id: 'PIT', time: '2027-02-12 16:00' }, extensions: [] }],
+        extensions: ['1 free checked bag'] }], other_flights: [] }) };
+    }
+    throw new Error('unexpected fetch: ' + u);
+  };
+
+  /* A leg that was really fetched three days ago, sitting in the cache exactly
+   * as the worker would have left it. */
+  /* Every leg a two-party round trip needs, so "spent nothing" is a real
+   * claim: seeding one origin and leaving the other to be bought would make
+   * the trip half fresh, which is a different test. */
+  const seed = (dep, ret, at, n) => {
+    const body = (from, to, date) => JSON.stringify({ options: [{ price: 400,
+      depart: date + ' 08:00', arrive: date + ' 16:00', duration_minutes: 300,
+      stops: 0, airlines: ['United'], from: from, to: to, segs: [] }],
+      insights: null, at });
+    for (let i = 0; i < (n || 2); i++) {
+      const o = CITIES[i];
+      store.set('leg:serpapi|' + o + '|PIT|' + dep + '|USD', body(o, 'PIT', dep));
+      store.set('leg:serpapi|PIT|' + o + '|' + ret + '|USD', body('PIT', o, ret));
+    }
+  };
+
+  fresh();
+  const live = await (await worker.fetch(post(rt(party(2))), env)).json();
+  const driftMs = Math.abs(Date.parse(live.generated_at) - Date.now());
+  check('a search that really ran is stamped now', driftMs < 60000,
+    live.generated_at + ' is ' + Math.round(driftMs / 1000) + 's off');
+
+  /* The same trip again, entirely from cache. */
+  const warm = await (await worker.fetch(post(rt(party(2))), env)).json();
+  check('the same trip from cache reports when it was FETCHED, not now',
+    warm.generated_at === live.generated_at,
+    'fresh ' + live.generated_at + ' vs cached ' + warm.generated_at);
+  check('...and still says it was cached', warm.cached === true);
+
+  /* The case the owner hit: every leg days old, nothing spent. */
+  fresh();
+  seed('2027-02-12', '2027-02-15', OLD);
+  const stale = await (await worker.fetch(post(rt(party(2))), env)).json();
+  check('a trip served from a three-day-old cache says three days old',
+    stale.generated_at === OLD, 'got ' + stale.generated_at);
+  check('...having spent nothing to say so', stale.searches_made === 0);
+  /* And what the app will print from it, which is the part that matters. */
+  const hrs = Math.round((Date.parse('2026-10-30T09:00:00Z') - Date.parse(OLD)) / 3600000);
+  check('...which the chip reads as days, not "just now"', hrs === 72, 'hrs ' + hrs);
+
+  /* One leg old, one leg fresh: a trip is as current as its stalest fare. */
+  fresh();
+  store.set('leg:serpapi|SFO|PIT|2027-02-12|USD', JSON.stringify({
+    options: [{ price: 400, depart: '2027-02-12 08:00', arrive: '2027-02-12 16:00',
+      duration_minutes: 300, stops: 0, airlines: ['United'], from: 'SFO', to: 'PIT', segs: [] }],
+    insights: null, at: OLD }));
+  const mixed = await (await worker.fetch(post(rt(party(2))), env)).json();
+  check('one stale leg makes the whole trip as old as that leg',
+    mixed.generated_at === OLD, 'got ' + mixed.generated_at);
+  check('...even though the other legs were just bought', mixed.searches_made > 0);
+
+  /* Entries written before this existed carry no timestamp. Unknown must read
+   * as unknown rather than as now -- the app has a word for that. */
+  fresh();
+  store.set('leg:serpapi|SFO|PIT|2027-02-12|USD', JSON.stringify({
+    options: [{ price: 400, depart: '2027-02-12 08:00', arrive: '2027-02-12 16:00',
+      duration_minutes: 300, stops: 0, airlines: ['United'], from: 'SFO', to: 'PIT', segs: [] }],
+    insights: null }));
+  const legacy = await (await worker.fetch(post(rt(party(2))), env)).json();
+  check('a cache entry with no timestamp makes the age unknown, not current',
+    legacy.generated_at === null, 'got ' + JSON.stringify(legacy.generated_at));
+
+  /* A bare array is the oldest format of all. */
+  fresh();
+  store.set('leg:serpapi|SFO|PIT|2027-02-12|USD', JSON.stringify(
+    [{ price: 400, depart: '2027-02-12 08:00', arrive: '2027-02-12 16:00',
+       duration_minutes: 300, stops: 0, airlines: ['United'], from: 'SFO', to: 'PIT', segs: [] }]));
+  const ancient = await (await worker.fetch(post(rt(party(2))), env)).json();
+  check('so does a pre-insights bare array', ancient.generated_at === null,
+    'got ' + JSON.stringify(ancient.generated_at));
+
+  /* And the stamp has to survive a round trip through KV, or the next reader
+   * sees a fresh-looking entry again. */
+  fresh();
+  await worker.fetch(post(rt(party(2))), env);
+  const stored = JSON.parse(store.get('leg:serpapi|SFO|PIT|2027-02-12|USD'));
+  check('what gets written carries the fetch time', !!stored.at, JSON.stringify(Object.keys(stored)));
+  check('...and still carries the options beside it',
+    Array.isArray(stored.options) && stored.options.length > 0);
+
+  globalThis.fetch = stub;
+})();
+
 /* ---------------------------------------------------------- the origin gate
  *
  * workers.dev means WAF and rate-limiting rules do not apply, so every
