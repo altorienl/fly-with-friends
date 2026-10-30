@@ -84,6 +84,12 @@ function migrateQuery(q) {
     if (!q) return q;
     if (!Array.isArray(q.avoid)) q.avoid = [];
     if (!Array.isArray(q.parties)) q.parties = [];
+    /* A link from before this field existed carries no opinion about the way
+     * home, so it gets the current default. A link that carries an explicit
+     * false was shared by somebody looking at separate flights home, and still
+     * opens on separate flights home -- a shared link has to show what the
+     * person sharing it saw. */
+    if (q.clusterReturn !== false && q.clusterReturn !== 'any') q.clusterReturn = true;
     return q;
 }
 
@@ -107,7 +113,11 @@ function sanitizeQuery(q) {
     q.maxStops = num(q.maxStops, 0, 9, null);
     q.maxPremium = num(q.maxPremium, 0, 100000, null);
     q.maxDetour = num(q.maxDetour, 0, 10080, 180);
-    q.clusterReturn = !!q.clusterReturn;
+    /* Three-valued: true (leave together if affordable), 'any' (the group saw
+     * the price and took it anyway), false (separate). A boolean coercion here
+     * silently promoted 'any' to true and lost that consent. */
+    q.clusterReturn = (q.clusterReturn === false || q.clusterReturn === 'any')
+        ? q.clusterReturn : true;
     q.avoid = (Array.isArray(q.avoid) ? q.avoid : [])
         .map(function (a) { return String(a).slice(0, 40); }).slice(0, 40);
     q.parties = (Array.isArray(q.parties) ? q.parties : []).slice(0, 8).map(function (pp, i) {
@@ -143,11 +153,10 @@ function blankQuery() {
          * costs no searches -- sending it to the provider instead would make
          * every different selection a fresh paid search for the same trip. */
         avoid: [],
-        /* Landing together is the point of this. Leaving together only means
-         * sharing a ride to the airport, and forcing the return into a window
-         * makes the optimiser pick absurd flights home to hit a departure time.
-         * Off by default; the group can turn it on. */
-        clusterReturn: false,
+        /* Leave together too, when it is affordable and asks nobody to fly
+         * materially worse. On by default -- see returnWays for what changed
+         * and what it costs. Set false by the group to fly home separately. */
+        clusterReturn: true,
         /* Relative, because nobody knows the right absolute number. "No more
          * than three hours longer than the quickest way to do this route" is
          * always meaningful; "no more than 8 hours" is not. */
@@ -943,54 +952,130 @@ function saveTrip() {
 /* Per leg: what each party pays, and whether they are inside the window.
  * Everyone is priced -- someone the filters excluded still buys a ticket, and a
  * "total" that silently drops them is the deceptive version of this number. */
-/* The way home is each person's own best flight, but "best" left a group 7h 21m
- * apart when a plan at the SAME price put them inside an hour -- which reads as
- * the app doing a bad job rather than as a deliberate choice. So: price the leg
- * with no window at all, then walk the thresholds from tightest and take the
- * first one that costs no more. Nobody pays a penny extra for it. Memoised per
- * leg because it is asked for once per ladder row. */
-var looseTh = {};
-function looseReturnTh(ctx) {
+/* ------------------------------------------------------- the way home
+ *
+ * The return used to be clustered like the outbound, and that was turned off
+ * after a real complaint: forcing it into a window picked absurd flights home
+ * to hit a departure time. The note left behind was "landing together is the
+ * point; leaving together only means sharing a ride to the airport".
+ *
+ * Both halves of that have since stopped being true, and it is worth writing
+ * down which, because the conclusion reverses.
+ *
+ * The absurd flights were a PRUNING problem, and pruning fixed them. maxDetour
+ * caps how much longer than their own quickest anybody may be asked to fly,
+ * betterOnTie stops a two-stop winning a price tie, and the ULCC margin stops a
+ * fare that is only cheap until you carry a bag. With those in place, clustering
+ * the return never produces the flight that caused the complaint: across the
+ * generated groups in test-return.js it adds a connection zero times. Turn
+ * maxDetour off again and somebody flies more than 90 minutes past their own
+ * quickest in 45% of those same groups. The unclustered default was a second
+ * patch for a wound the pruning had already closed.
+ *
+ * And it is not "only a shared ride". Priced out, leaving together is close to
+ * free -- a median of about a dollar a seat -- while flying home separately puts
+ * the typical group thirteen hours apart and, because cheapest means the worst
+ * hour of the day, hands one party in five a departure before 07:00 that saved
+ * them five dollars. Clustering the way home buys back somebody's morning.
+ *
+ * So the default is to leave together, and the honest part is the price. The
+ * group spends up to a stated budget to do it; past that, or if no window is
+ * reachable without asking somebody to fly materially worse, they fly home
+ * separately and the screen says so with the number attached.
+ *
+ * Per seat because that is the unit anybody judges it in -- "four dollars each"
+ * is a decision, "twenty-three dollars" is a number -- with a floor-relative
+ * term so a group on long-haul fares is not held to a domestic allowance. */
+var RETURN_BUDGET_PER_SEAT = 12, RETURN_BUDGET_PCT = 0.03;
+
+/* Both ways home, priced the same way, so the screen can name the one it did
+ * not take instead of hiding it behind a link. Memoised per leg because it is
+ * asked for once per ladder row; render() clears it when any filter moves. */
+var returnTh = {};
+function returnWays(ctx) {
     var key = ctx.leg + '|' + (ctx.ids || []).join(',');
-    if (looseTh[key] !== undefined) return looseTh[key];
+    if (returnTh[key] !== undefined) return returnTh[key];
+
     var floor = FWF.minCostAtWindow(ctx.prep, FWF.INF, ctx.costFn);
-    var best = FWF.INF;
-    if (floor) {
-        /* Binary search over the realisable widths, not the eight display
-         * thresholds. Walking DEFAULT_THRESHOLDS meant the answer could only
-         * ever be one of them, so a group whose tightest same-price window was
-         * 346 minutes got no window at all -- the precise failure this function
-         * was added to prevent. Cost is monotonic in the width, so bisection is
-         * valid: if a width is affordable every wider one is too. */
-        var widths = [];
-        (ctx.ids || []).forEach(function (id) {
-            (ctx.prep.options[id] || []).forEach(function (o) { widths.push(o.clusterMin); });
-        });
-        widths.sort(function (a, b) { return a - b; });
-        var spans = [0];
-        for (var i = 0; i < widths.length; i++) {
-            for (var j = i + 1; j < widths.length; j++) spans.push(widths[j] - widths[i]);
-        }
-        spans.sort(function (a, b) { return a - b; });
-        var lo = 0, hi = spans.length - 1, found = null;
-        while (lo <= hi) {
-            var mid = (lo + hi) >> 1;
-            var r = FWF.minCostAtWindow(ctx.prep, spans[mid], ctx.costFn);
-            if (r && r.cost <= floor.cost) { found = spans[mid]; hi = mid - 1; }
-            else lo = mid + 1;
-        }
-        if (found !== null) best = found;
+    var ways = { apart: FWF.INF, together: FWF.INF, floor: floor, budget: 0, reach: null };
+    if (!floor || !ctx.ladder) { returnTh[key] = ways; return ways; }
+
+    var seats = (ctx.travelers || []).reduce(function (n, t) { return n + (t.seats || 1); }, 0);
+    ways.budget = Math.max(RETURN_BUDGET_PER_SEAT * seats, RETURN_BUDGET_PCT * floor.cost);
+
+    /* ladder() has already dropped every row that buys nothing, so the rows here
+     * run tightest-first at strictly falling cost. That is what makes both the
+     * first-match below and the knee further down well defined. */
+    var rows = ctx.ladder.rows.filter(function (r) {
+        return r.feasible && r.threshold !== FWF.INF;
+    });
+
+    /* Flying home separately, tightened for free: same money as no window at
+     * all, so a group that asks for separate flights still gets the closest
+     * version of them. */
+    for (var i = 0; i < rows.length; i++) {
+        if (rows[i].result.cost <= floor.cost) { ways.apart = rows[i].threshold; break; }
     }
-    looseTh[key] = best;
-    return best;
+
+    /* Leaving together. Only windows that ask nobody to fly materially worse
+     * than they would alone -- the return never buys closeness with somebody's
+     * connection -- and only inside the budget. */
+    var fair = rows.filter(function (r) {
+        return worthIt(regretOf(ctx, r.result.picks))
+            && r.result.cost <= floor.cost + ways.budget;
+    });
+    if (fair.length) {
+        /* The knee, same rule the outbound uses: the step of looseness that
+         * refunds the most money per minute given up. */
+        var best = fair[0], rate = -1;
+        for (var k = 1; k < fair.length; k++) {
+            var add = fair[k].threshold - fair[k - 1].threshold;
+            if (add <= 0) continue;
+            var r = (fair[k - 1].result.cost - fair[k].result.cost) / add;
+            if (r > rate) { rate = r; best = fair[k]; }
+        }
+        ways.together = best.threshold;
+    } else {
+        /* Nothing affordable. Keep the tightest fair window anyway, purely so
+         * the screen can say what leaving together would have cost rather than
+         * leaving the group to wonder. */
+        var any = rows.filter(function (r) { return worthIt(regretOf(ctx, r.result.picks)); });
+        if (any.length) ways.reach = { th: any[0].threshold, result: any[0].result };
+    }
+
+    returnTh[key] = ways;
+    return ways;
 }
+
+/* Which way home was taken, and why. The screen needs the reason and not just
+ * the window, because "flying home separately" has two causes that deserve
+ * different sentences: the group asked for it, or it was the only thing inside
+ * the budget.
+ *
+ * clusterReturn is three-valued. true is the default and means "leave together
+ * if it is affordable"; 'any' is the group having seen the price and taken it
+ * anyway; false is separate flights home. Anything else -- including the
+ * undefined in a link shared before the field existed -- normalises to true in
+ * migrateQuery. */
+function returnChoice(ctx) {
+    var w = returnWays(ctx);
+    if (state.q.clusterReturn === false) return { how: 'apart', th: w.apart, ways: w };
+    if (w.together !== FWF.INF) return { how: 'together', th: w.together, ways: w };
+    if (state.q.clusterReturn === 'any' && w.reach) {
+        return { how: 'together', th: w.reach.th, ways: w };
+    }
+    return { how: 'priced-out', th: w.apart, ways: w };
+}
+function returnThOf(ctx) { return returnChoice(ctx).th; }
 
 function legBreakdown(leg) {
     var ctx = compute(leg);
     if (!ctx) return null;
-    /* Unless the group has asked to leave together, the way home is simply each
-     * person's best flight -- they are going to different cities. */
-    if (leg === 'return' && !state.q.clusterReturn) state.th['return'] = looseReturnTh(ctx);
+    /* The return decides its own window -- see returnWays. It is set here rather
+     * than read from state so the per-person cards and the headline total can
+     * never be priced at two different windows, which is exactly what happened
+     * while the trip-level choice strip was also writing to this key. */
+    if (leg === 'return') state.th['return'] = returnThOf(ctx);
     var plan = planOf(ctx, state.th[leg] != null ? state.th[leg] : recommendedIn(ctx));
     if (!plan) return null;
 
@@ -1066,17 +1151,22 @@ function tripLadder() {
         var total = 0, worst = 0, ok = true, per = {};
         var reg = { stops: 0, mins: 0, who: null }, conn = {}, mins = 0;
         ctxs.forEach(function (c) {
-            /* The way home is unclustered by default, and the plan on screen
-             * renders it that way -- so pricing it inside the window quoted a
-             * trip nobody was being shown. The per-person cards summed to $23
-             * less than the headline because of exactly this. Its spread is
-             * excluded too: an eleven-hour spread on a leg we are deliberately
-             * not clustering would otherwise dominate every row's "apart". */
-            var loose = c.leg === 'return' && !state.q.clusterReturn;
-            var r = FWF.minCostAtWindow(c.prep, loose ? looseReturnTh(c) : T, c.costFn);
+            /* These rows are the OUTBOUND ladder. The return settles its own
+             * window once, by its own rule, and is identical in every row -- so
+             * it is priced at that window here, and its spread is left out of
+             * the row's "apart" figure because it does not vary down the list
+             * and would flatten the one number the rows exist to compare.
+             *
+             * Pricing it at T instead is what used to make the per-person cards
+             * disagree with the headline total: the cards render the return at
+             * its own window, the headline was quoting it at this row's. The
+             * gap ran to $600 on the groups in test-return.js. The two must
+             * come from one function or they drift again. */
+            var ownWindow = c.leg === 'return';
+            var r = FWF.minCostAtWindow(c.prep, ownWindow ? returnThOf(c) : T, c.costFn);
             if (!r) { ok = false; return; }
             total += r.cost;
-            if (!loose) worst = Math.max(worst, r.spread);
+            if (!ownWindow) worst = Math.max(worst, r.spread);
             var g = regretOf(c, r.picks);
             if (g.stops > reg.stops) { reg.stops = g.stops; reg.who = g.who; }
             if (g.mins > reg.mins) { reg.mins = g.mins; if (!reg.who) reg.who = g.who; }
@@ -1249,7 +1339,7 @@ function tripTotal() {
 function render() {
     /* Cleared every pass: the memo is keyed by leg and party, but the option
      * sets it summarises change whenever a filter does. */
-    looseTh = {};
+    returnTh = {};
     C = compute();
     renderNotices();
     renderGear();
@@ -1271,7 +1361,7 @@ function render() {
             state.th.outbound = th0;
             /* Both slots, because tripLadder prices both legs at the row's
              * threshold when the group has asked to leave together. When it has
-             * not, legBreakdown overwrites this with looseReturnTh anyway. */
+             * not, legBreakdown overwrites this with returnThOf anyway. */
             state.th['return'] = th0;
         }
     }
@@ -2073,43 +2163,83 @@ function chatBlock() {
     return lines.join('\n');
 }
 
-/* The way home has two honest answers, and the one on screen is a decision the
- * group is allowed to change. It used to be a grey sentence and an underlined
- * link, which is the shape of a disclaimer: "no one is going to see that fine
- * print button." It is now the same pill the choice strip uses for an
- * alternative that changes the plan and the total, because that is exactly what
- * this is -- and it carries the price, so the choice can be made without taking
- * it.
+/* The block that says which way home the app took, what it cost, and how to
+ * have the other one.
  *
- * Rendered in BOTH directions. Offering it only on the unclustered leg made
- * "Leave together" a one-way door: once taken there was no control on the
- * screen to take it back. */
-function returnSwitch(b, loose) {
-    /* What clicking actually produces. The handler clears the leg's threshold,
-     * so the clustered plan is whatever the leg recommends and the unclustered
-     * one is the free-tightening threshold -- not the trip-level row. */
-    var altTh = loose ? recommendedIn(b.ctx) : looseReturnTh(b.ctx);
-    var alt = altTh == null ? null : planOf(b.ctx, altTh);
-    if (!alt) return '';
-    /* Only comparable when both plans carry everybody. A subset plan prices a
-     * smaller group, and the difference would read as a saving. */
-    var priced = !(alt.excluded || []).length && !(b.plan.excluded || []).length;
-    var d = priced ? Math.round(alt.cost - b.plan.cost) : 0;
-    return '<div class="win-alt"><button data-clusterback="1">'
-        + '<span>' + (loose ? 'Leave together' : 'Best flight each') + '</span>'
-        + (priced
-            ? '<span class="mono">'
-              + (d === 0 ? 'same price' : d > 0 ? money(d) + ' more' : money(-d) + ' less')
-              + ' · ' + (loose ? 'within ' + FWF.fmtGap(alt.spread)
-                               : FWF.fmtGap(alt.spread) + ' apart')
-              + '</span>'
-            : '')
-        + '</button></div>';
+ * It replaces "Each on their own best flight home." plus a "Leave together
+ * instead" link, which failed in two ways at once: it described the outcome as
+ * a kindness rather than a trade, and it put the alternative in a link with no
+ * price on it, which is the fine print somebody skips on the way to deciding
+ * the app got it wrong. Every sentence here carries a number the reader can
+ * check against the dots above it, and the button says what taking it does.
+ *
+ * Returns the note only -- the heading above it already states the spread, so
+ * none of these repeat it. */
+function returnNote(b, allIn) {
+    /* With somebody outside the window the honest sentence is the one about who
+     * cannot make it, which the strip prints directly below this. */
+    if (!allIn) return '';
+    var ch = returnChoice(b.ctx), w = ch.ways;
+    if (!w.floor) return '';
+
+    var apart = FWF.minCostAtWindow(b.ctx.prep, w.apart, b.ctx.costFn);
+    if (!apart) return '';
+
+    function btn(to, text) {
+        return ' <button class="linkish" data-clusterback="' + to + '">' + text + '</button>';
+    }
+
+    if (ch.how === 'together') {
+        /* Nothing to offer if flying home separately lands on the same window,
+         * which happens when the cheap flights were already in one bank. */
+        if (apart.spread === b.spread) return '';
+        var extra = Math.round(b.inWindowTotal - apart.cost);
+        return '<div class="win-note">'
+            + (extra > 0
+                ? 'Costs ' + money(extra) + ' more than flying home separately, which would '
+                  + 'spread the group over ' + gapWords(apart.spread) + '.'
+                  + btn('0', 'Fly home separately, save ' + money(extra))
+                : 'Costs nothing extra. Flying home separately would spread the group over '
+                  + gapWords(apart.spread) + ' for the same money.'
+                  + btn('0', 'Fly home separately anyway'))
+            + '</div>';
+    }
+
+    /* Both remaining cases are flying home separately, and both have to name the
+     * price of the other way rather than imply there is not one. */
+    var reach = w.together !== FWF.INF ? { th: w.together } : w.reach;
+    if (!reach) {
+        return '<div class="win-note">Each on their own flight home. No window gets the '
+            + 'group out together without putting somebody on a materially worse flight '
+            + 'than they would take alone.</div>';
+    }
+    var tog = FWF.minCostAtWindow(b.ctx.prep, reach.th, b.ctx.costFn);
+    if (!tog) return '';
+    var cost = Math.round(tog.cost - b.inWindowTotal);
+
+    if (ch.how === 'priced-out') {
+        return '<div class="win-note">Flying home separately because leaving together is not '
+            + 'cheap on these dates: the closest they can all get out is '
+            + gapWords(tog.spread) + ' apart, and that costs ' + money(cost)
+            + ' more across the group.'
+            + btn('any', 'Leave together for ' + money(cost))
+            + '</div>';
+    }
+    return '<div class="win-note">Each on their own flight home, as asked. Leaving together '
+        + 'would put everyone within ' + gapWords(tog.spread) + ' of each other'
+        + (cost > 0 ? ' for ' + money(cost) + ' more.' : ' for the same money.')
+        + btn('1', cost > 0 ? 'Leave together for ' + money(cost) : 'Leave together')
+        + '</div>';
 }
 
 function windowStrip(leg, b, label) {
     if (!b) return '';
-    var loose = leg === 'return' && !state.q.clusterReturn;
+    /* "Leaving together" printed over flights eleven hours apart is a lie, so
+     * the heading follows what the leg actually did rather than what was asked
+     * for. Kept here with the rest of the return's copy: the word and the
+     * computation behind it have to move together. */
+    var loose = leg === 'return' && returnChoice(b.ctx).how !== 'together';
+    if (leg === 'return') label = loose ? 'Flying home' : 'Leaving together';
     var prevLeg = state.leg, prevC = C;
     state.leg = leg; C = b.ctx;
 
@@ -2161,7 +2291,7 @@ function windowStrip(leg, b, label) {
         /* Not offered when the leg is unclustered and came out together anyway:
          * there is nothing to switch to, and a tighter window for its own sake
          * is what the choice strip above already prices for the whole trip. */
-        + (leg === 'return' && !(loose && shared) ? returnSwitch(b, loose) : '')
+        + (leg === 'return' ? returnNote(b, allIn) : '')
         /* The choice strip above already prices tighter-vs-cheaper for the whole
          * trip, so repeating it per leg was noise pointing the wrong way. */
         + (b.ctx.relaxed && b.ctx.relaxed.length
@@ -2882,14 +3012,19 @@ document.addEventListener('click', function (ev) {
         p.airports = p.airports.filter(function (c) { return c !== code; });
         renderParties();
     } else if (t.hasAttribute('data-choice')) {
-        /* One tap sets both legs, because the choice is about the trip. */
+        /* Only the outbound. This used to set both, which was never visible --
+         * legBreakdown overwrites the return's window with the return's own --
+         * except that it made the headline and the cards disagree. The return
+         * is not part of this choice; see returnWays. */
         var cv = t.getAttribute('data-choice');
-        var th = cv === 'Infinity' ? FWF.INF : +cv;
-        state.th.outbound = th; state.th['return'] = th;
+        state.th.outbound = cv === 'Infinity' ? FWF.INF : +cv;
         writeHash(); render();
         window.scrollTo(0, 0);
     } else if (t.hasAttribute('data-clusterback')) {
-        state.q.clusterReturn = !state.q.clusterReturn;
+        /* The button names the state it moves to rather than toggling, because
+         * there are three of them and a toggle cannot reach 'any'. */
+        var cb = t.getAttribute('data-clusterback');
+        state.q.clusterReturn = cb === '0' ? false : cb === 'any' ? 'any' : true;
         state.th['return'] = null;
         writeHash(); render();
     } else if (t.hasAttribute('data-stops')) {
