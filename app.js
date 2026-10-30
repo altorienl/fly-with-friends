@@ -369,12 +369,16 @@ function compute(leg) {
      * set rather than inside the optimiser, so the window algorithms stay
      * exactly as verified. */
     var cap = state.q.maxPremium;
-    if (cap != null && loner) {
+    if (cap != null) {
         var pruned = {};
         ids.forEach(function (id) {
-            pruned[id] = (byParty[id] || []).filter(function (o) {
-                return costFn(o, id) <= solo[id] + cap;
-            });
+            var base = solo[id];
+            /* No baseline means no options survived the filters for this party,
+             * so there is nothing to cap against -- leave their set alone rather
+             * than emptying it. */
+            pruned[id] = base == null ? (byParty[id] || [])
+                : (byParty[id] || []).filter(function (o) { return costFn(o, id) <= base + cap; });
+            if (!pruned[id].length) pruned[id] = byParty[id] || [];
         });
         prep = FWF.prepare(pruned, ids, field, { band: band });
     }
@@ -822,12 +826,30 @@ function looseReturnTh(ctx) {
     var floor = FWF.minCostAtWindow(ctx.prep, FWF.INF, ctx.costFn);
     var best = FWF.INF;
     if (floor) {
-        for (var i = 0; i < FWF.DEFAULT_THRESHOLDS.length; i++) {
-            var T = FWF.DEFAULT_THRESHOLDS[i];
-            if (T === FWF.INF) continue;
-            var r = FWF.minCostAtWindow(ctx.prep, T, ctx.costFn);
-            if (r && r.cost <= floor.cost) { best = T; break; }
+        /* Binary search over the realisable widths, not the eight display
+         * thresholds. Walking DEFAULT_THRESHOLDS meant the answer could only
+         * ever be one of them, so a group whose tightest same-price window was
+         * 346 minutes got no window at all -- the precise failure this function
+         * was added to prevent. Cost is monotonic in the width, so bisection is
+         * valid: if a width is affordable every wider one is too. */
+        var widths = [];
+        (ctx.ids || []).forEach(function (id) {
+            (ctx.prep.options[id] || []).forEach(function (o) { widths.push(o.clusterMin); });
+        });
+        widths.sort(function (a, b) { return a - b; });
+        var spans = [0];
+        for (var i = 0; i < widths.length; i++) {
+            for (var j = i + 1; j < widths.length; j++) spans.push(widths[j] - widths[i]);
         }
+        spans.sort(function (a, b) { return a - b; });
+        var lo = 0, hi = spans.length - 1, found = null;
+        while (lo <= hi) {
+            var mid = (lo + hi) >> 1;
+            var r = FWF.minCostAtWindow(ctx.prep, spans[mid], ctx.costFn);
+            if (r && r.cost <= floor.cost) { found = spans[mid]; hi = mid - 1; }
+            else lo = mid + 1;
+        }
+        if (found !== null) best = found;
     }
     looseTh[key] = best;
     return best;
@@ -1111,11 +1133,17 @@ function render() {
      * the plan printed underneath it. Falls back to the per-leg recommendation
      * when a trip ladder cannot be built -- which happens when one leg has
      * somebody with no options at all. */
-    if (thGet() === null) {
+    if (state.th.outbound === null) {
         var tl0 = tripLadder();
         var tb0 = tl0 && tripBest(tl0);
-        if (tb0) thSet(tb0.th);
-        else if (C.ladder) thSet(recommendedIn(C));
+        var th0 = tb0 ? tb0.th : (C.ladder ? recommendedIn(C) : null);
+        if (th0 != null) {
+            state.th.outbound = th0;
+            /* Both slots, because tripLadder prices both legs at the row's
+             * threshold when the group has asked to leave together. When it has
+             * not, legBreakdown overwrites this with looseReturnTh anyway. */
+            state.th['return'] = th0;
+        }
     }
     renderResHead();
     /* The plan is rendered from TRIP, so it still has to be computed -- it just
@@ -3015,7 +3043,7 @@ if (shared && shared.v) {
     if (v.target) SET.target = v.target;
     if (v.bags) SET.bags = v.bags;
     if (v.priceDisplay) SET.priceDisplay = v.priceDisplay;
-    if (v.leg) state.leg = v.leg;
+    if (v.leg === 'outbound' || v.leg === 'return') state.leg = v.leg;
     if (v.recommend) state.recommend = v.recommend;
     if (v.th) {
         state.th.outbound = v.th.outbound === 'inf' ? FWF.INF : v.th.outbound;
