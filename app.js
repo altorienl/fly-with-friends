@@ -97,6 +97,32 @@ function blankQuery() {
 }
 function partyLabel(p, i) { return (p.name || '').trim() || ('Flight ' + (i + 1)); }
 
+/* Resolves a party's rules against the group controls. An ABSENT key inherits
+ * the group setting; an explicit null is itself a value ("Any"), which is why
+ * the test is for the key rather than for null. `own` records which side the
+ * value came from, because that decides whether it may be relaxed: a group
+ * preference the organiser set for everyone can be relaxed on one person's
+ * behalf and reported. A rule someone set about themselves cannot -- quietly
+ * allowing a second connection for the person who said she will not fly two
+ * connections is the exact failure a spreadsheet exists to prevent. */
+function rulesFor(id) {
+    var p = party(id) || {};
+    var r = p.rules || {};
+    var hasStops = Object.prototype.hasOwnProperty.call(r, 'maxStops');
+    return {
+        maxStops: hasStops ? r.maxStops : state.q.maxStops,
+        own: { maxStops: hasStops }
+    };
+}
+
+function rulesSummary(p) {
+    var r = p.rules || {};
+    if (!Object.prototype.hasOwnProperty.call(r, 'maxStops')) return '';
+    return r.maxStops === null ? 'any number of stops'
+        : r.maxStops === 0 ? 'nonstop only'
+        : r.maxStops + (r.maxStops === 1 ? ' stop max' : ' stops max');
+}
+
 /* Initials where a name was given, the party number where it was not -- so the
  * avatar is always something, and becomes meaningful the moment you type. */
 function partyInitials(p, i) {
@@ -144,16 +170,21 @@ function compute(leg) {
         priceDisplay: SET.priceDisplay
     });
 
-    var relaxed = [], detoured = [];
+    var relaxed = [], detoured = [], blocked = [], ownBest = {};
     var byParty = {};
     ids.forEach(function (id) {
         var all = legData[id] || [];
         var kept = all;
+        var rule = rulesFor(id);
 
-        if (maxStops != null) {
-            var strict = all.filter(function (o) { return (o.stops || 0) <= maxStops; });
-            if (!strict.length && all.length) { relaxed.push(id); }
-            else kept = strict;
+        if (rule.maxStops != null) {
+            var strict = all.filter(function (o) { return (o.stops || 0) <= rule.maxStops; });
+            if (strict.length) kept = strict;
+            else if (rule.own.maxStops) {
+                /* Their own rule: block and ask, never relax silently. */
+                blocked.push({ id: id, rule: 'stops', best: all });
+                kept = [];
+            } else if (all.length) relaxed.push(id);
         }
 
         /* A 7h18m one-stop beating a 2h43m nonstop because it saved $45 is the
@@ -179,16 +210,41 @@ function compute(leg) {
         }
 
         byParty[id] = kept;
+
+        /* The flight this party would pick if the group did not exist: quickest,
+         * fewest stops. Not the cheapest -- this is the yardstick for what the
+         * group is ASKING them to give up, and nobody experiences a connection
+         * as a saving. */
+        var bm = null, bs = null;
+        kept.forEach(function (o) {
+            if (o.duration_minutes != null && (bm == null || o.duration_minutes < bm)) bm = o.duration_minutes;
+            var st = o.stops == null ? 99 : o.stops;
+            if (bs == null || st < bs) bs = st;
+        });
+        ownBest[id] = { mins: bm, stops: bs };
     });
 
     var prep = FWF.prepare(byParty, ids, field, { band: band });
 
     /* What each party would pay flying whenever they liked, inside the same
      * filters. This is the baseline the premium is measured from, and it is the
-     * number that turns one group total into "who is actually absorbing it". */
+     * number that turns one group total into "who is actually absorbing it".
+     *
+     * Computed per party rather than via minCostAtWindow(INF), which returns
+     * null unless EVERY party has an option -- so one person filtered out used
+     * to silently cancel the premium cap for the whole group with nothing on
+     * screen saying so. A baseline is a per-party minimum; it never needed
+     * everyone to be covered. */
     var solo = {};
-    var loner = FWF.minCostAtWindow(prep, FWF.INF, costFn);
-    if (loner) ids.forEach(function (id) { solo[id] = loner.picks[id].cost; });
+    ids.forEach(function (id) {
+        var list = prep.options[id] || [];
+        var best = null;
+        for (var i = 0; i < list.length; i++) {
+            var c = costFn(list[i], id);
+            if (best === null || c < best) best = c;
+        }
+        if (best !== null) solo[id] = best;
+    });
 
     /* The fairness cap prunes each party's options to those within their own
      * baseline plus the cap, then re-prepares. Done as a filter on the option
@@ -219,7 +275,8 @@ function compute(leg) {
     });
 
     var out = { leg: leg, travelers: tv, ids: ids, prep: prep, costFn: costFn, band: band,
-                maxStops: maxStops, relaxed: relaxed, detoured: detoured,
+                maxStops: maxStops, relaxed: relaxed, detoured: detoured, blocked: blocked,
+                ownBest: ownBest,
                 cap: cap, solo: solo, soloOpen: soloOpen,
                 tight: null, ladder: null, target: null, subset: null, anyTime: null };
 
@@ -653,6 +710,37 @@ function legBreakdown(leg) {
              inWindowTotal: plan.cost };
 }
 
+/* What a plan costs people in flying, not in money.
+ *
+ * Money was the only thing the ladder ranked, so a window that cost the same
+ * dollars always looked free -- even when it put somebody on a connection and
+ * six more hours in the air to pull the group from 60 minutes apart to 30. That
+ * is the trade that makes somebody open Google Flights, find a better flight in
+ * one search, and never come back. Landing together is worth something, but it
+ * is not worth arriving wrecked, and the app has to be able to say which.
+ *
+ * Regret is measured per party against their OWN best, then reported as the
+ * worst single person's -- an average would hide the one person being asked to
+ * absorb all of it, who is exactly the person who will veto the trip. */
+function regretOf(ctx, picks) {
+    var worstStops = 0, worstMins = 0, who = null, whoMins = null;
+    ctx.ids.forEach(function (id) {
+        var pick = picks[id], base = ctx.ownBest && ctx.ownBest[id];
+        if (!pick || !pick.option || !base) return;
+        var o = pick.option;
+        var st = (o.stops == null ? 99 : o.stops) - (base.stops == null ? 99 : base.stops);
+        var mn = (o.duration_minutes != null && base.mins != null) ? o.duration_minutes - base.mins : 0;
+        if (st > worstStops) { worstStops = st; who = id; }
+        if (mn > worstMins) { worstMins = mn; whoMins = id; }
+    });
+    return { stops: worstStops, mins: worstMins, who: who || whoMins };
+}
+
+/* Whether a plan is worth offering as "closer". A connection nobody needed, or
+ * an extra hour and a half in the air, is not bought back by 30 minutes of
+ * waiting saved at baggage claim. */
+function worthIt(r) { return r.stops <= 0 && r.mins <= 90; }
+
 /* The whole decision, priced across both legs at once, as a handful of named
  * choices rather than a ladder folded away below the fold. The first real user
  * reaction to this app was "that's expensive, why can't it show me the cheapest
@@ -665,11 +753,15 @@ function tripLadder() {
     var rows = [];
     FWF.DEFAULT_THRESHOLDS.forEach(function (T) {
         var total = 0, worst = 0, ok = true, per = {};
+        var reg = { stops: 0, mins: 0, who: null };
         ctxs.forEach(function (c) {
             var r = FWF.minCostAtWindow(c.prep, T, c.costFn);
             if (!r) { ok = false; return; }
             total += r.cost;
             worst = Math.max(worst, r.spread);
+            var g = regretOf(c, r.picks);
+            if (g.stops > reg.stops) { reg.stops = g.stops; reg.who = g.who; }
+            if (g.mins > reg.mins) { reg.mins = g.mins; if (!reg.who) reg.who = g.who; }
             c.ids.forEach(function (id) { per[id] = (per[id] || 0) + r.picks[id].cost; });
         });
         if (!ok) return;
@@ -681,13 +773,15 @@ function tripLadder() {
             var each = t && t.seats > 1 ? per[id] / t.seats : per[id];
             if (each > topPer) { topPer = each; topId = id; }
         }
-        rows.push({ th: T, total: total, worst: worst, per: per,
+        rows.push({ th: T, total: total, worst: worst, per: per, regret: reg,
                     topPer: Math.round(topPer), topId: topId });
     });
     if (!rows.length) return null;
 
-    /* Keep only the rows that actually buy something: a wider window that costs
-     * the same or more is never a choice worth offering. */
+    /* Keep only the rows that actually buy something. A wider window that costs
+     * the same or more money is never worth offering -- and neither is a tighter
+     * one bought with somebody's connection, which used to be free in this
+     * comparison because only dollars were counted. */
     var kept = [], best = Infinity;
     rows.forEach(function (r) {
         if (r.total < best) { kept.push(r); best = r.total; }
@@ -733,9 +827,20 @@ function renderChoices() {
         + c.map(function (r, i) {
             var on = cur === r.th;
             var extra = r.total - cheapest.total;
+            var g = r.regret || { stops: 0, mins: 0 };
             var label = r.th === cheapest.th ? 'Cheapest'
                 : i === c.length - 1 ? 'As close as they can get'
                 : 'A bit closer';
+
+            /* Say what the tighter window actually asks of somebody. This is the
+             * number that stops the app from looking worse than one Google
+             * Flights search, which is the only comparison that matters. */
+            var ask = [];
+            if (g.stops > 0) ask.push(g.stops === 1 ? 'a connection' : g.stops + ' more stops');
+            if (g.mins > 45) ask.push(FWF.fmtGap(g.mins) + ' more flying');
+            var askTxt = ask.length && g.who
+                ? esc(name(g.who)) + ' takes ' + ask.join(' and ')
+                : '';
             return '<button class="choice' + (on ? ' on' : '') + '" data-choice="'
                 + (r.th === FWF.INF ? 'Infinity' : r.th) + '" aria-pressed="' + on + '">'
                 + '<span class="c-l">' + label + '</span>'
@@ -744,6 +849,7 @@ function renderChoices() {
                 + '<span class="c-p mono">' + money(r.total)
                 + (extra > 0 ? '<em>+' + money(extra) + ' to land together</em>' : '<em>the floor</em>')
                 + '</span>'
+                + (askTxt ? '<span class="c-ask">' + askTxt + '</span>' : '')
                 + '</button>';
         }).join('');
 }
@@ -1083,19 +1189,28 @@ function recommendedIn(ctx) {
     if (!f.length) return (ctx.subset && ctx.subset.included.length) ? 'subset' : null;
     /* Missing the target is not a reason to leave someone behind: fall through
      * to the tightest window the whole group can actually make. */
-    if (!ctx.target) return f[0].threshold;
+    /* Rows that do not ask anybody to fly materially worse than they would on
+     * their own. If every row does, we keep them all rather than recommending
+     * nothing -- but then the tightest is no longer automatically the answer. */
+    var fair = f.filter(function (r) {
+        return r.result && r.result.picks && worthIt(regretOf(ctx, r.result.picks));
+    });
+    if (!fair.length) fair = f;
+
+    /* "Tightest" is an explicit request, so it is honoured as asked. */
     if (state.recommend === 'tightest') return f[0].threshold;
+    if (!ctx.target) return fair[0].threshold;
     if (state.recommend === 'target') {
         var at = f.filter(function (r) { return r.threshold <= SET.target; });
         return (at.length ? at[at.length - 1] : f[0]).threshold;
     }
-    var best = f[0], rate = -1;
-    for (var i = 1; i < f.length; i++) {
-        if (f[i].threshold === FWF.INF) continue;
-        var add = f[i].threshold - f[i - 1].threshold;
+    var best = fair[0], rate = -1;
+    for (var i = 1; i < fair.length; i++) {
+        if (fair[i].threshold === FWF.INF) continue;
+        var add = fair[i].threshold - fair[i - 1].threshold;
         if (add <= 0) continue;
-        var r = (f[i - 1].result.cost - f[i].result.cost) / add;
-        if (r > rate) { rate = r; best = f[i]; }
+        var r = (fair[i - 1].result.cost - fair[i].result.cost) / add;
+        if (r > rate) { rate = r; best = fair[i]; }
     }
     return best.threshold;
 }
@@ -1197,11 +1312,104 @@ function airlineSite(o) {
     return null;
 }
 
-/* One action per person, not one per leg. A Google Flights round-trip search
- * with both dates is the only single link that covers both ways -- there is no
- * URL that pre-selects two specific one-way flights. The card prints the two
- * times so they know which rows to pick when they land there. */
-function tripBookUrl(origin, dest, dep, ret, seats) {
+/* ------------------------------------------------------------ booking
+
+ * Google Flights encodes a search in a `tfs` parameter: a protobuf message,
+ * base64url'd. Field 4 of each leg pins a SPECIFIC flight by carrier and number,
+ * which flips the page from search results to the booking screen -- the one with
+ * the actual "Continue" buttons. So we can hand somebody the flight this app
+ * chose for them instead of a search they have to redo by hand, which was the
+ * single most annoying thing left in the flow: the app does the work, then asks
+ * you to go find its answer yourself.
+ *
+ * Two things to respect about this surface:
+ *
+ * 1. It is undocumented. Field numbers could be renumbered without notice. Every
+ *    call site therefore falls back to the plain route+date search link, which
+ *    cannot break, rather than treating the deep link as load-bearing.
+ * 2. Google does NOT validate flight numbers server-side. A wrong number returns
+ *    the same page shell and silently shows an empty booking screen -- worse than
+ *    a search, because it looks like the app lied. So numbers come only from a
+ *    live search result, and if any segment is missing one we do not build this
+ *    at all. Never synthesise a flight number from a schedule guess. */
+function tfsEncode(legs, seats, cabin) {
+    var B = [];
+    function varint(n) { while (n > 127) { B.push((n & 127) | 128); n >>>= 7; } B.push(n); }
+    function utf8(str) {
+        var out = [], e = encodeURIComponent(str);
+        for (var i = 0; i < e.length; i++) {
+            if (e[i] === '%') { out.push(parseInt(e.substr(i + 1, 2), 16)); i += 2; }
+            else out.push(e.charCodeAt(i));
+        }
+        return out;
+    }
+    function sub(f, build) {
+        var save = B; B = []; build(); var body = B; B = save;
+        varint((f << 3) | 2); varint(body.length);
+        for (var i = 0; i < body.length; i++) B.push(body[i]);
+    }
+    function str(f, v) {
+        var b = utf8(v); varint((f << 3) | 2); varint(b.length);
+        for (var i = 0; i < b.length; i++) B.push(b[i]);
+    }
+    function num(f, n) { varint((f << 3) | 0); varint(n); }
+
+    legs.forEach(function (L) {
+        sub(3, function () {
+            str(2, L.date);
+            /* One field-4 per segment, so a connection pins both hops rather
+             * than leaving Google to pick the second one. */
+            (L.segs || []).forEach(function (sg) {
+                sub(4, function () {
+                    str(1, sg.from); str(2, sg.date); str(3, sg.to);
+                    str(5, sg.carrier); str(6, String(sg.number));
+                });
+            });
+            sub(13, function () { num(1, 1); str(2, L.from); });
+            sub(14, function () { num(1, 1); str(2, L.to); });
+        });
+    });
+    for (var i = 0; i < Math.max(1, seats || 1); i++) num(8, 1);
+    num(9, cabin || 1);
+    num(19, legs.length > 1 ? 1 : 2);
+
+    var bin = '';
+    for (i = 0; i < B.length; i++) bin += String.fromCharCode(B[i]);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/* True only when every segment of every leg carries a real carrier and number
+ * from the live search. Anything less and the caller must use a search link. */
+function pinnable(options) {
+    if (!options.length) return false;
+    return options.every(function (o) {
+        var segs = o && o.segs;
+        if (!segs || !segs.length) return false;
+        if (segs.length !== (o.stops || 0) + 1) return false;
+        return segs.every(function (sg) {
+            return sg && sg.carrier && sg.number && sg.from && sg.to && sg.date;
+        });
+    });
+}
+
+function deepLink(options, seats) {
+    if (!pinnable(options)) return null;
+    try {
+        var legs = options.map(function (o) {
+            return { from: o.from, to: o.to, date: String(o.depart).slice(0, 10), segs: o.segs };
+        });
+        return 'https://www.google.com/travel/flights/booking?tfs='
+            + tfsEncode(legs, seats, 1) + '&hl=en&gl=us&curr=' + (DATA && DATA.currency || 'USD');
+    } catch (e) { return null; }
+}
+
+/* One action per person, not one per leg. Deep-links straight to the booking
+ * screen for the exact flights this app picked when every segment is pinnable,
+ * and degrades to a round-trip search covering both dates when it is not. The
+ * card prints the two times either way, so the fallback is still usable. */
+function tripBookUrl(origin, dest, dep, ret, seats, options) {
+    var deep = options && options.length ? deepLink(options, seats) : null;
+    if (deep) return deep;
     var q = 'Flights from ' + origin + ' to ' + dest + ' on ' + dep
         + (ret ? ' returning ' + ret : '')
         + (seats > 1 ? ' ' + seats + ' passengers' : '');
@@ -1209,9 +1417,11 @@ function tripBookUrl(origin, dest, dep, ret, seats) {
 }
 
 function bookUrl(o, seats) {
-    /* Route, date and carrier, built at click time. booking_token is not used:
-     * live responses carried none at all, and its lifetime is undocumented even
-     * when present. This lands on a filtered search, not a checkout. */
+    /* booking_token is still unused: live responses carried none at all, and its
+     * lifetime is undocumented even when present. The tfs deep link needs no
+     * token and does not expire, so it replaces it outright. */
+    var deep = deepLink([o], seats);
+    if (deep) return deep;
     var carrier = (o.airlines || [])[0];
     var q = 'Flights from ' + o.from + ' to ' + o.to + ' on ' + String(o.depart).slice(0, 10)
         + (carrier ? ' ' + carrier : '') + (seats > 1 ? ' ' + seats + ' passengers' : '');
@@ -1396,6 +1606,15 @@ function travellerCard(id, i) {
     var origin = o ? o.option.from : (t.origins[0] || '');
     var each = t.seats > 1 ? Math.round(pp.total / t.seats) : pp.total;
 
+    /* The exact flights this person was given, in leg order -- so the Book
+     * button can open their booking screen rather than a search they have to
+     * solve again. Pinning both legs also makes Google price them as one round
+     * trip, which is frequently cheaper than the two one-ways we quote. */
+    var chosen = [];
+    if (o && o.option) chosen.push(o.option);
+    if (b && b.option) chosen.push(b.option);
+    var deep = chosen.length ? deepLink(chosen, t.seats) : null;
+
     return '<div class="trav' + (apart ? ' apart' : '') + '">'
         + '<div class="trav-top">'
         + '<div class="ava" aria-hidden="true" style="background:' + partyColor(idx < 0 ? 0 : idx) + '">'
@@ -1410,13 +1629,17 @@ function travellerCard(id, i) {
         + (b ? hopRow('Back', b, 'return', id, t.seats) : '')
         + '<div class="trav-book">'
         + '<a class="btn primary" style="display:block;text-align:center;text-decoration:none" href="'
-        + tripBookUrl(origin, state.q.dest, state.q.dep, state.q.ret || null, t.seats)
+        + esc(tripBookUrl(origin, state.q.dest, state.q.dep, state.q.ret || null, t.seats, chosen))
         + '" target="_blank" rel="noopener">Book ' + esc(t.name) + '&rsquo;s trip &rarr;</a>'
-        + '<div class="fine">Opens a '
-        + (state.q.ret ? 'round-trip' : 'one-way') + ' search for ' + esc(origin) + '&ndash;'
-        + esc(state.q.dest) + '. Pick the '
-        + (o ? clock(o.option.arriveMin) + ' arrival' : 'flight')
-        + (b ? ' and the ' + clock(b.option.departMin) + ' departure' : '') + '.'
+        + '<div class="fine">'
+        + (deep
+            ? 'Opens these exact flights on Google Flights, ready to book'
+              + (o ? ' &mdash; the ' + clock(o.option.arriveMin) + ' arrival' : '')
+              + (b ? ' and the ' + clock(b.option.departMin) + ' departure' : '') + '.'
+            : 'Opens a ' + (state.q.ret ? 'round-trip' : 'one-way') + ' search for ' + esc(origin)
+              + '&ndash;' + esc(state.q.dest) + '. Pick the '
+              + (o ? clock(o.option.arriveMin) + ' arrival' : 'flight')
+              + (b ? ' and the ' + clock(b.option.departMin) + ' departure' : '') + '.')
         + (airlineSite(o ? o.option : {})
             ? ' Or go direct: <a href="' + esc(airlineSite(o.option).url) + '" target="_blank" rel="noopener">'
               + esc(airlineSite(o.option).name) + '</a>.' : '')
@@ -1696,7 +1919,7 @@ function paxRow(id, pick, out, gap) {
         + esc((o.airlines || []).join(', ')) + ' · ' + (o.stops === 0 ? 'nonstop' : o.stops + (o.stops === 1 ? ' stop' : ' stops'))
         + ' · ' + FWF.fmtGap(o.duration_minutes) + '</div>'
         + premLine
-        + '<div class="links"><a class="book" href="' + bookUrl(o, t.seats) + '" target="_blank" rel="noopener">'
+        + '<div class="links"><a class="book" href="' + esc(bookUrl(o, t.seats)) + '" target="_blank" rel="noopener">'
         + 'Book this flight &rarr;</a>'
         + (airlineSite(o)
             ? '<a class="book alt" href="' + esc(airlineSite(o).url) + '" target="_blank" rel="noopener"'

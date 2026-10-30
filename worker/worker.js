@@ -156,6 +156,25 @@ function extractOptions(payload, limit) {
     const airlines = [];
     for (const leg of legs) if (leg.airline && !airlines.includes(leg.airline)) airlines.push(leg.airline);
 
+    /* Carrier + number per segment, which is what lets the app hand somebody a
+     * link to THIS itinerary's booking screen instead of a search they have to
+     * redo by hand. Google accepts a bogus flight number silently and shows an
+     * empty screen, so these must come from the live search -- never guessed --
+     * and the app falls back to a plain search link if any segment lacks one. */
+    const segs = [];
+    for (const leg of legs) {
+      const fn = String(leg.flight_number || '').trim();
+      const m = fn.match(/^([A-Z0-9]{1,3})\s*([0-9]{1,4}[A-Z]?)$/i);
+      const dep = leg.departure_airport || {}, arr = leg.arrival_airport || {};
+      segs.push({
+        from: dep.id || null,
+        to: arr.id || null,
+        date: typeof dep.time === 'string' ? dep.time.slice(0, 10) : null,
+        carrier: m ? m[1].toUpperCase() : null,
+        number: m ? m[2] : null,
+      });
+    }
+
     out.push({
       price: it.price,
       depart, arrive,
@@ -165,6 +184,7 @@ function extractOptions(payload, limit) {
       from: first.departure_airport && first.departure_airport.id,
       to: last.arrival_airport && last.arrival_airport.id,
       airline_logo: it.airline_logo || first.airline_logo,
+      segs,
       extensions,
       bags: parseBags(extensions),
     });

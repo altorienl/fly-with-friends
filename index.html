@@ -309,10 +309,21 @@ section { animation: stepIn .2s var(--ease); }
 .c-fit { font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
 .c-p em { display: block; font-size: 10px; font-style: normal; font-weight: 600; color: var(--muted); letter-spacing: .4px; margin-top: 2px; }
 .choice.on .c-p em { color: var(--accent); }
+/* The cost of a tighter window that is not money: spans the full row under the
+ * price, because it qualifies the whole choice rather than any one column. */
+.c-ask {
+    grid-column: 1 / -1; font-size: 11px; font-weight: 600; color: var(--warn);
+    display: flex; align-items: center; gap: 6px;
+    padding-top: 9px; margin-top: 2px; border-top: 1px dashed var(--edge);
+}
+.c-ask::before { content: '!'; flex: none;
+    width: 14px; height: 14px; border-radius: 50%; background: var(--warn); color: var(--bg);
+    font-size: 10px; font-weight: 800; text-align: center; line-height: 14px; }
 @media (max-width: 420px) {
     .choice { grid-template-columns: 1fr auto; row-gap: 4px; }
     .c-w { grid-column: 1; font-size: 11px; }
     .c-p { grid-row: 1 / span 2; grid-column: 2; }
+    .c-ask { grid-row: 3; }
 }
 
 .leg { display: block; margin-top: 28px; }
