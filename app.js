@@ -2145,10 +2145,18 @@ function windowStrip(leg, b, label) {
         : shared ? 'everyone within ' + gapWords(b.spread) + ' of each other'
         : '';
 
-    var html = '<div class="win"><div class="win-head">'
-        + '<span class="t">' + label + '</span>'
-        + (measure ? '<span class="s">' + measure + '</span>' : '')
-        + '</div>'
+    var hero = leg === 'outbound';
+    /* At display size the line wants to break at the first space, which put the
+     * number on one line and its unit on the next -- and the number is the only
+     * part anybody reads. The gap phrase is one word in the hero. */
+    var heroGap = measure ? measure.replace(/ /g, '\u00a0') : '';
+    var html = '<div class="win">'
+        + (hero
+            ? '<div class="win-head hero"><div class="t">' + label + '</div>'
+              + (measure ? '<div class="r">' + heroGap + '</div>' : '') + '</div>'
+            : '<div class="win-head"><span class="t">' + label + '</span>'
+              + (measure ? '<span class="s">' + measure + '</span>' : '')
+              + '</div>')
         + timeline(picks, included, excluded, shared)
         /* Not offered when the leg is unclustered and came out together anyway:
          * there is nothing to switch to, and a tighter window for its own sake
@@ -2271,23 +2279,14 @@ function renderPlanView() {
     var host = el('planView');
     if (!TRIP || !C) { host.innerHTML = ''; return; }
 
-    /* "Together" is the one word this product exists to say, and it was attached
-     * to the wrong fact: it meant "nobody was dropped from the list", so it read
-     * "everyone together" above "all within 7h 25m". It now describes the spread. */
-    /* Only count a leg that is actually being clustered. The way home is
-     * deliberately unclustered by default, so including its spread made the
-     * headline read "7h 25m apart" about a 20-minute arrival. */
-    var worst = TRIP.legOut ? TRIP.legOut.spread : 0;
-    if (TRIP.legBack && state.q.clusterReturn) worst = Math.max(worst, TRIP.legBack.spread);
-    /* Only speak up when something is wrong. "everyone together" was a vaguer
-     * restatement of the "all within 20m" line directly beneath it, so it was
-     * one more thing to read that said less. */
-    var verdict = !TRIP.allClustered ? 'not everyone fits'
-        : !together(worst) ? 'same day, but ' + FWF.fmtGap(worst) + ' apart'
-        : '';
-    var html = '<div class="plan-head"><div class="t">The plan</div>'
-        + (verdict ? '<div class="s warnish">' + esc(verdict) + '</div>' : '')
-        + '</div>';
+    /* No "The plan" heading, and no verdict line under it. It was the largest
+     * thing above the fold and the only thing up there that said nothing, so the
+     * eye landed on furniture and the result read as its caption. Both halves of
+     * the verdict are now stated louder by the headline itself -- "3 of 5 within
+     * 20 minutes", "Everyone within 7 hours 25 min of each other" -- and the red
+     * note below the strip still names anyone who cannot make the window. The
+     * section is still announced to screen readers by #planView's aria-label. */
+    var html = '';
 
     html += windowStrip('outbound', TRIP.legOut, 'Landing together');
     /* The heading reports the outcome, not the setting.
@@ -2615,9 +2614,9 @@ function timeline(picks, included, excluded, band) {
 
     var keys = Object.keys(groups).map(Number).sort(function (a, b) { return a - b; });
     var html = '<div class="timeline">'
-        + (band === false ? '' : '<div class="tl-band" style="left:' + Math.max(pct(lo), 0)
-            + '%;width:' + Math.max(Math.min(pct(hi), 100) - Math.max(pct(lo), 0), 1.5) + '%"></div>')
-        + '<div class="tl-axis"></div>';
+        + '<div class="tl-axis"></div>'
+        + (band === false ? '' : '<div class="tl-span" style="left:' + Math.max(pct(lo), 0)
+            + '%;width:' + Math.max(Math.min(pct(hi), 100) - Math.max(pct(lo), 0), 1.5) + '%"></div>');
 
     var minGap = (48 / 390) * 100, last = -999, alt = false;
     keys.forEach(function (m) {
@@ -2634,8 +2633,7 @@ function timeline(picks, included, excluded, band) {
             + '<div class="tl-t mono' + (alt ? ' alt' : '') + '">' + clock(m) + '</div></div>';
     });
 
-    return html + '<div class="tl-edge mono" style="left:11px">' + clock(from) + '</div>'
-        + '<div class="tl-edge mono" style="right:11px">' + clock(to) + '</div></div>';
+    return html + '</div>';
 }
 
 /* --------------------------------------------------------------- sheets */

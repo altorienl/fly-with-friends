@@ -593,10 +593,14 @@ a { color: var(--accent); }
 .pick { padding: 2px 0 0; }
 .pick-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .pick-k { font-size: var(--t-2); font-weight: 500; color: var(--accent); margin-bottom: 3px; }
-.pick-w { font-size: var(--t-4); font-weight: 600; letter-spacing: var(--tr-4); }
-/* The hero number. It earns its weight from size and tracking, not from 800 --
- * the trip total is the one thing this screen is about. */
-.pick-tot { font-size: var(--t-7); font-weight: 600; letter-spacing: var(--tr-7);
+/* A restatement of the headline at the top of the screen, kept because tapping
+ * "Cheapest" changes it and the headline is two thousand pixels away -- but
+ * kept as the caption it is, not as a second heading. */
+.pick-w { font-size: var(--t-2); font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* Findable, honest, and no longer the loudest thing in the app. Any flight site
+ * can show you a total; the window at the top of this screen is the only thing
+ * this one knows. So the top of the scale is not spent here. */
+.pick-tot { font-size: var(--t-6); font-weight: 600; letter-spacing: var(--tr-6);
     text-align: right; white-space: nowrap; line-height: var(--lh-tight); }
 .pick-tot span { display: block; font-size: var(--t-2); font-weight: 400; letter-spacing: 0;
     color: var(--muted); margin-top: 4px; }
@@ -622,6 +626,14 @@ a { color: var(--accent); }
 .win-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 .win-head .t { font-size: var(--t-4); font-weight: 600; }
 .win-head .s { font-size: var(--t-2); color: var(--muted); font-variant-numeric: tabular-nums; }
+/* The one fact no flight site can hand you, so it gets the display ramp and
+   the first position on the screen. It was 13px, muted, set to the right of a
+   heading -- the shape of a caption, for the sentence the product is for.
+   Only the arrival leg gets this: two headlines is no headline. */
+.win-head.hero { display: block; margin-bottom: var(--s3); }
+.win-head.hero .t { font-size: var(--t-2); font-weight: 500; color: var(--muted); margin-bottom: var(--s1); }
+.win-head.hero .r { font-size: var(--t-6); font-weight: 600; letter-spacing: var(--tr-6);
+    line-height: var(--lh-tight); font-variant-numeric: tabular-nums; text-wrap: balance; }
 .win-note { font-size: var(--t-2); color: var(--muted); margin-top: 8px; line-height: var(--lh-text); }
 
 .trav { border-top: 1px solid var(--edge); padding: var(--s4) 0 var(--s2); }
@@ -775,21 +787,24 @@ a { color: var(--accent); }
 .brow .d.dim { color: var(--muted); }
 .brow .none { grid-column: 2 / -1; text-align: right; font-size: var(--t-2); }
 
-.plan-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 24px 0 12px; flex-wrap: wrap; }
-.plan-head .t { font-size: var(--t-5); font-weight: 600; letter-spacing: var(--tr-5); }
-.plan-head .s { font-size: var(--t-2); color: var(--muted); }
-
-.timeline { position: relative; height: 100px; margin-bottom: var(--s4); overflow: hidden; }
-.tl-band { position: absolute; top: 0; bottom: 0; background: var(--accent-dim); }
-.tl-axis { position: absolute; left: 0; right: 0; top: 56px; height: 1px; background: var(--edge); }
-.tl-mark { position: absolute; top: 36px; transform: translateX(-50%); text-align: center; }
+/* The strip is the evidence for the headline above it, so it is drawn at a size
+   you can read rather than as a thin band of marks: avatars at 34px are people,
+   and the first arrival to the last is a 3px rule on the axis -- the window,
+   measured, with visible air either side. The rule sits below the avatars, not
+   behind them, because behind five clustered faces it would be invisible. */
+.timeline { position: relative; height: 96px; margin-bottom: var(--s5); overflow: hidden; }
+.tl-axis { position: absolute; left: 0; right: 0; top: 58px; height: 1px; background: var(--edge); }
+/* Was .tl-band, an --accent-dim panel behind the dots: amber spent on a
+   background, and at that opacity it read as a rendering fault rather than as
+   a window. Ink, not tint, and the width is the claim. */
+.tl-span { position: absolute; top: 57px; height: 3px; background: var(--text); border-radius: var(--r-pill); }
+.tl-mark { position: absolute; top: var(--s4); transform: translateX(-50%); text-align: center; }
 /* rtl so the earliest arrival paints on top, like an iOS facepile */
 .tl-dots { display: flex; justify-content: center; direction: rtl; }
-.tl-dot { position: relative; direction: ltr; width: 24px; height: 24px; border-radius: var(--r-pill); display: grid; place-items: center; font-size: var(--t-1); font-weight: 600; color: var(--on-party); box-shadow: 0 0 0 2px var(--bg); }
-.tl-dots .tl-dot + .tl-dot { margin-right: -8px; }
-.tl-t { font-size: var(--t-1); line-height: 1; color: var(--muted); margin-top: 8px; white-space: nowrap; }
-.tl-t.alt { margin-top: 20px; }
-.tl-edge { position: absolute; bottom: 8px; font-size: var(--t-1); line-height: 1; color: var(--muted); }
+.tl-dot { position: relative; direction: ltr; width: 34px; height: 34px; border-radius: var(--r-pill); display: grid; place-items: center; font-size: var(--t-2); font-weight: 600; color: var(--on-party); box-shadow: 0 0 0 2px var(--bg); }
+.tl-dots .tl-dot + .tl-dot { margin-right: -10px; }
+.tl-t { font-size: var(--t-1); line-height: 1; color: var(--muted); margin-top: var(--s4); white-space: nowrap; }
+.tl-t.alt { margin-top: calc(var(--s4) + var(--s3)); }
 
 .pax { display: grid; grid-template-columns: 32px 24px 1fr auto; gap: 12px; align-items: center; padding: 12px 16px; border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card); margin-bottom: 8px; box-shadow: var(--lift); }
 .pax.out { border-style: dashed; opacity: .8; }
