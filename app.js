@@ -526,6 +526,82 @@ function legBreakdown(leg) {
              inWindowTotal: plan.cost };
 }
 
+/* The whole decision, priced across both legs at once, as a handful of named
+ * choices rather than a ladder folded away below the fold. The first real user
+ * reaction to this app was "that's expensive, why can't it show me the cheapest
+ * and what the time difference is" -- which the app already knew and hid. */
+function tripLadder() {
+    var legs = ['outbound'].concat(hasReturn() ? ['return'] : []);
+    var ctxs = legs.map(function (l) { return compute(l); });
+    if (ctxs.some(function (c) { return !c || !c.prep.complete || !c.ladder; })) return null;
+
+    var rows = [];
+    FWF.DEFAULT_THRESHOLDS.forEach(function (T) {
+        var total = 0, worst = 0, ok = true;
+        ctxs.forEach(function (c) {
+            var r = FWF.minCostAtWindow(c.prep, T, c.costFn);
+            if (!r) { ok = false; return; }
+            total += r.cost;
+            worst = Math.max(worst, r.spread);
+        });
+        if (ok) rows.push({ th: T, total: total, worst: worst });
+    });
+    if (!rows.length) return null;
+
+    /* Keep only the rows that actually buy something: a wider window that costs
+     * the same or more is never a choice worth offering. */
+    var kept = [], best = Infinity;
+    rows.forEach(function (r) {
+        if (r.total < best) { kept.push(r); best = r.total; }
+    });
+    return kept;
+}
+
+/* Three honest options: as close as possible, the knee, and the cheapest. */
+function tripChoices() {
+    var l = tripLadder();
+    if (!l || l.length < 2) return l || [];
+    var tight = l[0], cheap = l[l.length - 1];
+
+    var knee = null, rate = -1;
+    for (var i = 1; i < l.length; i++) {
+        var added = l[i].worst - l[i - 1].worst;
+        if (added <= 0) continue;
+        var r = (l[i - 1].total - l[i].total) / added;
+        if (r > rate) { rate = r; knee = l[i]; }
+    }
+
+    var out = [tight];
+    if (knee && knee.th !== tight.th && knee.th !== cheap.th) out.push(knee);
+    if (cheap.th !== tight.th) out.push(cheap);
+    return out;
+}
+
+function renderChoices() {
+    var host = el('choices');
+    var c = tripChoices();
+    if (!c || c.length < 2) { host.className = 'choices hidden'; return; }
+
+    var cheapest = c[c.length - 1];
+    var cur = state.th.outbound;
+
+    host.className = 'choices';
+    host.innerHTML = '<span class="k">How close, and what it costs</span>'
+        + c.map(function (r, i) {
+            var on = cur === r.th;
+            var extra = r.total - cheapest.total;
+            var label = i === 0 ? 'As close as possible'
+                : (r.th === cheapest.th ? 'Cheapest, however far apart' : 'A bit more spread out');
+            return '<button class="choice' + (on ? ' on' : '') + '" data-choice="'
+                + (r.th === FWF.INF ? 'Infinity' : r.th) + '" aria-pressed="' + on + '">'
+                + '<span class="c-l">' + label + '</span>'
+                + '<span class="c-w mono">' + FWF.fmtGap(r.worst) + ' apart</span>'
+                + '<span class="c-p mono">' + money(r.total)
+                + (extra > 0 ? '<em>+' + money(extra) + '</em>' : '<em>cheapest</em>') + '</span>'
+                + '</button>';
+        }).join('');
+}
+
 /* What the trip costs, for everybody, both ways. */
 function tripTotal() {
     if (!DATA || !state.q) return null;
@@ -585,6 +661,7 @@ function render() {
     if (thGet() === null && C.ladder) thSet(recommendedIn(C));
     renderResHead();
     renderTripTotal();
+    renderChoices();
     renderFreeNote();
     renderStopPills();
     renderCapPills();
@@ -796,9 +873,14 @@ function planOf(ctx, th) {
     var row = ctx.ladder && ctx.ladder.rows.filter(function (r) {
         return r.feasible && r.threshold === th;
     })[0];
-    if (!row) return null;
-    return { picks: row.result.picks, included: ctx.ids.slice(), excluded: [],
-             spread: row.result.spread, cost: row.result.cost, subset: false };
+    var res = row ? row.result : null;
+    if (!res && typeof th === 'number') {
+        /* Not in the kept rows because it was dominated; still a valid window. */
+        res = FWF.minCostAtWindow(ctx.prep, th, ctx.costFn);
+    }
+    if (!res) return null;
+    return { picks: res.picks, included: ctx.ids.slice(), excluded: [],
+             spread: res.spread, cost: res.cost, subset: false };
 }
 function selectedPlan() { return planOf(C, thGet()); }
 
@@ -1065,10 +1147,8 @@ function windowStrip(leg, b, label) {
             : seatsOf(included) + ' of ' + seatsAll() + ' within ' + FWF.fmtGap(b.spread))
         + '</span></div>'
         + timeline(picks, included, excluded)
-        + (allIn && tight && b.spread > tight.spread && more > 0
-            ? '<div class="win-note">' + FWF.fmtGap(tight.spread)
-              + ' is possible for <span class="more">' + money(more) + ' more</span> — see other windows below.</div>'
-            : '')
+        /* The choice strip above already prices tighter-vs-cheaper for the whole
+         * trip, so repeating it per leg was noise pointing the wrong way. */
         + (!allIn
             ? '<div class="win-note" style="color:var(--bad)">'
               + esc(excluded.map(function (x) { return name(x.id); }).join(', '))
@@ -1460,7 +1540,7 @@ document.addEventListener('click', function (ev) {
     }
 
     var t = tgt.closest && tgt.closest('[data-threshold],[data-rec],[data-set],[data-bag],'
-        + '[data-stops],[data-cap],[data-seats],[data-rmparty],[data-addair],[data-rmair]');
+        + '[data-stops],[data-cap],[data-choice],[data-seats],[data-rmparty],[data-addair],[data-rmair]');
     if (!t) return;
     var card = t.closest('.party');
     var p = card ? party(card.getAttribute('data-pid')) : null;
@@ -1482,6 +1562,13 @@ document.addEventListener('click', function (ev) {
         var code = t.getAttribute('data-rmair');
         p.airports = p.airports.filter(function (c) { return c !== code; });
         renderParties();
+    } else if (t.hasAttribute('data-choice')) {
+        /* One tap sets both legs, because the choice is about the trip. */
+        var cv = t.getAttribute('data-choice');
+        var th = cv === 'Infinity' ? FWF.INF : +cv;
+        state.th.outbound = th; state.th['return'] = th;
+        writeHash(); render();
+        window.scrollTo(0, 0);
     } else if (t.hasAttribute('data-cap')) {
         var rawCap = t.getAttribute('data-cap');
         state.q.maxPremium = rawCap === '' ? null : +rawCap;

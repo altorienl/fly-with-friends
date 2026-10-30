@@ -165,6 +165,20 @@ is 42m", because a two-person spread was being measured against a three-person f
 "tightest is 8m", which reads as the app second-guessing its own answer. It now reads
 "8m is possible for $126 more", which is the actual decision.
 
+**The decision is at the top, not folded away.** The first person to use this who had not
+built it said "that's expensive, why can't it show me the cheapest and the time difference,
+I'd wait longer for a cheaper flight". The app already knew all of that and had buried it in
+a collapsed panel. Three named choices now sit directly under the total, priced across both
+legs at once:
+
+```
+As close as possible          15m apart      $2,322   +$432
+A bit more spread out         20m apart      $2,161   +$271   ← selected
+Cheapest, however far apart   7h 25m apart   $1,890   cheapest
+```
+
+One tap sets both legs. Computing the trade was never the hard part; showing it was.
+
 **One card per person, both legs, one button.** The results are a single view: the trip
 total, then the two landing windows as timelines, then one card per traveller containing
 their outbound, their return, their total and a single booking link. Splitting a person's

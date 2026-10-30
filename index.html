@@ -232,6 +232,27 @@ section { animation: stepIn .2s var(--ease); }
 .dot.fresh-old { background: var(--bad); box-shadow: 0 0 0 3px rgba(255,138,114,.16); }
 .dot.fresh-sample { background: var(--edge-2); }
 
+.choices { margin-bottom: 16px; }
+.choices > .k { display: block; margin-bottom: 10px; }
+.choice {
+    display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center;
+    width: 100%; text-align: left; padding: 14px 16px; margin-bottom: 8px;
+    border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card);
+    box-shadow: var(--lift); transition: border-color .15s, background .15s, transform .12s var(--ease);
+}
+.choice:active { transform: scale(.99); }
+.choice.on { border-color: var(--brand); background: var(--accent-dim); box-shadow: inset 3px 0 0 var(--brand); }
+.c-l { font-size: 14px; font-weight: 700; }
+.c-w { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.c-p { font-size: 16px; font-weight: 700; text-align: right; white-space: nowrap; }
+.c-p em { display: block; font-size: 10px; font-style: normal; font-weight: 600; color: var(--muted); letter-spacing: .4px; margin-top: 2px; }
+.choice.on .c-p em { color: var(--accent); }
+@media (max-width: 420px) {
+    .choice { grid-template-columns: 1fr auto; row-gap: 4px; }
+    .c-w { grid-column: 1; font-size: 11px; }
+    .c-p { grid-row: 1 / span 2; grid-column: 2; }
+}
+
 .leg { display: block; margin-top: 28px; }
 
 /* one person, both legs, one action */
@@ -587,6 +608,7 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
         </div>
         <div class="trip hidden" id="tripTotal" aria-live="polite"></div>
 
+        <div class="choices hidden" id="choices" aria-live="polite"></div>
         <div class="panel hidden" id="perPerson" aria-live="polite"></div>
 
         <details class="opts" id="adjust">
