@@ -320,6 +320,91 @@ console.log('\n-- the invariants the names promise, over generated groups --');
         + Math.round(easeCost[Math.floor(easeCost.length / 2)] || 0));
 }());
 
+/* ------------------------- narrowing the search must not empty the list */
+
+console.log('\n-- the chooser survives a narrowed landing band --');
+(function () {
+    /* "if i adjust the search it doesnt show the updated cheapest balanced and
+     * closest landing info" -- it showed nothing at all. minCostAtWindow returns
+     * null unless EVERY party has an option in the window, the profiles were
+     * built on it alone, so the moment a band left anybody out matchProfiles
+     * returned null and renderChoices hid the strip. The plan below still
+     * rendered, from the subset: a trip with no way to ask for a different one,
+     * which is the exact state the chooser was built to end. */
+    var BANDS = [['Morning', '05:00', '12:00'], ['Afternoon', '12:00', '18:00'],
+                 ['Evening', '18:00', '23:00'], ['Not late night', '06:00', '23:00']];
+    BANDS.forEach(function (bd) {
+        var empty = 0, runs = 0, subsetRuns = 0, unnamed = [];
+        for (var s2 = 1; s2 <= 200; s2++) {
+            load(F.makeGroup(s2 * 7919));
+            ctx.state.q.band.outbound = { from: bd[1], to: bd[2] };
+            ctx.MATCHES = null; ctx.returnTh = {};
+            var c = ctx.compute('outbound');
+            /* A band nobody at all can make is a search with no answer, not a
+             * chooser with no rows -- that case is out of scope here. */
+            if (!c || !ctx.reachOf(c)) continue;
+            runs++;
+            var ms = ctx.tripMatches();
+            if (!ms.length) { empty++; continue; }
+            if (!c.prep.complete) {
+                subsetRuns++;
+                /* Every row that leaves somebody behind has to say so, or the
+                 * cheapest row is a different trip at a better price. */
+                ms.forEach(function (r) {
+                    if (r.seated < r.reach
+                        && ctx.matchWhy(r, ms).indexOf(r.seated + ' of ' + r.reach) !== 0) {
+                        unnamed.push(s2 + '/' + r.key);
+                    }
+                });
+            }
+        }
+        check(bd[0] + ': every group with a seatable plan still offers one',
+              empty === 0, empty + ' of ' + runs + ' groups had an empty chooser');
+        check(bd[0] + ': and a row that leaves somebody behind says so',
+              unnamed.length === 0,
+              unnamed.slice(0, 4).join(', ') + ' (' + subsetRuns + ' subset groups)');
+    });
+
+    /* The guarantee that makes the rest of it safe: a plan that drops somebody
+     * must never hide one that brings them. Dominance compares headcount first
+     * and as a veto, not as one axis among four -- otherwise the cheapest plan
+     * on a narrowed band is routinely the one that quietly leaves a person out,
+     * and it would hide every plan that does not. */
+    var hidden = [];
+    for (var s3 = 1; s3 <= 200; s3++) {
+        load(F.makeGroup(s3 * 7919));
+        ctx.state.q.band.outbound = { from: '12:00', to: '18:00' };
+        ctx.MATCHES = null; ctx.returnTh = {};
+        var m = ctx.matchProfiles();
+        if (!m) continue;
+        m.forEach(function (e) {
+            if (!e.feasible || !e.dominatedBy) return;
+            var by = m.filter(function (x) { return x.id === e.dominatedBy; })[0];
+            if (by && by.seated < e.seated) hidden.push(s3 + ': ' + e.id + ' hidden by ' + by.id);
+        });
+    }
+    check('no plan is ever hidden by one that seats fewer people',
+          hidden.length === 0, hidden.slice(0, 4).join(', '));
+
+    /* And "Closest landing" must still mean closest. ctx.tight is null when the
+     * group cannot be fully covered, and the old code read it unguarded -- the
+     * fallback would have been INF, the loosest window there is. */
+    var wrong = [];
+    for (var s4 = 1; s4 <= 200; s4++) {
+        load(F.makeGroup(s4 * 7919));
+        ctx.state.q.band.outbound = { from: '12:00', to: '18:00' };
+        ctx.MATCHES = null; ctx.returnTh = {};
+        var m2 = ctx.matchProfiles();
+        if (!m2) continue;
+        var cl = by(m2, 'closest');
+        if (!cl || !cl.feasible) continue;
+        var feas = m2.filter(function (e) { return e.feasible && e.seated >= cl.seated; });
+        if (!feas.every(function (e) { return cl.worst <= e.worst; })) wrong.push(s4);
+    }
+    check('closest is still the tightest of the plans that seat as many',
+          wrong.length === 0, 'seeds ' + wrong.slice(0, 6).join(','));
+}());
+
 /* --------------------------------------- the quoted total is current */
 
 console.log('\n-- the cards re-price when the trip changes --');
@@ -417,16 +502,37 @@ console.log('\n-- degenerate groups --');
     check('two parties: more than one distinct match', !!m2 && liveOf(m2).length >= 2,
           m2 ? liveOf(m2).map(function (e) { return e.id; }).join(',') : '');
 
-    /* Somebody with no option at all is a subset problem, and the subset screen
-     * already owns it -- profiles must stand aside rather than invent a plan. */
+    /* Somebody with no option at all used to make the profiles stand aside, on
+     * the grounds that the subset screen owned the case. It does own the PLAN
+     * -- and it rendered one, with the chooser hidden above it, so the reader
+     * had a trip and no way to ask for a cheaper or a closer one. Profiles now
+     * answer over whoever can be seated, which is the same question about the
+     * same plan, and every row states the shortfall. */
     var g3 = JSON.parse(JSON.stringify(F.groups[0]));
     g3.trip.outbound[g3.parties[1].id] = [];
     load(g3);
-    check('a party with no flights at all yields no profiles (subset screen owns it)',
-          ctx.matchProfiles() === null);
+    var m3 = ctx.matchProfiles();
+    check('a party with no flights at all still gets matches, over the subset',
+          !!m3 && liveOf(m3).length >= 1,
+          m3 ? liveOf(m3).map(function (e) { return e.id; }).join(',') : 'null');
+    check('...and none of them seats the party with no flights',
+          !!m3 && liveOf(m3).every(function (e) {
+              return !e.plans.outbound.picks[g3.parties[1].id];
+          }));
+    var rows3 = ctx.tripMatches();
+    check('...and every row says so rather than quoting a total for everybody',
+          rows3.length > 0 && rows3.every(function (r) {
+              return ctx.matchWhy(r, rows3).indexOf(r.seated + ' of ' + r.reach) === 0;
+          }), rows3.map(function (r) { return r.key + ': "' + ctx.matchWhy(r, rows3) + '"'; }).join(' | '));
     /* ...and the plan still renders, from the subset. */
     check('planOf still returns the subset plan in that case',
           !!ctx.planOf(ctx.compute('outbound'), 'subset'));
+
+    /* Nobody seatable at all is still a search with no answer. */
+    var g4 = JSON.parse(JSON.stringify(F.groups[0]));
+    g4.parties.forEach(function (pt) { g4.trip.outbound[pt.id] = []; });
+    load(g4);
+    check('nobody seatable at all yields no profiles', ctx.matchProfiles() === null);
 }());
 
 /* ------------------------------------------------------- the strip DOM */
@@ -497,7 +603,31 @@ console.log('\n-- the choice strip renders the profiles --');
     check('every card\'s price and spread are the plan it opens',
           mismatch.length === 0, mismatch.join('\n          '));
 
+    /* One row says nothing unless there is something to flag. It used to say
+     * "One plan covers it -- cheapest, closest and least flying are the same
+     * flights", and narrowing the landing band makes one row the common case
+     * (26% on Afternoon, 67% on Evening) rather than the rare one. */
+    load(F.groups[4]);
+    var one = ctx.tripMatches();
+    ctx.renderChoices();
+    check('a single row carries no explanation of itself',
+          one.length === 1 && HOST.innerHTML.indexOf('One plan covers it') === -1
+          && HOST.innerHTML.indexOf('m-s') === -1,
+          HOST.innerHTML.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
+
+    /* ...but a single row that leaves somebody behind still has to say so. */
+    var g5 = JSON.parse(JSON.stringify(F.groups[0]));
+    g5.trip.outbound[g5.parties[1].id] = [];
+    load(g5);
+    var sub = ctx.tripMatches();
+    ctx.renderChoices();
+    var short1 = sub.filter(function (r) { return r.seated < r.reach; })[0];
+    check('a row that leaves somebody behind prints the shortfall',
+          !!short1 && HOST.innerHTML.indexOf(short1.seated + ' of ' + short1.reach) > -1,
+          HOST.innerHTML.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
+
     /* And selecting one must move the flights, not just the caption. */
+    load(F.groups[1]);
     load(F.groups[1]);
     var all = ctx.tripMatches();
     var arrivalsOf = function (m) {

@@ -2140,11 +2140,49 @@ function shadowOf(ctx, kind) {
 /* Restates a plan chosen under a shadow cost in money, in the exact shape
  * planOf() returns, so every consumer downstream is unaffected. Times and
  * spread come from clusterMin and are not touched by the re-pricing. */
+/* One window solve, whether or not everybody can make the window.
+ *
+ * minCostAtWindow returns null unless EVERY party has an option, and the
+ * profiles were built on it alone -- so the moment a filter left anybody out,
+ * matchProfiles returned null, tripMatches returned [], and the whole chooser
+ * was hidden. Narrowing the landing band does that to 43% of groups on
+ * "Afternoon" and 88% on "Evening": the reader tapped a filter and the three
+ * options they came for disappeared, leaving a plan with nothing above it.
+ * "if i adjust the search it doesnt show the updated cheapest balanced and
+ * closest landing info".
+ *
+ * bestSubset answers the same question over whoever can make it, and it takes a
+ * costFn, so a profile can still select under its own shadow cost. The screen
+ * below already renders a subset plan and already names who is outside it --
+ * only the chooser was standing aside. */
+function solveAt(ctx, th, costFn) {
+    if (ctx.prep.complete) return FWF.minCostAtWindow(ctx.prep, th, costFn);
+    var r = FWF.bestSubset(ctx.prep, th, costFn);
+    if (!r || !r.included.length) return null;
+    return { picks: r.picks, cost: r.cost, spread: r.summary.spread,
+             included: r.included, excluded: r.excluded };
+}
+
+/* The most people any window can seat at all. The ceiling every profile is
+ * measured against: a plan that drops somebody to save money is not a cheaper
+ * answer to the same question, and comparing two plans on money alone without
+ * this would let one quietly do that. */
+function reachOf(ctx) {
+    if (ctx.prep.complete) return ctx.ids.length;
+    var r = FWF.bestSubset(ctx.prep, FWF.INF, ctx.costFn);
+    return r ? r.included.length : 0;
+}
+
 function repriceMoney(ctx, res) {
     if (!res || !res.picks) return null;
+    /* Over whoever the solve seated, not over everybody: a subset plan has no
+     * pick for the party it left out, and requiring one turned every subset
+     * answer into a null. */
+    var ids = res.included || ctx.ids;
+    if (!ids.length) return null;
     var picks = {}, total = 0, times = [];
-    for (var i = 0; i < ctx.ids.length; i++) {
-        var id = ctx.ids[i];
+    for (var i = 0; i < ids.length; i++) {
+        var id = ids[i];
         var o = res.picks[id] && res.picks[id].option;
         if (!o) return null;
         var c = ctx.costFn(o, id);
@@ -2153,23 +2191,64 @@ function repriceMoney(ctx, res) {
         times.push(o.clusterMin);
     }
     var lo = Math.min.apply(null, times), hi = Math.max.apply(null, times);
-    return { picks: picks, included: ctx.ids.slice(), excluded: [],
-             spread: hi - lo, cost: total, subset: false };
+    return { picks: picks, included: ids.slice(), excluded: res.excluded || [],
+             spread: hi - lo, cost: total, subset: !!(res.excluded && res.excluded.length) };
 }
 
 /* The tightest window that costs nothing on a given objective. Closeness you
  * are not paying for should never be left on the table -- this is the rule the
  * return leg already used, generalised so every profile can use it. */
 function freeTighten(ctx, shadow) {
-    var floor = FWF.minCostAtWindow(ctx.prep, FWF.INF, shadow);
+    var floor = solveAt(ctx, FWF.INF, shadow);
     if (!floor) return FWF.INF;
+    var reach = (floor.included || ctx.ids).length;
     for (var i = 0; i < FWF.DEFAULT_THRESHOLDS.length; i++) {
         var T = FWF.DEFAULT_THRESHOLDS[i];
         if (T === FWF.INF) continue;
-        var r = FWF.minCostAtWindow(ctx.prep, T, shadow);
-        if (r && r.cost <= floor.cost) return T;
+        var r = solveAt(ctx, T, shadow);
+        /* Free means free of money AND free of people. Without the headcount
+         * test a tighter window that drops somebody looks cheaper and gets
+         * taken, which is the one way "closeness that costs nothing" could cost
+         * somebody their seat on the trip. */
+        if (r && (r.included || ctx.ids).length >= reach && r.cost <= floor.cost) return T;
     }
     return FWF.INF;
+}
+
+/* The tightest window that still seats as many people as any window can. What
+ * ctx.tight is for a complete group, for a group that is not.
+ *
+ * Not the ladder rung: stopping there left "Closest landing" quoting 5h 17m
+ * next to an "Easiest flights" card at 5h 9m, both seating four of five, and
+ * the one named for closeness was the looser of the two. Nor contracting to the
+ * spread the plan inside the rung achieves -- that stalls, because minimising
+ * money inside a window does not tighten it. At seed 134 the cheapest
+ * four-person plan inside 317 minutes spreads exactly 317, while four people
+ * also fit inside 309 for $59 more; contraction sees a fixed point and stops
+ * eight minutes short.
+ *
+ * Feasibility is monotone in the window -- a headcount that fits inside W fits
+ * inside anything wider -- so the smallest W that still seats them is a binary
+ * search. About eleven solves, and only on the path where the group cannot be
+ * fully covered. */
+function subsetTightest(ctx) {
+    var reach = reachOf(ctx);
+    if (!reach) return FWF.INF;
+    /* A finite upper bound: the spread actually achieved at the first rung that
+     * seats them, which is at most the rung and often well under it. */
+    var hi = null;
+    for (var i = 0; i < FWF.DEFAULT_THRESHOLDS.length; i++) {
+        var r = solveAt(ctx, FWF.DEFAULT_THRESHOLDS[i], ctx.costFn);
+        if (r && (r.included || ctx.ids).length >= reach) { hi = r.spread; break; }
+    }
+    if (hi == null) return FWF.INF;
+    var lo = 0;
+    while (lo < hi) {
+        var mid = Math.floor((lo + hi) / 2);
+        var m = solveAt(ctx, mid, ctx.costFn);
+        if (m && (m.included || ctx.ids).length >= reach) hi = mid; else lo = mid + 1;
+    }
+    return hi;
 }
 
 /* What a plan is asking of one party, in one number: the money they pay over
@@ -2234,7 +2313,13 @@ function legWindowFor(profileId, ctx, balancedTh) {
     var loose = ctx.leg === 'return' && !state.q.clusterReturn;
     if (profileId === 'closest') {
         if (loose) return freeTighten(ctx, ctx.costFn);
-        return ctx.tight ? ctx.tight.spread : FWF.INF;
+        /* ctx.tight is the tightest window covering EVERY party, so compute
+         * leaves it null when somebody cannot be covered at all. The honest
+         * reading of "closest landing" there is the tightest window that still
+         * seats as many people as any window can -- not INF, which is the
+         * loosest window there is and the opposite of what the name says. */
+        if (ctx.tight) return ctx.tight.spread;
+        return ctx.prep.complete ? FWF.INF : subsetTightest(ctx);
     }
     if (profileId === 'easiest') return freeTighten(ctx, shadowOf(ctx, 'ease'));
     if (profileId === 'cheapest') return freeTighten(ctx, ctx.costFn);
@@ -2245,7 +2330,7 @@ function legWindowFor(profileId, ctx, balancedTh) {
 function legPlanFor(profileId, ctx, balancedTh) {
     var th = legWindowFor(profileId, ctx, balancedTh);
     var shadow = shadowOf(ctx, profileId === 'easiest' ? 'ease' : 'money');
-    var r = FWF.minCostAtWindow(ctx.prep, th, shadow);
+    var r = solveAt(ctx, th, shadow);
     if (!r) return null;
     return { plan: repriceMoney(ctx, r), th: th };
 }
@@ -2266,7 +2351,9 @@ function rollup(ctxs, legs, plans) {
         var g = regretOf(ctx, p.picks);
         if (g.stops > reg.stops) { reg.stops = g.stops; reg.who = g.who; }
         if (g.mins > reg.mins) { reg.mins = g.mins; if (!reg.who) reg.who = g.who; }
-        ctx.ids.forEach(function (id) {
+        /* p.included, not ctx.ids: a subset plan has no pick for the party it
+         * left out, and summing over everybody threw on the first one. */
+        p.included.forEach(function (id) {
             per[id] = (per[id] || 0) + p.picks[id].cost;
             /* Summed across legs: being handed the long way round twice is
              * twice the burden, and the person it happens to knows that. */
@@ -2347,9 +2434,12 @@ function matchProfiles() {
     var ctxs = {};
     for (var i = 0; i < legs.length; i++) {
         var c = compute(legs[i]);
-        /* Somebody with no options at all is a subset problem, not a choice
-         * between matches -- the existing subset screen owns that case. */
-        if (!c || !c.prep.complete || !c.ladder) return null;
+        /* An incomplete group is no longer a reason to stand aside -- see
+         * solveAt. What is still a reason is nobody being seatable at all,
+         * which is a search with no answer rather than a choice between
+         * answers. */
+        if (!c || !c.prep) return null;
+        if (!c.prep.complete && !reachOf(c)) return null;
         ctxs[legs[i]] = c;
     }
 
@@ -2377,7 +2467,30 @@ function matchProfiles() {
         if (!roll) { out.push({ id: def.id, label: def.label, asks: def.asks, feasible: false }); return; }
 
         var sig = planSig(plans, legs);
+        /* The fewest people any leg of this plan seats, and the most any plan
+         * could. Reported rather than derived downstream so a card can say "4
+         * of 5" without re-solving, and so dominance can compare on it. */
+        var seated = Math.min.apply(null, legs.map(function (leg) {
+            return plans[leg].included.length;
+        }));
+        /* Measured in seats against the whole group, not against what any
+         * window could achieve. Those differ when somebody has no flight at
+         * all: reach-against-reach says "2 of 2" and reads as complete, while
+         * the group is three people and the card quotes a total for two of
+         * them. Seats rather than cards for the reason the roster line already
+         * counts them that way -- the title says "5 people" and one card can be
+         * two of them. */
+        var seatsBy2 = {}, seatedSeats = 0, allSeats = 0;
+        ctxs[legs[0]].ids.forEach(function (id) {
+            seatsBy2[id] = seatsFor(ctxs[legs[0]], id);
+            allSeats += seatsBy2[id];
+        });
+        var leastLeg = legs.filter(function (leg) {
+            return plans[leg].included.length === seated;
+        })[0];
+        plans[leastLeg].included.forEach(function (id) { seatedSeats += seatsBy2[id]; });
         var entry = {
+            seated: seatedSeats, reach: allSeats, parties: seated,
             id: def.id, label: def.label, asks: def.asks, feasible: true,
             plans: plans, th: ths, sig: sig,
             total: roll.total, worst: roll.worst, mins: roll.mins, per: roll.per,
@@ -2402,6 +2515,11 @@ function matchProfiles() {
      * Balanced is exempt: it is the default and the baseline everything else is
      * described against, so hiding it would leave the screen with no anchor and
      * the selection with nothing to fall back to. */
+    /* Seating fewer people is not a cheaper answer to the same question, it is
+     * an answer to a different one -- so headcount is compared first and as a
+     * veto, not as one axis among four. Without it the cheapest plan on a
+     * narrowed band is routinely the one that quietly leaves somebody behind,
+     * and it would hide every plan that brings them. */
     var cmp = ['total', 'worst', 'mins', 'worstBurden'];
     var feas = out.filter(function (e) { return e.feasible && !e.dupeOf; });
     feas.forEach(function (e) {
@@ -2414,7 +2532,8 @@ function matchProfiles() {
         for (var i = 0; i < feas.length; i++) {
             var o = feas[i];
             if (o === e) continue;
-            var weak = true, strict = false;
+            if (o.seated < e.seated) continue;
+            var weak = true, strict = o.seated > e.seated;
             for (var k = 0; k < cmp.length; k++) {
                 if (o[cmp[k]] > e[cmp[k]]) { weak = false; break; }
                 if (o[cmp[k]] < e[cmp[k]]) strict = true;
@@ -2527,6 +2646,7 @@ function tripMatches() {
         return {
             key: e.id, name: e.label, total: e.total + backTotal,
             topPer: Math.round(topPer),
+            seated: e.seated, reach: e.reach,
             /* The outbound spread, which is what "apart" means on this screen:
              * the number under "Landing together" in the plan the card opens. */
             spread: e.worst, mins: e.mins, conn: e.conn,
@@ -2558,12 +2678,26 @@ function matchOf(ms) {
  * names is exactly that. The division is: the chooser states the differences,
  * the plan below states the trip. Who changes planes is in the itineraries
  * anyway, per person, which is the more useful place for it. */
+/* "4 of 5", in seats, or nothing. The one fact about a match that is never a
+ * tie-breaker: a plan that leaves somebody behind is a different trip, and a
+ * price quoted without it is a price for a trip the reader did not ask for. */
+function shortfallOf(m) {
+    if (m.seated == null || m.reach == null || m.seated >= m.reach) return '';
+    return m.seated + ' of ' + m.reach;
+}
+
 function whyBits(m, list) {
     var varies = function (f) {
         var v = String(f(m));
         return list.some(function (o) { return String(f(o)) !== v; });
     };
     var bits = [];
+    /* First, and unconditionally when it is true: who this plan leaves behind
+     * is not a tie-breaker between otherwise equal options, it is the thing
+     * that decides whether the option is acceptable at all. A $200 saving on a
+     * row that reads "4 of 5" is a different trip, and a reader who taps it
+     * without being told is being misled by the price. */
+    if (shortfallOf(m)) bits.push(shortfallOf(m));
     if (m.spread != null && varies(function (o) { return o.spread; })) {
         bits.push(FWF.fmtGap(m.spread) + ' apart');
     }
@@ -2664,6 +2798,9 @@ function renderChoices() {
     /* A list of one is worse than no list: there is nothing to choose, and the
      * selector invites a tap that cannot do anything. */
     var many = ms.length > 1;
+    var sub = function (m) {
+        return many ? matchWhy(m, ms) : shortfallOf(m);
+    };
 
     host.className = 'choices';
     host.innerHTML = '<div class="match"'
@@ -2679,10 +2816,14 @@ function renderChoices() {
                         + ' tabindex="' + (on ? '0' : '-1') + '"' : '')
                 + '><span class="m-main">'
                 + '<span class="m-n">' + esc(many ? m.name : 'The trip') + '</span>'
-                + '<span class="m-s">'
-                + esc(many ? matchWhy(m, ms)
-                    : 'One plan covers it \u2014 cheapest, closest and least flying are the same flights')
-                + '</span>'
+                /* With one row there is nothing to tell apart, so the sub-line
+                 * has one job left: say if this plan leaves somebody behind.
+                 * It used to read "One plan covers it -- cheapest, closest and
+                 * least flying are the same flights", which was a sentence
+                 * explaining why the screen looked the way it did, and
+                 * narrowing the band makes that the common case rather than the
+                 * rare one. Nothing to flag, nothing printed. */
+                + (sub(m) ? '<span class="m-s">' + esc(sub(m)) + '</span>' : '')
                 + '</span><span class="m-right">'
                 + '<span class="m-v mono">' + money(m.total) + '</span>'
                 /* Only under the selected total. It is a can-everyone-afford-
@@ -2865,26 +3006,34 @@ function renderNotices() {
         var none = C.prep.missing.filter(function (id) { return blocked.indexOf(id) === -1; });
         var bits = [];
         if (blocked.length) {
-            /* "your filters" named a thing that appears nowhere on screen, and
-             * "Loosen one above" pointed up the page at a panel that is below
-             * this notice -- the controls live under the plan, not over it. */
+            /* "your filters" named a thing that appears nowhere on screen.
+             * "below" was right when the controls lived under the plan and
+             * wrong since "Adjust the search" moved to the top, so it now names
+             * the control instead of a direction -- which survives the panel
+             * moving again. */
             bits.push('<b>' + (blocked.length === C.ids.length
                     ? 'Nobody can fly any of these.'
                     : esc(nameList(blocked)) + ' can’t fly any of these.')
                 + '</b> There are flights, just none that ' + esc(filterText())
-                + '. Loosen the search below.');
+                + '. Loosen it under Adjust the search.');
         }
         if (none.length) {
             bits.push('<b>No flights for ' + esc(nameList(none)) + ' on the way '
                 + (state.leg === 'outbound' ? 'out' : 'home') + '.</b> '
                 + 'Try other dates, or another airport.');
         }
-        /* One short fact instead of a paragraph about why a partial total would
-         * be dishonest. The reader can see the plan is short; they only need to
-         * know the money is not on screen yet. */
-        bits.push('No total until everyone has a flight.');
-        sh.className = 'notice bad';
-        sh.innerHTML = bits.join('<br><br>');
+        /* There IS a total now, and it is on screen: the chooser used to be
+         * hidden whenever the group was short, so this line was true -- and it
+         * went on being printed directly above "$1,410 / 3 of 5" once the
+         * matches started answering over the subset. Two statements of the
+         * money, one of them denying the other. The row says who the total
+         * covers, so this line has nothing left to add. */
+        /* Guarded now that the closing line is gone: every missing party is
+         * either blocked or has nothing at all, so bits is never empty in
+         * practice -- but an empty red box with nothing in it is the failure
+         * this used to be structurally incapable of. */
+        if (bits.length) { sh.className = 'notice bad'; sh.innerHTML = bits.join('<br><br>'); }
+        else { sh.className = 'notice bad hidden'; sh.innerHTML = ''; }
     } else sh.className = 'notice bad hidden';
 }
 
