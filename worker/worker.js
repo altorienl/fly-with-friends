@@ -213,7 +213,7 @@ async function duffelSearch(env, params) {
   if (payload.errors && payload.errors.length) {
     throw new Error(payload.errors[0].message || payload.errors[0].title || 'Duffel error');
   }
-  return extractDuffelOptions(payload, LIMITS.optionsPerLeg);
+  return { options: extractDuffelOptions(payload, LIMITS.optionsPerLeg), insights: null };
 }
 
 /* -------------------------------------------------------------- budget */
@@ -246,6 +246,16 @@ function cacheKey(params, provider) {
                    params.currency, params.bags].join('|');
 }
 
+function extractInsights(payload) {
+  const p = payload.price_insights;
+  if (!p) return null;
+  return {
+    level: p.price_level || null,
+    lowest: p.lowest_price == null ? null : p.lowest_price,
+    typical: Array.isArray(p.typical_price_range) ? p.typical_price_range : null,
+  };
+}
+
 async function serpapiSearch(env, params) {
   const url = new URL(SERPAPI_ENDPOINT);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
@@ -255,23 +265,28 @@ async function serpapiSearch(env, params) {
   const res = await fetch(url.toString());
   const payload = await res.json();
   if (payload.error) throw new Error(payload.error);
-  return extractOptions(payload, LIMITS.optionsPerLeg);
+  return { options: extractOptions(payload, LIMITS.optionsPerLeg), insights: extractInsights(payload) };
 }
 
 /* Returns { options, spent } -- spent is 0 when the cache served it. */
 async function oneSearch(env, params, provider) {
   const key = cacheKey(params, provider);
   const hit = await env.FWF.get(key, 'json');
-  if (hit) return { options: hit, spent: 0 };
+  if (hit) {
+    /* Entries cached before insights existed are a bare array. */
+    return Array.isArray(hit)
+      ? { options: hit, insights: null, spent: 0 }
+      : { options: hit.options, insights: hit.insights || null, spent: 0 };
+  }
 
-  const options = provider === 'duffel'
+  const got = provider === 'duffel'
     ? await duffelSearch(env, params)
     : await serpapiSearch(env, params);
 
-  if (!options.length) throw new Error('no results for this route and date');
+  if (!got.options.length) throw new Error('no results for this route and date');
 
-  await env.FWF.put(key, JSON.stringify(options), { expirationTtl: LIMITS.cacheTtlSeconds });
-  return { options, spent: 1 };
+  await env.FWF.put(key, JSON.stringify(got), { expirationTtl: LIMITS.cacheTtlSeconds });
+  return { options: got.options, insights: got.insights, spent: 1 };
 }
 
 function validate(body) {
@@ -376,10 +391,10 @@ async function handleSearch(request, env) {
 
   const searched = await Promise.all(uniqueSearches.map(async u => {
     try {
-      const { options, spent } = await oneSearch(env, u.params, provider);
-      return { ...u, options, spent, error: null };
+      const { options, insights, spent } = await oneSearch(env, u.params, provider);
+      return { ...u, options, insights, spent, error: null };
     } catch (err) {
-      return { ...u, options: [], spent: 0, error: err.message };
+      return { ...u, options: [], insights: null, spent: 0, error: err.message };
     }
   }));
 
@@ -387,7 +402,7 @@ async function handleSearch(request, env) {
   const results = [];
   for (const u of searched) {
     for (const job of u.jobs) {
-      results.push({ ...job, options: u.options, spent: 0, error: u.error });
+      results.push({ ...job, options: u.options, insights: u.insights, spent: 0, error: u.error });
     }
   }
   const spentTotal = searched.reduce((n, u) => n + u.spent, 0);
@@ -402,15 +417,17 @@ async function handleSearch(request, env) {
   await bump(env, ipKey, 1, 60 * 60 * 2);
 
   const trips = { query: { outbound: {}, return: {} } };
+  const insights = { outbound: {}, return: {} };
   const errors = [];
   for (const r of results) {
     trips.query[r.leg][r.id] = r.options;
+    if (r.insights) insights[r.leg][r.id] = r.insights;
     if (r.error) errors.push({ traveler_id: r.id, leg: r.leg, reason: r.error });
   }
 
   return json({
     generated_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
-    currency, provider, sample: false, trips, errors,
+    currency, provider, sample: false, trips, insights, errors,
     budget: { ...budget, used: used + spent, usedToday: usedToday + spent },
     searches_made: spent,
     distinct_routes: uniqueSearches.length,
@@ -421,7 +438,7 @@ async function handleSearch(request, env) {
 /* Exported so the parsers and validator can be tested directly -- the bag parser
  * here must stay in step with the Python one in .github/scripts/scan.py, and
  * test-worker.js checks exactly that. */
-export const _internals = { parseBags, validate, extractOptions, cacheKey, LIMITS,
+export const _internals = { parseBags, validate, extractOptions, extractInsights, cacheKey, LIMITS,
                             duffelBags, parseIsoDuration, extractDuffelOptions, localStamp };
 
 export default {

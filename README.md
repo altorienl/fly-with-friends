@@ -171,6 +171,17 @@ smaller city had no nonstop. Now the preference is applied per traveller — hon
 exists, relaxed only for whoever cannot meet it, and stated plainly: *"Alex had no nonstop
 option, so a connection was allowed rather than dropping the plan."*
 
+**"What if it's cheaper the next day?"** The obvious question, asked by the second person to
+try this. SerpApi has no flexible-date window — verified, not assumed — so every alternative
+date is a full set of searches. That makes it an explicit, priced button rather than something
+that quietly spends a tenth of the month's quota: *"Checks the day before and after. Costs 12
+of your remaining searches."* The result is three dates side by side with the saving named.
+
+Google also grades every fare against that route's own history and returns it in
+`price_insights` on every search, which this was throwing away. A fare that is cheap or dear
+for its route is now labelled on the row — free, no extra search, and it answers "is this
+actually a good price" without checking another date at all.
+
 **Cheapest first, then what closeness costs.** Two people used this before it read properly.
 One said "that's expensive, why can't it show me the cheapest and the time difference". The
 other found the best deal only by opening the filter panel — "it wasn't apparent". Both were

@@ -23,6 +23,8 @@ var APP = { bagFee: 35, carryOnFee: 30, target: 30, maxParties: 8, maxSeats: 9 }
 var COLORS = ['#ffb300', '#4ade80', '#38bdf8', '#c084fc', '#fb923c', '#f472b6', '#2dd4bf', '#facc15'];
 
 var DATA = null, SET = null, BUDGET = null, C = null, TRIP = null;
+/* Alternative dates, keyed "dep|ret". Each entry is a whole searched trip. */
+var SHIFTS = {}, shiftBusy = false, shiftErr = null;
 var state = {
     step: 1, leg: 'outbound', recommend: 'value',
     /* One chosen row per leg: a round trip is two decisions, and pricing the
@@ -434,6 +436,7 @@ function doSearch() {
         if (res.body.budget) BUDGET = res.body.budget;
         if (!res.ok) { state.error = res.body.error || 'Search failed.'; render(); return; }
         DATA = res.body;
+        SHIFTS = {}; shiftErr = null;
         thReset(); state.leg = 'outbound';
         showStep(4); render();
     }).catch(function (e) {
@@ -702,6 +705,7 @@ function render() {
     renderRecPills();
     renderPlanView();
     renderOptions();
+    renderShifts();
     renderShare();
 }
 
@@ -1203,7 +1207,17 @@ function windowStrip(leg, b, label) {
     return html;
 }
 
-function hopRow(dir, r, leg) {
+function priceLevel(leg, id) {
+    var ins = ((DATA || {}).insights || {})[leg] || {};
+    var x = ins[id];
+    if (!x || !x.level) return '';
+    var lvl = String(x.level).toLowerCase();
+    if (lvl === 'low') return '<span class="lvl low">good price for this route</span>';
+    if (lvl === 'high') return '<span class="lvl high">high for this route</span>';
+    return '';
+}
+
+function hopRow(dir, r, leg, id) {
     if (!r) return '';
     var o = r.option;
     var code = (o.airlines || [])[0] || '';
@@ -1217,7 +1231,8 @@ function hopRow(dir, r, leg) {
         + '<div class="hop-main"><div class="hop-route">' + esc(o.from) + ' &rarr; ' + esc(o.to)
         + '</div><div class="hop-meta">' + esc((o.airlines || []).join(', ')) + ' · '
         + (o.stops === 0 ? 'nonstop' : o.stops + ' stop') + ' · ' + FWF.fmtGap(o.duration_minutes)
-        + (r.inWindow ? '' : ' · <span style="color:var(--bad)">outside the window</span>') + '</div></div>'
+        + (r.inWindow ? '' : ' · <span style="color:var(--bad)">outside the window</span>') + '</div>'
+        + priceLevel(leg, id) + '</div>'
         + '<div class="hop-right"><div class="hop-time mono">'
         + (leg === 'outbound' ? 'lands ' : 'leaves ') + clock(showMin) + '</div>'
         + '<div class="hop-cost mono">' + money(r.cost)
@@ -1246,8 +1261,8 @@ function travellerCard(id, i) {
         + '<div class="trav-tot mono">' + money(pp.total)
         + '<span>' + (t.seats > 1 ? money(each) + ' each' : 'all in') + '</span></div>'
         + '</div>'
-        + hopRow('Out', o, 'outbound')
-        + (b ? hopRow('Back', b, 'return') : '')
+        + hopRow('Out', o, 'outbound', id)
+        + (b ? hopRow('Back', b, 'return', id) : '')
         + '<div class="trav-book">'
         + '<a class="btn primary" style="display:block;text-align:center;text-decoration:none" href="'
         + tripBookUrl(origin, state.q.dest, state.q.dep, state.q.ret || null, t.seats)
@@ -1299,6 +1314,145 @@ function renderOptions() {
     state.leg = prevLeg; C = prevC;
     host.className = 'opts';
     body.innerHTML = out;
+}
+
+/* "What if it's cheaper the next day?" -- the obvious question, and SerpApi has
+ * no flexible-date window, so each alternative date is a full set of searches.
+ * That makes it an explicit, priced action rather than something that quietly
+ * spends a tenth of the month's quota. */
+function shiftDays(iso, n) {
+    var d = new Date(iso + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+}
+
+function shiftCandidates() {
+    if (!state.q || !state.q.dep) return [];
+    return [-1, 1].map(function (n) {
+        var dep = shiftDays(state.q.dep, n);
+        if (dep < todayISO()) return null;
+        return { n: n, dep: dep, ret: state.q.ret ? shiftDays(state.q.ret, n) : null };
+    }).filter(Boolean);
+}
+
+function shiftKey(c) { return c.dep + '|' + (c.ret || ''); }
+
+function shiftCost() {
+    var parties = travelers().filter(function (t) { return t.origins.length; }).length;
+    var legs = hasReturn() ? 2 : 1;
+    return shiftCandidates().filter(function (c) { return !SHIFTS[shiftKey(c)]; }).length * parties * legs;
+}
+
+/* Prices one alternative trip from an already-fetched payload. */
+function priceShift(payload) {
+    var tv = travelers();
+    var ids = tv.map(function (t) { return t.id; });
+    var costFn = FWF.makeCostFn(tv, {
+        assumedCheckedBagFee: APP.bagFee, assumedCarryOnFee: APP.carryOnFee,
+        priceDisplay: SET.priceDisplay
+    });
+    var legs = ['outbound'].concat(hasReturn() ? ['return'] : []);
+    var total = 0, worst = 0;
+    for (var i = 0; i < legs.length; i++) {
+        var leg = legs[i];
+        var data = ((payload.trips || {}).query || {})[leg] || {};
+        var prep = FWF.prepare(data, ids, leg === 'outbound' ? 'arrive' : 'depart');
+        if (!prep.complete) return null;
+        /* Same window the user is currently looking at, so it is like for like. */
+        var th = state.th.outbound;
+        var r = (typeof th === 'number' || th === FWF.INF)
+            ? FWF.minCostAtWindow(prep, th, costFn) : null;
+        if (!r) r = FWF.minCostAtWindow(prep, FWF.INF, costFn);
+        if (!r) return null;
+        total += r.cost;
+        worst = Math.max(worst, r.spread);
+    }
+    return { total: total, worst: worst };
+}
+
+function runShiftScan() {
+    var todo = shiftCandidates().filter(function (c) { return !SHIFTS[shiftKey(c)]; });
+    if (!todo.length || shiftBusy) return;
+    shiftBusy = true; shiftErr = null; renderShifts();
+
+    var tv = travelers().filter(function (t) { return t.origins.length; });
+    Promise.all(todo.map(function (c) {
+        return fetch(API + '/search', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                dest: [state.q.dest], depart: c.dep, ret: c.ret,
+                travelers: tv.map(function (t) {
+                    return { id: t.id, name: t.name, bags: t.bags,
+                             origins: t.origins.filter(function (x) {
+                                 var a = AIRPORTS.get(x); return a && !a.closed;
+                             }) };
+                })
+            })
+        }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j, c: c }; }); });
+    })).then(function (res) {
+        shiftBusy = false;
+        res.forEach(function (x) {
+            if (x.body && x.body.budget) BUDGET = x.body.budget;
+            if (!x.ok) { shiftErr = x.body.error || 'Could not check other dates.'; return; }
+            SHIFTS[shiftKey(x.c)] = { c: x.c, priced: priceShift(x.body) };
+        });
+        renderShifts();
+    }).catch(function (e) {
+        shiftBusy = false; shiftErr = 'Could not check other dates: ' + e.message; renderShifts();
+    });
+}
+
+function renderShifts() {
+    var host = el('shifts');
+    if (!TRIP || !state.q || DATA.sample) { host.className = 'shifts hidden'; return; }
+
+    var cands = shiftCandidates();
+    if (!cands.length) { host.className = 'shifts hidden'; return; }
+    host.className = 'shifts';
+
+    var done = cands.filter(function (c) { return SHIFTS[shiftKey(c)]; });
+    if (!done.length) {
+        var n = shiftCost();
+        host.innerHTML = '<button class="btn wide" id="shiftBtn"' + (shiftBusy ? ' disabled' : '') + '>'
+            + (shiftBusy ? 'Checking…' : 'Is another day cheaper?') + '</button>'
+            + '<div class="share-note">Checks the day before and after. Costs <b>' + n
+            + '</b> of your remaining searches — there is no way to see nearby dates for free.'
+            + (shiftErr ? '<br><span style="color:var(--bad)">' + esc(shiftErr) + '</span>' : '')
+            + '</div>';
+        return;
+    }
+
+    var rows = [{ label: state.q.dep + (state.q.ret ? ' – ' + state.q.ret : ''),
+                  total: TRIP.total, worst: null, here: true }];
+    cands.forEach(function (c) {
+        var got = SHIFTS[shiftKey(c)];
+        if (!got) return;
+        rows.push({ label: c.dep + (c.ret ? ' – ' + c.ret : ''),
+                    total: got.priced ? got.priced.total : null,
+                    worst: got.priced ? got.priced.worst : null, here: false });
+    });
+    rows.sort(function (a, b) { return (a.label < b.label) ? -1 : 1; });
+
+    var best = rows.filter(function (r) { return r.total != null; })
+        .reduce(function (a, b) { return b.total < a.total ? b : a; });
+
+    host.innerHTML = '<span class="k">Other dates</span>'
+        + rows.map(function (r) {
+            if (r.total == null) {
+                return '<div class="shift"><span class="s-d mono">' + esc(r.label)
+                    + '</span><span class="s-n">nothing covers everyone</span></div>';
+            }
+            var diff = r.total - TRIP.total;
+            return '<div class="shift' + (r.here ? ' here' : '') + (r === best && !r.here ? ' best' : '') + '">'
+                + '<span class="s-d mono">' + esc(r.label) + (r.here ? ' · your dates' : '') + '</span>'
+                + '<span class="s-p mono">' + money(r.total)
+                + (r.here ? '' : '<em>' + (diff < 0 ? '−' + money(-diff) : diff > 0 ? '+' + money(diff) : 'same') + '</em>')
+                + '</span></div>';
+        }).join('')
+        + (best && !best.here
+            ? '<div class="share-note" style="color:var(--good)">Moving the trip to ' + esc(best.label)
+              + ' saves <b>' + money(TRIP.total - best.total) + '</b>. Change the dates on the previous screen to use it.</div>'
+            : '<div class="share-note">Your dates are the cheapest of the three.</div>');
 }
 
 function renderShare() {
@@ -1573,6 +1727,7 @@ function aboutSheet() {
 
 document.addEventListener('click', function (ev) {
     var tgt = ev.target;
+    if (tgt.closest('#shiftBtn')) { runShiftScan(); return; }
     if (tgt.closest('#gearBtn')) { settingsSheet(); return; }
     if (tgt.closest('#aboutBtn')) { aboutSheet(); return; }
     if (tgt.id === 'sheetClose' || tgt.id === 'scrim') { closeSheet(); return; }

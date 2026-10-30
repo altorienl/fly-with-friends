@@ -232,6 +232,17 @@ section { animation: stepIn .2s var(--ease); }
 .dot.fresh-old { background: var(--bad); box-shadow: 0 0 0 3px rgba(255,138,114,.16); }
 .dot.fresh-sample { background: var(--edge-2); }
 
+.shifts { margin-top: 24px; }
+.shifts > .k { display: block; margin-bottom: 10px; }
+.shift { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 12px 16px; border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card); margin-bottom: 8px; }
+.shift.here { border-color: var(--brand); background: var(--accent-dim); }
+.shift.best { border-color: var(--good); }
+.s-d { font-size: 13px; font-weight: 700; }
+.s-n { font-size: 11px; color: var(--muted); }
+.s-p { font-size: 16px; font-weight: 700; text-align: right; white-space: nowrap; }
+.s-p em { display: block; font-size: 10px; font-style: normal; font-weight: 700; color: var(--muted); margin-top: 2px; }
+.shift.best .s-p em { color: var(--good); }
+
 .choices { margin-bottom: 16px; }
 .choices > .k { display: block; margin-bottom: 10px; }
 .choice {
@@ -276,6 +287,9 @@ section { animation: stepIn .2s var(--ease); }
 .hop-main { min-width: 0; }
 .hop-route { font-size: 13px; font-weight: 600; }
 .hop-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.lvl { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .3px; margin-top: 5px; }
+.lvl.low { color: var(--good); }
+.lvl.high { color: var(--warn); }
 .hop-right { text-align: right; white-space: nowrap; }
 .hop-time { font-size: 14px; font-weight: 700; }
 .hop-cost { font-size: 11px; color: var(--muted); margin-top: 3px; }
@@ -631,6 +645,7 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
             <div id="optionsBody"></div>
         </details>
 
+        <div class="shifts hidden" id="shifts" aria-live="polite"></div>
         <div class="share" id="shareBox"></div>
     </section>
 
