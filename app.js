@@ -29,8 +29,6 @@ var SHIFTS = {}, shiftBusy = false, shiftErr = null;
 var TRIP_ID = null, savingTrip = false;
 var state = {
     step: 1, leg: 'outbound', recommend: 'value',
-    /* Whether the exact landing-time pickers have been revealed. */
-    bandExact: false,
     /* One chosen row per leg: a round trip is two decisions, and pricing the
      * whole trip means holding both at once. */
     th: { outbound: null, return: null },
@@ -112,6 +110,18 @@ function blankQuery() {
     };
 }
 function partyLabel(p, i) { return (p.name || '').trim() || ('Flight ' + (i + 1)); }
+
+/* Spelled out, for the one line that states the result. "10m" is fine in a
+ * column of gaps; standing alone as the answer it reads as shorthand nobody
+ * asked to decode, and a first-time reader took it for something else. */
+function gapWords(minutes) {
+    if (minutes == null) return '';
+    var abs = Math.round(Math.abs(minutes));
+    var h = Math.floor(abs / 60), m = abs % 60;
+    if (h === 0) return m + (m === 1 ? ' minute' : ' minutes');
+    var out = h + (h === 1 ? ' hour' : ' hours');
+    return m ? out + ' ' + m + ' min' : out;
+}
 
 /* Resolves a party's rules against the group controls. An ABSENT key inherits
  * the group setting; an explicit null is itself a value ("Any"), which is why
@@ -753,12 +763,36 @@ function saveTrip() {
 /* Per leg: what each party pays, and whether they are inside the window.
  * Everyone is priced -- someone the filters excluded still buys a ticket, and a
  * "total" that silently drops them is the deceptive version of this number. */
+/* The way home is each person's own best flight, but "best" left a group 7h 21m
+ * apart when a plan at the SAME price put them inside an hour -- which reads as
+ * the app doing a bad job rather than as a deliberate choice. So: price the leg
+ * with no window at all, then walk the thresholds from tightest and take the
+ * first one that costs no more. Nobody pays a penny extra for it. Memoised per
+ * leg because it is asked for once per ladder row. */
+var looseTh = {};
+function looseReturnTh(ctx) {
+    var key = ctx.leg + '|' + (ctx.ids || []).join(',');
+    if (looseTh[key] !== undefined) return looseTh[key];
+    var floor = FWF.minCostAtWindow(ctx.prep, FWF.INF, ctx.costFn);
+    var best = FWF.INF;
+    if (floor) {
+        for (var i = 0; i < FWF.DEFAULT_THRESHOLDS.length; i++) {
+            var T = FWF.DEFAULT_THRESHOLDS[i];
+            if (T === FWF.INF) continue;
+            var r = FWF.minCostAtWindow(ctx.prep, T, ctx.costFn);
+            if (r && r.cost <= floor.cost) { best = T; break; }
+        }
+    }
+    looseTh[key] = best;
+    return best;
+}
+
 function legBreakdown(leg) {
     var ctx = compute(leg);
     if (!ctx) return null;
     /* Unless the group has asked to leave together, the way home is simply each
      * person's best flight -- they are going to different cities. */
-    if (leg === 'return' && !state.q.clusterReturn) state.th['return'] = FWF.INF;
+    if (leg === 'return' && !state.q.clusterReturn) state.th['return'] = looseReturnTh(ctx);
     var plan = planOf(ctx, state.th[leg] != null ? state.th[leg] : recommendedIn(ctx));
     if (!plan) return null;
 
@@ -832,7 +866,7 @@ function tripLadder() {
     var rows = [];
     FWF.DEFAULT_THRESHOLDS.forEach(function (T) {
         var total = 0, worst = 0, ok = true, per = {};
-        var reg = { stops: 0, mins: 0, who: null }, conn = {};
+        var reg = { stops: 0, mins: 0, who: null }, conn = {}, mins = 0;
         ctxs.forEach(function (c) {
             /* The way home is unclustered by default, and the plan on screen
              * renders it that way -- so pricing it inside the window quoted a
@@ -841,7 +875,7 @@ function tripLadder() {
              * excluded too: an eleven-hour spread on a leg we are deliberately
              * not clustering would otherwise dominate every row's "apart". */
             var loose = c.leg === 'return' && !state.q.clusterReturn;
-            var r = FWF.minCostAtWindow(c.prep, loose ? FWF.INF : T, c.costFn);
+            var r = FWF.minCostAtWindow(c.prep, loose ? looseReturnTh(c) : T, c.costFn);
             if (!r) { ok = false; return; }
             total += r.cost;
             if (!loose) worst = Math.max(worst, r.spread);
@@ -850,6 +884,8 @@ function tripLadder() {
             if (g.mins > reg.mins) { reg.mins = g.mins; if (!reg.who) reg.who = g.who; }
             c.ids.forEach(function (id) {
                 per[id] = (per[id] || 0) + r.picks[id].cost;
+                var dm = r.picks[id].option.duration_minutes;
+                if (dm != null) mins += dm;
                 /* Who ends up on a connection, across both legs. Counted per
                  * person rather than per leg so "two connections" never means
                  * one person changing planes each way. */
@@ -866,7 +902,7 @@ function tripLadder() {
             if (each > topPer) { topPer = each; topId = id; }
         }
         rows.push({ th: T, total: total, worst: worst, per: per, regret: reg,
-                    conn: Object.keys(conn),
+                    mins: mins, conn: Object.keys(conn),
                     topPer: Math.round(topPer), topId: topId });
     });
     if (!rows.length) return null;
@@ -950,6 +986,15 @@ function renderChoices() {
         alts.push({ th: tightest.th, l: 'As close as possible', v: money(tightest.total),
                     s: FWF.fmtGap(tightest.worst) + ' apart' });
     }
+    /* Least time in the air across the whole group. Offered only when it is
+     * actually a different plan from the three already named -- a fourth button
+     * that repeats one of the others is worse than no fourth button. */
+    var fastest = l.reduce(function (a, b) { return b.mins < a.mins ? b : a; });
+    var named = [showing.th, cheapest.th, tightest.th];
+    if (named.indexOf(fastest.th) === -1) {
+        alts.push({ th: fastest.th, l: 'Least flying', v: money(fastest.total),
+                    s: FWF.fmtGap(fastest.mins) + ' in the air' });
+    }
     if (showing.th !== best.th) {
         alts.unshift({ th: best.th, l: 'Best option', v: money(best.total),
                        s: FWF.fmtGap(best.worst) + ' apart' });
@@ -960,7 +1005,7 @@ function renderChoices() {
         + '<div class="pick-top">'
         + '<div><div class="pick-k">' + (showing.th === best.th ? 'Best option' : 'Showing')
         + '</div>'
-        + '<div class="pick-w">Everyone lands within ' + FWF.fmtGap(showing.worst) + '</div></div>'
+        + '<div class="pick-w">Everyone lands within ' + gapWords(showing.worst) + '</div></div>'
         + '<div class="pick-tot mono">' + money(showing.total)
         + '<span>' + money(showing.topPer) + ' each at most</span></div>'
         + '</div>'
@@ -1004,6 +1049,9 @@ function tripTotal() {
 }
 
 function render() {
+    /* Cleared every pass: the memo is keyed by leg and party, but the option
+     * sets it summarises change whenever a filter does. */
+    looseTh = {};
     C = compute();
     renderNotices();
     renderGear();
@@ -1282,16 +1330,12 @@ function presetFor(band) {
     return 'exact';
 }
 
-function bandPresetHtml(cur, withExact) {
+function bandPresetHtml(cur) {
     return BAND_PRESETS.map(function (x) {
         var on = cur === x.k;
         return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
             + '" data-bpre="' + x.k + '">' + esc(x.l) + '</button>';
-    }).join('')
-        + (withExact
-            ? '<button class="pill' + (cur === 'exact' ? ' on' : '') + '" role="radio"'
-              + ' aria-checked="' + (cur === 'exact') + '" data-bpre="exact">Exact times</button>'
-            : '');
+    }).join('');
 }
 
 function renderBandPresets() {
@@ -1305,16 +1349,10 @@ function renderBandPresets() {
     if (res) {
         res.setAttribute('role', 'radiogroup');
         res.setAttribute('aria-label', 'Landing time');
-        res.innerHTML = '<span class="k">Landing time</span>' + bandPresetHtml(cur, false);
+        res.innerHTML = '<span class="k">Landing time</span>' + bandPresetHtml(cur);
     }
 
-    var host = el('sBandPre');
-    if (!host) return;
-    host.innerHTML = bandPresetHtml(cur, true);
-    /* Once revealed the pickers stay put, so typing a time never makes the
-     * field you are editing disappear under you. */
-    var box = el('sBandExact');
-    if (box) box.className = (cur === 'exact' || state.bandExact) ? 'row2' : 'row2 hidden';
+
 }
 
 function renderStepStops() {
@@ -1858,12 +1896,12 @@ function windowStrip(leg, b, label) {
         /* On the unclustered leg the spread is an outcome, not a target, so it
          * is reported without implying we aimed for it. */
         + '<span class="s">' + (loose
-            ? FWF.fmtGap(b.spread) + ' apart'
+            ? gapWords(b.spread) + ' apart'
             : allIn
-                ? 'all within ' + FWF.fmtGap(b.spread)
-                : seatsOf(included) + ' of ' + seatsAll() + ' within ' + FWF.fmtGap(b.spread))
+                ? 'everyone within ' + gapWords(b.spread) + ' of each other'
+                : seatsOf(included) + ' of ' + seatsAll() + ' within ' + gapWords(b.spread))
         + '</span></div>'
-        + timeline(picks, included, excluded)
+        + timeline(picks, included, excluded, !loose)
         + (loose
             ? '<div class="win-note">Each on their own best flight home. '
               + '<button class="linkish" data-clusterback="1">Leave together instead</button></div>'
@@ -2284,7 +2322,11 @@ function paxRow(id, pick, out, gap) {
         + (state.leg === 'outbound' ? 'dep ' : 'arr ') + clock(other) + '</div></div></div>';
 }
 
-function timeline(picks, included, excluded) {
+/* band=false on a leg with no target window. The shaded band says "this is the
+ * window we were aiming at"; drawn across an unclustered return it turned
+ * "each on their own best flight home" into what looks like a failed match
+ * spanning eleven hours. The dots still tell the truth about the times. */
+function timeline(picks, included, excluded, band) {
     var times = included.map(function (id) { return picks[id].option.clusterMin; });
     var lo = Math.min.apply(null, times), hi = Math.max.apply(null, times);
     var pad = Math.max(Math.round((hi - lo) * 0.45), 25);
@@ -2305,8 +2347,10 @@ function timeline(picks, included, excluded) {
     });
 
     var keys = Object.keys(groups).map(Number).sort(function (a, b) { return a - b; });
-    var html = '<div class="timeline"><div class="tl-band" style="left:' + Math.max(pct(lo), 0)
-        + '%;width:' + Math.max(Math.min(pct(hi), 100) - Math.max(pct(lo), 0), 1.5) + '%"></div><div class="tl-axis"></div>';
+    var html = '<div class="timeline">'
+        + (band === false ? '' : '<div class="tl-band" style="left:' + Math.max(pct(lo), 0)
+            + '%;width:' + Math.max(Math.min(pct(hi), 100) - Math.max(pct(lo), 0), 1.5) + '%"></div>')
+        + '<div class="tl-axis"></div>';
 
     var minGap = (48 / 390) * 100, last = -999, alt = false;
     keys.forEach(function (m) {
@@ -2645,8 +2689,6 @@ document.addEventListener('click', function (ev) {
 function fillBand() {
     /* Step 2 asks about the outbound landing window specifically. */
     var ob = bandFor('outbound');
-    if (el('sFrom')) el('sFrom').value = ob.from || '';
-    if (el('sTo')) el('sTo').value = ob.to || '';
     renderStepStops();
 }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
@@ -2844,11 +2886,15 @@ if (/[?&]demo=1\b/.test(location.search)) loadDemo();
 if (/[?&]unlock=dates\b/.test(location.search)) {
     try { localStorage.setItem('fwf_unlock_dates', '1'); } catch (e) {}
 }
-el('newBtn').addEventListener('click', function () {
+/* The mark doubles as the home button. Same action as "New trip", which was
+ * only reachable by scrolling to the footer. */
+if (el('homeBtn')) el('homeBtn').addEventListener('click', function () { newTrip(); });
+function newTrip() {
     state.q = blankQuery(); DATA = null; state.error = null; thReset();
     history.replaceState(null, '', location.pathname);
     fillForm(); renderParties(); showStep(1); render();
-});
+}
+el('newBtn').addEventListener('click', newTrip);
 el('addParty').addEventListener('click', function () {
     if (state.q.parties.length >= APP.maxParties) {
         state.error = 'Maximum ' + APP.maxParties + ' departure cities.'; render(); return;
@@ -2883,34 +2929,24 @@ document.addEventListener('keydown', function (ev) {
     if (ev.key === 'Escape' && calOpen) { calOpen = false; renderCal(); el('dateBtn').focus(); }
 });
 
-function applyStepBand() {
-    state.q.band.outbound = { from: el('sFrom').value, to: el('sTo').value };
+/* The landing window is set on the results screen now, where the plan it
+ * filters is on the page. Asking for it before any flights existed was a
+ * question nobody could answer yet -- and it was the same control twice. The
+ * presets write state directly; they used to write the two time inputs and read
+ * them back, which only made sense while those inputs were the real control. */
+function setBand(from, to) {
+    state.q.band.outbound = { from: from || '', to: to || '' };
     renderBandPresets();
     thReset();
-    /* Changing the window from the results screen has to repaint the plan it is
-     * filtering, which the step-2 copy never needed to do. */
-    if (state.step === 4) { writeHash(); render(); }
+    writeHash();
+    if (state.step === 4) render();
 }
 document.addEventListener('click', function (ev) {
     var n = ev.target.closest && ev.target.closest('[data-bpre]');
     if (!n) return;
-    var k = n.getAttribute('data-bpre');
-    if (k === 'exact') {
-        state.bandExact = true;
-        renderBandPresets();
-        if (el('sFrom')) el('sFrom').focus();
-        return;
-    }
-    var pre = BAND_PRESETS.filter(function (x) { return x.k === k; })[0];
-    if (!pre) return;
-    state.bandExact = false;
-    if (el('sFrom')) el('sFrom').value = pre.from;
-    if (el('sTo')) el('sTo').value = pre.to;
-    applyStepBand();
-    renderBandPresets();
+    var pre = BAND_PRESETS.filter(function (x) { return x.k === n.getAttribute('data-bpre'); })[0];
+    if (pre) setBand(pre.from, pre.to);
 });
-if (el('sFrom')) el('sFrom').addEventListener('change', applyStepBand);
-if (el('sTo')) el('sTo').addEventListener('change', applyStepBand);
 
 if (window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function () {

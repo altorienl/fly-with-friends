@@ -341,7 +341,11 @@ a { color: var(--accent); }
 
 /* ---------------- brand ---------------- */
 .brand { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px 4px; max-width: 640px; margin: 0 auto; }
-.brand-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.brand-left { position: relative; display: flex; align-items: center; gap: 12px; min-width: 0; }
+.home-btn { position: absolute; inset: -10px -12px; background: none; border: 0; border-radius: var(--r-md);
+    z-index: 1; -webkit-tap-highlight-color: transparent; }
+.home-btn:active { background: var(--card-2); }
+.home-btn:focus-visible { outline: 2px solid var(--brand-line); outline-offset: 2px; }
 .brand-mark { width: 34px; height: 34px; border-radius: var(--r-sm); flex-shrink: 0; display: block; }
 .brand-name { font-size: var(--t-4); font-weight: 600; letter-spacing: var(--tr-4); white-space: nowrap; }
 .gear { position: relative; width: 44px; height: 44px; margin-right: -11px; border-radius: var(--r-pill);
@@ -923,6 +927,9 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
 }
 .install .mk { width: 40px; height: 40px; border-radius: 10px; display: block; }
 .install .t { font-size: var(--t-3); font-weight: 600; letter-spacing: var(--tr-4); }
+.install .s b { display: inline-grid; place-items: center; width: 16px; height: 16px;
+    border-radius: 50%; background: var(--edge-2); color: var(--card);
+    font-size: 10px; font-weight: 700; font-variant-numeric: normal; }
 .install .s { font-size: var(--t-2); color: var(--muted); line-height: var(--lh-text); margin-top: 3px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 /* The real glyph, not the word "Share" -- it is the thing being looked for. */
 .install .s svg { width: 13px; height: 15px; flex: none; color: var(--accent); transform: translateY(-1px); }
@@ -1010,27 +1017,19 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
 <div class="ios-bar" aria-hidden="true"></div>
 
 <div class="install hidden" id="installBanner" role="region" aria-label="Add to Home Screen">
-    <svg class="mk" viewBox="0 0 512 512" aria-hidden="true">
-        <defs><linearGradient id="bg0" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#FFC800"/><stop offset="1" stop-color="#FF9400"/>
-        </linearGradient></defs>
-        <rect width="512" height="512" rx="114" fill="url(#bg0)"/>
-        <g fill="none" stroke="#fff" stroke-width="33" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="180" cy="143" r="32" fill="#fff" stroke="none"/>
-            <circle cx="332" cy="143" r="32" fill="#fff" stroke="none"/>
-            <path d="M68 201 H444"/>
-            <path d="M180 201 V278 M180 278 L122 410 M180 278 L234 410"/>
-            <path d="M332 201 V278 M332 278 L278 410 M332 278 L390 410"/>
-        </g>
-    </svg>
+    <svg class="mk" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="bg0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFD200"/><stop offset="0.18" stop-color="#FFC800"/><stop offset="1" stop-color="#FF9400"/></linearGradient></defs><rect width="512" height="512" rx="114" fill="url(#bg0)"/><g fill="#fff"><circle cx="180" cy="139" r="31"/><circle cx="332" cy="139" r="31"/><rect x="68" y="184.5" width="376" height="33" rx="16.5"/><path d="M163.5 200.4 L160.5 277.2 A19.5 19.5 0 1 0 199.5 277.2 L196.5 200.4 A16.5 16.5 0 0 0 163.5 200.4 Z"/><path d="M161.5 272.0 L122.7 391.0 A14.5 14.5 0 0 0 149.9 401.1 L198.0 285.5 A19.5 19.5 0 1 0 161.5 272.0 Z"/><path d="M161.8 285.0 L206.0 400.7 A14.5 14.5 0 0 0 233.4 391.4 L198.7 272.5 A19.5 19.5 0 1 0 161.8 285.0 Z"/><path d="M315.5 200.4 L312.5 277.2 A19.5 19.5 0 1 0 351.5 277.2 L348.5 200.4 A16.5 16.5 0 0 0 315.5 200.4 Z"/><path d="M314.0 285.5 L362.1 401.1 A14.5 14.5 0 0 0 389.3 391.0 L350.5 272.0 A19.5 19.5 0 1 0 314.0 285.5 Z"/><path d="M313.3 272.5 L278.6 391.4 A14.5 14.5 0 0 0 306.0 400.7 L350.2 285.0 A19.5 19.5 0 1 0 313.3 272.5 Z"/></g></svg>
     <div>
         <div class="t" id="installT">Keep it on your home screen</div>
-        <div class="s" id="installS">Tap
+        <div class="s" id="installS"><b>1</b> Tap
             <svg viewBox="0 0 16 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M8 13V2"/><path d="M4.5 5.5 8 2l3.5 3.5"/>
                 <path d="M3 9H1.5v9.5h13V9H13"/>
             </svg>
-            then &ldquo;Add to Home Screen&rdquo;</div>
+            below &nbsp;<b>2</b> Choose
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="2.5" y="2.5" width="15" height="15" rx="4"/><path d="M10 6.5v7M6.5 10h7"/>
+            </svg>
+            Add to Home Screen</div>
     </div>
     <button class="x" id="installX" aria-label="Not now">&times;</button>
     <button class="install-add hidden" id="installAdd">Add to Home Screen</button>
@@ -1038,9 +1037,14 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
 
 <header class="brand">
     <div class="brand-left">
-        <!-- The 2023 mark, drawn with round-capped strokes so the torsos stay
-             separate at 34px instead of fusing into one blob. Same geometry as
-             icon-512.png, scaled; keep the two in step if either changes. -->
+        <button class="home-btn" id="homeBtn" aria-label="Start a new trip"></button>
+        <!-- The 2023 mark. Limbs are filled paths, not strokes, because the
+             originals taper and a round-capped stroke cannot. Identical
+             geometry to favicon.svg and icon-512.png -- keep all three in step.
+             The coordinates were re-derived once already after the measured
+             numbers turned out to be visual extents rather than path
+             coordinates, which had inflated every element by a stroke radius
+             and fused the two figures together. -->
         <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
             <defs><linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0" stop-color="#FFD200"/><stop offset="0.18" stop-color="#FFC800"/><stop offset="1" stop-color="#FF9400"/>
@@ -1117,15 +1121,6 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
             <div class="cal hidden" id="cal" role="dialog" aria-modal="false" aria-label="Choose dates"></div>
         </div>
 
-        <div class="field" role="group" aria-labelledby="sBandLbl">
-            <span class="k" id="sBandLbl">Landing time <span class="opt">optional</span></span>
-            <div class="pills" id="sBandPre" role="radiogroup" aria-label="Rough landing time"></div>
-            <div class="row2 hidden" id="sBandExact">
-                <input class="inp" id="sFrom" type="time" aria-label="Earliest landing time">
-                <span class="sep">and</span>
-                <input class="inp" id="sTo" type="time" aria-label="Latest landing time">
-            </div>
-        </div>
 
         <div class="field">
             <span class="k">Stops</span>
