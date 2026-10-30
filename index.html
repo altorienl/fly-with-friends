@@ -301,7 +301,7 @@ body {
 [data-theme="light"].standalone .ios-bar { background: var(--text); }
 /* Nothing here is a document, so the long-press magnifier and the text-selection
  * callout are pure noise. Inputs and the results prose stay selectable. */
-button, summary, .chip, .pill, .brow, .mrow, .choice, .ac-item, .datefield, .rail, .grip, .ava, .tl-dot {
+button, summary, .chip, .pill, .mrow, .choice, .ac-item, .datefield, .rail, .grip, .ava, .tl-dot {
     touch-action: manipulation;
     -webkit-user-select: none; user-select: none;
     -webkit-touch-callout: none;
@@ -319,9 +319,14 @@ a { color: var(--accent); }
    1.1px tracked -- eight of them on the results screen alone. Used once that
    is a house style; used eight times it is a tell. It is now small,
    medium-weight, sentence-case text, which is what both Google Flights and
-   Delta do with a field label. */
+   Delta do with a field label.
+
+   `.k .opt` is gone: nothing has ever rendered an .opt inside a .k, and the
+   rule put .75 opacity on top of the one token this comment promises is held
+   above 4.5:1 -- 4.10:1 dark and 3.00:1 light, so the first label to use it
+   would have broken that guarantee silently. "optional" is said once in the
+   step hint, which is where the only caller went. */
 .k { font-size: var(--t-2); font-weight: 500; color: var(--faint); }
-.k .opt { font-weight: 400; opacity: .75; }
 
 /* Each step section and the settings sheet carry tabindex="-1" and are focused
  * programmatically on open, so that keyboard and screen-reader position follows
@@ -340,7 +345,7 @@ a { color: var(--accent); }
  * got appended here, so instead of an outline every button in the app received
  * margin-top on keyboard focus. The ring was gone app-wide and nothing visibly
  * broke, which is why it survived two commits. */
-.btn:focus-visible, .pill:focus-visible, .brow:focus-visible, .icon-btn:focus-visible,
+.btn:focus-visible, .pill:focus-visible, .icon-btn:focus-visible,
 .gear:focus-visible, .ac-item:focus-visible, .chip button:focus-visible,
 .stepper button:focus-visible, .add-air:focus-visible, footer button:focus-visible,
 .win-alt button:focus-visible, .share-alt button:focus-visible, .mrow:focus-visible,
@@ -352,7 +357,7 @@ a { color: var(--accent); }
 .win-alt { margin-top: var(--s3); }
 .win-alt button { display: inline-flex; align-items: center; min-height: 44px;
     padding: var(--s2) var(--s3); border: 1px solid var(--edge-2); border-radius: var(--r-pill);
-    background: transparent; color: var(--accent); font-size: var(--t-2); font-weight: 600;
+    background: transparent; color: var(--text); font-size: var(--t-2); font-weight: 600;
     transition: background .15s, border-color .15s; }
 .win-alt button:active { background: var(--card); }
 
@@ -362,7 +367,12 @@ a { color: var(--accent); }
    the cheapest honest affordance that does not add an element. */
 .mrow { cursor: pointer; transition: background .15s; }
 .mrow:not(.on):active { background: var(--card); }
-.m-pick { font-size: var(--t-2); font-weight: 600; color: var(--accent); }
+/* The word is the affordance, not its colour. One "Choose" per unselected row
+   means this multiplies with the match count the same way the Book button
+   multiplies with the traveller count, and amber that repeats stops meaning
+   "the action". var(--text) at 600 against a muted price column is the louder
+   of the two cues anyway: 17.22:1 dark / 14.49:1 light. */
+.m-pick { font-size: var(--t-2); font-weight: 600; color: var(--text); }
 .mrow.on .m-pick { display: none; }
 
 .mrow:focus-visible {
@@ -431,8 +441,6 @@ a { color: var(--accent); }
 }
 .inp::placeholder { color: var(--faint); }
 .inp:focus { outline: none; border-color: var(--brand-line); box-shadow: var(--sunk), 0 0 0 3px var(--accent-dim); }
-/* A name is not a figure, so it does not want tabular widths. */
-.inp.sans { font-variant-numeric: normal; }
 .inp[type="date"]::-webkit-calendar-picker-indicator { opacity: .55; cursor: pointer; }
 
 /* The one text-transform left in the file, and it is not decoration: the
@@ -464,7 +472,7 @@ a { color: var(--accent); }
  * 1.127:1 in light -- measured, not guessed -- and it was the ENTIRE cue: the
  * combobox keeps DOM focus on the input, so :focus-visible never fires on the
  * row and aria-selected has no visual counterpart. A 1px inset mark is the
- * house idiom for "this is the live row" (.brow.on, .shift.here) and takes the
+ * house idiom for "this is the live row" (.shift.here) and takes the
  * same cue to 8.07:1 dark / 3.49:1 light. The surface step stays underneath it;
  * it just is not load-bearing any more. */
 .ac-item.active { background: var(--card-2); box-shadow: inset 3px 0 0 var(--brand-line); }
@@ -839,6 +847,14 @@ a { color: var(--accent); }
 .win-head.hero .t { font-size: var(--t-2); font-weight: 500; color: var(--muted); margin-bottom: var(--s1); }
 .win-head.hero .r { font-size: var(--t-6); font-weight: 600; letter-spacing: var(--tr-6);
     line-height: var(--lh-tight); font-variant-numeric: tabular-nums; text-wrap: balance; }
+/* What the closeness cost, per person. The caption to the hero, not a second
+   hero: same size, weight and colour as the .t line above it, so the display
+   number stays the only thing on the screen set large. --muted is 8.27:1 on the
+   dark page and 6.95:1 on the light one, both clear of 4.5:1 for 13px body.
+   No colour of its own -- the amber family is spoken for ten times over on this
+   screen, and a warning colour would make a $46 fare read as an error. */
+.win-head.hero .c { font-size: var(--t-2); font-weight: 400; color: var(--muted);
+    margin-top: var(--s2); line-height: var(--lh-text); text-wrap: pretty; }
 .win-note { font-size: var(--t-2); color: var(--muted); margin-top: 8px; line-height: var(--lh-text); }
 
 .trav { border-top: 1px solid var(--edge); padding: var(--s4) 0 var(--s2); }
@@ -868,11 +884,30 @@ a { color: var(--accent); }
 /* No band: the card frame it used to sit inside is gone. And the per-person
  * button is secondary, because five full-width amber buttons on one screen
  * meant none of them was the primary action. Booking still reads as a button --
- * it is the thing the app exists to hand you -- just not as the loudest one. */
+ * it is the thing the app exists to hand you -- just not as the loudest one.
+ *
+ * Stripping the fill was only half of that. The rule kept an amber border AND
+ * amber text, so every traveller still put two amber marks on the screen and
+ * four travellers put eight: the same "none of them is the primary action"
+ * problem, drawn in outline. Worse, the border was var(--brand) at 1.50:1 on
+ * the light page -- below even the 3:1 a control boundary needs -- so the one
+ * thing left saying "button" was the one thing you could not see. It is
+ * var(--edge-2) now, which is the token for a hairline you are meant to find:
+ * 4.05:1 dark, 3.21:1 light, and MORE visible than the amber it replaces.
+ * var(--brand-line) would also have cleared the bar (3.28:1 light / 10.45:1
+ * dark) and was the first fix tried, but it leaves four amber borders on a
+ * four-traveller screen, which is the other half of the same complaint.
+ * The label goes to var(--text) (17.22:1 / 14.49:1) rather than var(--accent),
+ * so the control is louder to read and quieter to look at. What makes it
+ * obviously tappable is what makes every other control here tappable -- a
+ * four-sided hairline, a 48px target and a surface that flashes under the
+ * thumb -- and amber is left to the one filled primary that sends the trip. */
 .trav-book { padding: var(--s3) 0 var(--s1); }
-.trav-book .btn { width: 100%; background: transparent; color: var(--accent);
-    border: 1px solid var(--brand); box-shadow: none; }
-.trav-book .btn:active { background: var(--accent-dim); }
+.trav-book .btn { width: 100%; background: transparent; color: var(--text);
+    border: 1px solid var(--edge-2); box-shadow: none; }
+/* var(--card), the press fill the other two transparent pill buttons on this
+ * screen already use, rather than an --accent-dim wash. */
+.trav-book .btn:active { background: var(--card); }
 .trav-book .fine { font-size: var(--t-2); color: var(--muted); margin-top: 8px; line-height: var(--lh-text); text-align: center; }
 .trav-book .fine.bad { color: var(--bad); }
 /* The other half of the Book button, and deliberately the quieter half: Book is
@@ -913,36 +948,11 @@ a { color: var(--accent); }
 .leg-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--edge); }
 .leg-head h2 { font-size: var(--t-5); font-weight: 600; letter-spacing: var(--tr-5); }
 .leg-head .when { font-size: var(--t-2); color: var(--muted); font-variant-numeric: tabular-nums; }
-.tabs { display: flex; border: 1px solid var(--edge); border-radius: var(--r-md); margin-bottom: 16px; }
-.tabs button:first-child { border-radius: calc(var(--r-md) - 1px) 0 0 calc(var(--r-md) - 1px); }
-.tabs button:last-child { border-radius: 0 calc(var(--r-md) - 1px) calc(var(--r-md) - 1px) 0; }
-.tabs button:focus-visible { outline-offset: -3px; }
-.tabs button { flex: 1; min-height: 44px; padding: 12px; font-size: var(--t-3); font-weight: 500; color: var(--muted); transition: background .18s var(--ease), color .18s; }
-.tabs button.on { background: var(--brand); color: var(--brand-ink); }
-
-.trip {
-    display: flex; align-items: baseline; justify-content: space-between;
-    flex-wrap: wrap; gap: 8px;
-    border: 1px solid var(--brand-line); background: var(--card);
-    border-radius: var(--r-md); padding: 16px 20px; margin-bottom: 16px;
-}
-.trip-k { font-size: var(--t-2); color: var(--accent); font-weight: 500; }
-/* The one number the whole screen is about, so it gets the top of the scale
-   and nothing else does. Size and tracking carry it, not weight. */
-.trip-v { font-size: var(--t-7); font-weight: 600; letter-spacing: var(--tr-7); line-height: var(--lh-tight); }
-.trip-split { width: 100%; font-size: var(--t-2); color: var(--muted); }
-.trip.partial { border-color: var(--bad); background: transparent; }
-.trip.partial .trip-k { color: var(--bad); }
 .panel { background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-lg); padding: 20px; margin-bottom: 16px; box-shadow: var(--lift); }
-.verdict-big { font-size: var(--t-7); font-weight: 600; line-height: var(--lh-tight); letter-spacing: var(--tr-7); margin: 8px 0 4px; }
-.verdict-big .u { font-size: var(--t-4); font-weight: 400; color: var(--muted); margin-left: 4px; letter-spacing: 0; }
 .tag { display: inline-block; font-size: var(--t-1); font-weight: 600; padding: 4px 8px; border-radius: var(--r-pill); margin-top: 12px; }
 .tag.good { background: var(--good); color: var(--on-good); }
 .tag.bad { background: var(--bad); color: var(--on-bad); }
-.tag.info { background: var(--card-2); color: var(--muted); border: 1px solid var(--edge-2); }
 [data-theme="light"] .tag.good, [data-theme="light"] .tag.bad { color: #fff; }
-.note { font-size: var(--t-3); color: var(--muted); line-height: var(--lh-text); margin-top: 12px; }
-.note strong { color: var(--text); font-weight: 600; }
 .split { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--edge); }
 .split div .k { display: block; }
 .split div .v { font-size: var(--t-5); font-weight: 600; letter-spacing: var(--tr-5); margin-top: 4px; }
@@ -1003,25 +1013,6 @@ a { color: var(--accent); }
 .filters .pills { margin-top: 12px; }
 .free { font-size: var(--t-2); color: var(--good); margin-top: 12px; line-height: var(--lh-text); }
 
-.board { border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card); box-shadow: var(--lift); overflow: clip; }
-.brow:focus-visible { outline-offset: -3px; }
-.bhead, .brow { display: grid; grid-template-columns: 1fr 80px 60px 64px; gap: 8px; align-items: center; }
-.bhead { padding: 12px 16px; background: var(--card-2); border-bottom: 1px solid var(--edge); }
-.bhead span:not(:first-child) { text-align: right; }
-.brow { width: 100%; padding: 16px; border-bottom: 1px solid var(--edge); text-align: left; font-size: var(--t-3); transition: background .14s ease, box-shadow .14s ease; }
-.brow:last-child { border-bottom: none; }
-.brow.on { background: var(--sel); box-shadow: inset 3px 0 0 var(--brand-line); }
-.brow.off { color: var(--faint); cursor: default; }
-.brow .w { font-weight: 600; }
-.brow .rec { display: block; font-size: var(--t-1); font-weight: 600; color: var(--accent); margin-top: 4px; }
-.brow .c, .brow .a, .brow .d { text-align: right; }
-.brow .c { font-weight: 600; }
-.brow .a { color: var(--muted); font-size: var(--t-2); }
-.brow .d { font-size: var(--t-2); }
-.brow .d.up { color: var(--warn); }
-.brow .d.dim { color: var(--muted); }
-.brow .none { grid-column: 2 / -1; text-align: right; font-size: var(--t-2); }
-
 /* The strip is the evidence for the headline above it, so it is drawn at a size
    you can read rather than as a thin band of marks: avatars at 34px are people,
    and the first arrival to the last is a 3px rule on the axis -- the window,
@@ -1066,30 +1057,15 @@ a { color: var(--accent); }
 .links { display: flex; gap: 14px; flex-wrap: wrap; align-items: baseline; }
 .links .book { margin-top: 6px; padding: 6px 0; }
 .book.alt { color: var(--muted); border-bottom-color: var(--edge-2); font-weight: 500; }
-.total { display: flex; justify-content: space-between; align-items: baseline; padding: 16px; border: 1px solid var(--brand); border-radius: var(--r-md); background: var(--accent-dim); margin-top: 8px; }
-.total .k { color: var(--accent); }
-.total .v { font-size: var(--t-5); font-weight: 600; letter-spacing: var(--tr-5); }
-.total.partial { border-color: var(--bad); background: transparent; }
-.total.partial .k { color: var(--bad); }
-.total-note { font-size: var(--t-2); color: var(--bad); margin-top: 8px; line-height: var(--lh-text); }
-.pp-list { margin-top: 12px; }
-.pp { display: grid; grid-template-columns: 32px 1fr auto; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--edge); }
-.pp:last-child { border-bottom: none; }
-.pp.apart .pp-v { color: var(--bad); }
-.pp-main { min-width: 0; }
-.pp-name { font-size: var(--t-4); font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pp-sub { font-size: var(--t-2); color: var(--muted); margin-top: 4px; }
-.pp-v { font-size: var(--t-4); font-weight: 600; }
-.pp-total { display: flex; justify-content: space-between; align-items: baseline; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--brand); }
-.pp-total .mono { font-size: var(--t-5); font-weight: 600; letter-spacing: var(--tr-5); }
-.pp-total .k { color: var(--accent); }
-.pp-note { font-size: var(--t-2); color: var(--muted); margin-top: 12px; line-height: var(--lh-text); }
 .share { margin-top: 16px; }
 /* The second route, deliberately quieter than the primary and still a real
-   control rather than a link. */
+   control rather than a link. Amber at 600 sitting directly under the
+   amber-filled primary is the .cal-clear mistake again -- two things under one
+   another that both look like the action -- so the pill states itself with its
+   border and its target and leaves the fill to say which one is the action. */
 .share-alt { text-align: center; margin-top: var(--s2); }
 .share-alt button { min-height: 44px; padding: var(--s2) var(--s4); border-radius: var(--r-pill);
-    border: 1px solid var(--edge-2); background: transparent; color: var(--accent);
+    border: 1px solid var(--edge-2); background: transparent; color: var(--text);
     font-size: var(--t-2); font-weight: 600; transition: background .15s; }
 .share-alt button:active { background: var(--card); }
 .share-alt button:focus-visible { outline: 2px solid var(--brand-line); outline-offset: 2px; }
@@ -1275,7 +1251,12 @@ footer .sep { color: var(--faint); margin: 0 8px; }
 @media (hover: hover) and (pointer: fine) {
     .btn:hover { background: var(--card-2); border-color: var(--edge-2); }
     .btn.primary:hover { background: linear-gradient(180deg, var(--brand-top), var(--brand-bot)); border-color: var(--brand-line); }
-    .trav-book .btn:hover { background: var(--card-2); color: var(--accent); border-color: var(--brand-line); }
+    /* Cannot be dropped in favour of .btn:hover: the anchor carries .primary,
+     * and .btn.primary:hover is a three-class selector that outranks it, so
+     * hovering a Book button would flash the amber gradient this rule exists
+     * to keep off the screen. Same values as .btn:hover, stated where they win.
+     * --edge-2 on --card-2 is 3.08:1 dark / 3.48:1 light. */
+    .trav-book .btn:hover { background: var(--card-2); color: var(--text); border-color: var(--edge-2); }
     .btn.ghost:hover { background: transparent; color: var(--text); border-color: var(--edge); }
     .gear:hover, .icon-btn:hover { background: var(--card-2); border-color: var(--edge-2); }
     .pill:hover { background: var(--card-2); border-color: var(--edge-2); color: var(--text); }
@@ -1285,16 +1266,14 @@ footer .sep { color: var(--faint); margin: 0 8px; }
     .stepper button:hover:not(:disabled) { background: var(--card-2); color: var(--text); }
     .add-air:hover { border-color: var(--edge-2); color: var(--text); }
     /* the row lifts out of the list rather than flooding edge to edge */
-    .brow:hover:not(.off) { background: var(--card-2); box-shadow: inset 0 0 0 1px var(--edge); }
     .mrow:hover:not(.on) { background: var(--card-2); }
 }
 
-.pill:active, .tabs button:active, .add-air:active, .chip button:active,
+.pill:active, .add-air:active, .chip button:active,
 .party-x:active, .stepper button:active:not(:disabled), footer button:active,
 .cal-nav:active:not(:disabled), .qm:active, .install-add:active {
     transform: scale(.96);
 }
-.brow:active:not(.off) { background: var(--card-2); }
 /* Not a scale: a full-bleed row that shrinks pulls away from the hairlines
  * above and below it and reads as a glitch. A surface flash is what the other
  * full-width rows in this app already answer a press with. */
@@ -1314,14 +1293,14 @@ footer .sep { color: var(--faint); margin: 0 8px; }
 /* The whole point of a transform-based press is that it springs back. Keeping
  * the release slower than the press is what separates "responsive" from
  * "twitchy", and it is the one timing most web buttons get wrong. */
-.btn, .pill, .icon-btn, .choice, .gear, .tabs button, .add-air,
+.btn, .pill, .icon-btn, .choice, .gear, .add-air,
 .chip button, .party-x, .stepper button, footer button, .datefield, .cal-nav, .qm {
     transition-duration: .22s;
 }
 .mrow { transition: background .22s var(--ease); }
 .mrow:active { transition-duration: .06s; }
 .btn:active, .pill:active, .icon-btn:active, .choice:active, .gear:active,
-.tabs button:active, .add-air:active, .chip button:active, .party-x:active,
+.add-air:active, .chip button:active, .party-x:active,
 .stepper button:active, footer button:active, .datefield:active, .cal-nav:active, .qm:active {
     transition-duration: .06s;
 }
@@ -1331,8 +1310,6 @@ footer .sep { color: var(--faint); margin: 0 8px; }
 }
 
 @media (max-width: 420px) {
-    .bhead, .brow { grid-template-columns: 1fr 72px 52px 56px; font-size: var(--t-2); }
-    .verdict-big { font-size: var(--t-6); }
     .step-head h2 { font-size: var(--t-5); }
     .container { padding: 8px 16px 48px; }
     .brand { padding: 16px 16px 4px; }

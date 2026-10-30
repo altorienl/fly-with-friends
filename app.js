@@ -2779,29 +2779,6 @@ function planOf(ctx, th) {
 }
 function selectedPlan() { return planOf(C, thGet()); }
 
-/* The group total is not what anyone pays. This says whose fare moved. */
-function whoPays(plan) {
-    if (!plan || !C.solo) return '';
-    var rows = (plan.included || C.ids).map(function (id) {
-        return { id: id, prem: premiumFor(id, plan.picks[id]) };
-    }).filter(function (r) { return r.prem != null && r.prem > 0; })
-      .sort(function (a, b) { return b.prem - a.prem; });
-
-    if (!rows.length) return '<div class="note">Nobody pays extra to land together on this plan.</div>';
-
-    var total = rows.reduce(function (n, r) { return n + r.prem; }, 0);
-    var top = rows[0];
-    var share = total > 0 ? Math.round((top.prem / total) * 100) : 0;
-
-    return '<div class="note"><strong>Who carries it:</strong> '
-        + rows.map(function (r) { return esc(name(r.id)) + ' ' + money(r.prem); }).join(', ')
-        + (rows.length > 1 && share >= 60
-            ? '. That is ' + share + '% of the premium on ' + esc(name(top.id))
-              + ' alone — worth deciding before anyone books.'
-            : '.')
-        + '</div>';
-}
-
 function recommendedIn(ctx) {
     if (!ctx || !ctx.ladder) {
         /* No ladder at all means somebody has no options whatsoever on these
@@ -3372,20 +3349,37 @@ function windowStrip(leg, b, label) {
     var measure = loose ? gapWords(b.spread) + ' apart'
         : allIn ? withinEachOther(b.spread)
         : seatsOf(included) + ' of ' + seatsAll() + ' within ' + gapWords(b.spread);
-    /* At display size the line used to break at the first space, which put the
-     * number on one line and its unit on the next. The fix was to replace every
-     * space with a non-breaking one, which made the whole phrase a single
-     * unbreakable word: at 393px "everyone within 20 minutes of each other" set
-     * at 30px is 536px wide, so it ran straight off the screen and gave the
-     * results page 159px of horizontal scroll. Measured, not guessed.
+    /* And what it cost the person it cost most, which is the second fact on the
+     * screen and the only other one Google Flights cannot print. It is a line
+     * inside the hero, not a block of its own: the hero still states one fact at
+     * display size and this is its caption, the same subordinate relationship
+     * .t already has above it.
      *
-     * Only the join between a number and its unit needs protecting, so that is
-     * the only join that gets a non-breaking space. Everything else may wrap,
-     * and text-wrap: balance shapes what is left. */
+     * Only under the arrival hero. The way home prices itself in returnNote and
+     * a second money sentence per leg is two apologies for one trip.
+     *
+     * Only when everybody made the window, because only then has the headline
+     * claimed anything to put a price on -- and when somebody did not, the red
+     * line naming them is the most important thing here and must not have a
+     * dollar figure competing with it.
+     *
+     * Silent below $40 a seat, and silent when the closeness was free. See
+     * costOfCloseness for where $40 comes from and why it is not a taste. */
+    var cost = (hero && allIn) ? costOfCloseness(b.ctx, b.rows, included) : null;
     var html = '<div class="win">'
         + (hero
             ? '<div class="win-head hero"><div class="t">' + esc(label) + '</div>'
-              + '<div class="r">' + esc(measure).replace(/(\d) /g, '$1\u00a0') + '</div></div>'
+              /* Only the join between a number and its unit is non-breaking.
+               * Replacing every space made the whole phrase one unbreakable
+               * word: 536px at 393px wide, which gave the page 159px of
+               * horizontal scroll. Measured, not guessed. */
+              + '<div class="r">' + esc(measure).replace(/(\d) /g, '$1\u00a0') + '</div>'
+              + (cost
+                  ? '<div class="c">' + esc(name(cost.id)) + ' paid ' + money(cost.each)
+                    + (cost.seats > 1 ? ' a seat' : '')
+                    + ' more than flying whenever they liked.</div>'
+                  : '')
+              + '</div>'
             : '<div class="win-head"><span class="t">' + esc(label) + '</span>'
               + '<span class="s">' + esc(measure) + '</span></div>')
         + timeline(picks, included, excluded, !loose)
@@ -3873,6 +3867,112 @@ function renderShare() {
 function premiumFor(id, pick) {
     if (!C.solo || C.solo[id] == null || !pick || pick.cost == null) return null;
     return Math.round(pick.cost - C.solo[id]);
+}
+
+/* What landing together cost the one person it cost most. This is the second
+ * fact on the screen, and the first one no flight site can state at all: a
+ * search engine knows what a flight costs, it does not know what somebody paid
+ * to be on the ground at the same time as four other people.
+ *
+ * WHY THE WORST PERSON AND NOT THE GROUP. Four readings of the same premium
+ * were measured against grade/fixtures and the ?demo=1 set:
+ *   - the group's total. Over 24 real plans it never once beat what the screen
+ *     already says: the match rows price every plan the app will offer, so
+ *     "cheaper by $48" is already up there, one row above, to be read off.
+ *   - what the group saved against booking separately. Not a number: the
+ *     baseline is a per-party minimum over the SAME option set the picks come
+ *     from, so every party's premium is >= 0 by construction and the group
+ *     total can never come in under the sum of the baselines. There is no
+ *     saving to report, on any plan, ever.
+ *   - time given up rather than money. worthIt() already refuses any plan that
+ *     asks for an extra stop or more than 90 minutes, so on the plans that
+ *     reach the screen this is 0 to 10 minutes. A fact that cannot vary cannot
+ *     be the headline; who changes planes is already in the itineraries.
+ *   - the worst person's, per seat. Carries 33%-100% of the whole (median
+ *     51%), runs $0-$129 a seat on the same plans, and appears nowhere else on
+ *     the screen. It is also the only one of the four that names somebody, and
+ *     the reason a group stops is that one person quietly decides it is not
+ *     worth it.
+ *
+ * PER SEAT, NOT PER BOOKING, for the same reason tripLadder's topPer divides:
+ * a two-seat booking paying $110 is two people paying $55, and a claim about a
+ * person has to be per person. The two rankings disagree on 2 of 24 plans and
+ * both times the per-booking answer names a pair who are each paying less than
+ * somebody travelling alone.
+ *
+ * HONESTY. C.solo is that party's own cheapest option taken from the SAME
+ * prepared set the plan is drawn from -- their own rules, the group's refused
+ * carriers, the landing time, the budget-fare and connection prunes all apply
+ * identically to both sides. So the only thing that differs between the
+ * baseline and the pick is the hour the group needed them on the ground, which
+ * is exactly what "more than flying whenever they liked" claims, and it is NOT
+ * a claim about the cheapest flight in existence. Where the app's own pruning
+ * has lifted a baseline above the genuinely cheapest option in the data (3 of
+ * 22 party-legs, $20-$50 a seat, every one of them a budget carrier or a
+ * six-hour connection), the error can only SHRINK this figure -- a higher
+ * baseline is a smaller premium -- so the line understates and never oversells.
+ * Across 47 speaking plans, 5 fixtures x 5 settings, the named traveller never
+ * once had a pruned baseline, because pruning moves a party away from being
+ * the worst-off rather than towards it. */
+
+/* The floor is borrowed, not invented. compute() calls a fare difference worth
+ * acting on at max(40 a seat, 18% of the fare) -- the budget-fare rule's own
+ * margin, whichever of the two is larger -- and will not move anybody onto a
+ * different flight for less. A screen has no business editorialising about an
+ * amount its own optimiser would ignore, so this is the same pair of numbers.
+ * Below it the sentence is true and pointless, which is the definition of
+ * noise: measured over 144 real plans -- eight option sets, five settings
+ * apiece, every rung of each ladder -- a floor of zero prints on 106 of them,
+ * 74%, which is often enough to read as furniture. This one speaks on 44%.
+ *
+ * The relative half only ever makes it say LESS, and it earns its place on
+ * long-haul: on a $690 transatlantic baseline the flat $40 would print "$55
+ * more than flying whenever they liked", which is 8% of the ticket and not
+ * news. Over 152 plans the two halves disagree four times, all four of them
+ * that same case. */
+var CLOSENESS_FLOOR = 40;
+var CLOSENESS_FLOOR_PCT = 0.18;
+
+/* There is no second, louder register, and that was tested rather than assumed.
+ * whoPays() escalated at a 60% share and the same rule was built here and put on
+ * screen: "Sam paid $90 a seat more than flying whenever they liked - most of
+ * what that cost." It wrapped to two lines, the dash landed at the head of the
+ * second one reading as a bullet, and "that" had no antecedent where it broke.
+ * Set against the same plan stating only the figure, the clause added nothing:
+ * $156 reads as $156 without being told it is a lot. Who else is paying is on
+ * the cards below, per person, exactly, which is the right place for it.
+ *
+ * The case this screen really does have to raise its voice for -- somebody who
+ * cannot make the window at all -- already has a red line naming them, and this
+ * sentence yields the floor to it by staying silent whenever anyone is left
+ * out. One sentence, one shape, every time it appears. */
+
+/* Reads rows[id].premium rather than calling premiumFor() again. They compute
+ * the same difference, but rows[].premium is the number hopRow() prints on that
+ * person's Depart line as "incl. $180 to land together", so taking it from
+ * there is what makes the headline and the card provably the same figure --
+ * divided by that booking's seats, which the card itself already states as
+ * "$400 for 2". A second evaluation of the same formula is how the per-person
+ * cards and the headline total came to disagree by $600 once already. */
+function costOfCloseness(ctx, rows, included) {
+    if (!ctx || !ctx.solo || !included || !included.length) return null;
+    var top = null;
+    included.forEach(function (id) {
+        var r = rows[id];
+        /* Excluded rows carry no premium -- they are priced from soloOpen, on a
+         * flight the group did not choose -- so there is nothing to attribute. */
+        if (!r || !r.inWindow || !(r.premium > 0)) return;
+        var t = ctx.travelers.filter(function (x) { return x.id === id; })[0];
+        var seats = Math.max(1, (t && t.seats) || 1);
+        var each = r.premium / seats;
+        /* Their own baseline, per seat, so the floor can be read against the
+         * size of the fare it is a premium on. */
+        var base = ctx.solo[id] != null ? ctx.solo[id] / seats : 0;
+        if (!top || each > top.each) top = { id: id, each: each, base: base, seats: seats };
+    });
+    if (!top) return null;
+    if (top.each < Math.max(CLOSENESS_FLOOR, top.base * CLOSENESS_FLOOR_PCT)) return null;
+    return { id: top.id, each: Math.round(top.each), seats: top.seats };
 }
 
 function paxRow(id, pick, out, gap) {
