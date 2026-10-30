@@ -87,6 +87,52 @@ function migrateQuery(q) {
     return q;
 }
 
+/* A shared trip is a document written by whoever made the link, not by this
+ * app, and several of its fields land in innerHTML. A stranger could POST a
+ * trip and hand somebody a link on this origin that ran their script -- which
+ * on a booking app means repointing every Book button at a phishing site, on a
+ * page the group trusts because a friend sent it. So the payload is coerced to
+ * the shape the renderer already assumes. A genuine link is unaffected: it
+ * already carries numbers where numbers belong. */
+function sanitizeQuery(q) {
+    if (!q || typeof q !== 'object') return q;
+    var num = function (v, lo, hi, dflt) {
+        if (v == null) return null;
+        v = Math.round(+v);
+        return isFinite(v) ? Math.min(hi, Math.max(lo, v)) : dflt;
+    };
+    q.dest = String(q.dest == null ? '' : q.dest).toUpperCase().slice(0, 3);
+    q.dep = String(q.dep == null ? '' : q.dep).slice(0, 10);
+    q.ret = String(q.ret == null ? '' : q.ret).slice(0, 10);
+    q.maxStops = num(q.maxStops, 0, 9, null);
+    q.maxPremium = num(q.maxPremium, 0, 100000, null);
+    q.maxDetour = num(q.maxDetour, 0, 10080, 180);
+    q.clusterReturn = !!q.clusterReturn;
+    q.avoid = (Array.isArray(q.avoid) ? q.avoid : [])
+        .map(function (a) { return String(a).slice(0, 40); }).slice(0, 40);
+    q.parties = (Array.isArray(q.parties) ? q.parties : []).slice(0, 8).map(function (pp, i) {
+        pp = pp && typeof pp === 'object' ? pp : {};
+        return {
+            id: String(pp.id == null ? 'p' + i : pp.id).slice(0, 24),
+            name: String(pp.name == null ? '' : pp.name).slice(0, 22),
+            seats: num(pp.seats, 1, 9, 1) || 1,
+            /* Validated whole, not truncated: slicing first turned "TOOLONG"
+             * into the plausible-looking code "TOO". */
+            airports: (Array.isArray(pp.airports) ? pp.airports : [])
+                .map(function (x) { return String(x).toUpperCase().trim(); })
+                .filter(function (x) { return /^[A-Z]{3}$/.test(x); }).slice(0, 5)
+        };
+    });
+    return q;
+}
+
+/* option.stops arrives from a shared trip too, and was interpolated bare. */
+function stopsText(n) {
+    n = Math.round(+n);
+    if (!isFinite(n) || n < 0) n = 0;
+    return n === 0 ? 'nonstop' : n + (n === 1 ? ' stop' : ' stops');
+}
+
 function blankQuery() {
     return {
         dest: '', dep: '', ret: '',
@@ -525,7 +571,7 @@ function renderParties() {
             + '<div class="stepper" role="group" aria-label="Seats for ' + esc(partyLabel(p, i)) + '">'
             + '<button data-seats="-1" aria-label="One fewer seat for ' + esc(partyLabel(p, i)) + '"'
             + (p.seats <= 1 ? ' disabled' : '') + '>&minus;</button>'
-            + '<output class="n" aria-live="polite">' + p.seats + '</output>'
+            + '<output class="n" aria-live="polite">' + esc(p.seats) + '</output>'
             + '<button data-seats="1" aria-label="One more seat for ' + esc(partyLabel(p, i)) + '"'
             + (p.seats >= APP.maxSeats ? ' disabled' : '') + '>+</button>'
             + '</div>'
@@ -1178,9 +1224,9 @@ function filterText() {
     var bits = [];
     if (C.band) bits.push(legVerb() + ' between ' + bandText());
     if (C.maxStops === 0) bits.push('are nonstop');
-    else if (C.maxStops != null) bits.push('have at most ' + C.maxStops + ' stop');
+    else if (C.maxStops != null) bits.push('have at most ' + esc(C.maxStops) + ' stop');
     if (C.cap != null) bits.push('cost them no more than ' + money(C.cap) + ' over their own cheapest');
-    if ((state.q.avoid || []).length) bits.push('avoid ' + avoidedNames().join(', '));
+    if ((state.q.avoid || []).length) bits.push('avoid ' + esc(avoidedNames().join(', ')));
     return bits.join(' and ');
 }
 
@@ -1952,7 +1998,7 @@ function hopRow(dir, r, leg, id, seats) {
     return '<div class="hop"><span class="hop-dir">' + dir + '</span>' + logo
         + '<div class="hop-main"><div class="hop-route">' + esc(o.from) + ' &rarr; ' + esc(o.to)
         + '</div><div class="hop-meta">' + esc((o.airlines || []).join(', ')) + ' · '
-        + (o.stops === 0 ? 'nonstop' : o.stops + (o.stops === 1 ? ' stop' : ' stops')) + ' · ' + FWF.fmtGap(o.duration_minutes)
+        + stopsText(o.stops) + ' · ' + FWF.fmtGap(o.duration_minutes)
         + (r.inWindow ? '' : ' · <span style="color:var(--bad)">outside the window</span>') + '</div>'
         + priceLevel(leg, id) + '</div>'
         + '<div class="hop-right"><div class="hop-time mono">'
@@ -2304,7 +2350,7 @@ function paxRow(id, pick, out, gap) {
         + logo
         + '<div class="pax-main"><div class="pax-name">' + esc(t.name) + badges + '</div>'
         + '<div class="pax-meta">' + esc(o.from) + ' &rarr; ' + esc(o.to) + ' · '
-        + esc((o.airlines || []).join(', ')) + ' · ' + (o.stops === 0 ? 'nonstop' : o.stops + (o.stops === 1 ? ' stop' : ' stops'))
+        + esc((o.airlines || []).join(', ')) + ' · ' + stopsText(o.stops)
         + ' · ' + FWF.fmtGap(o.duration_minutes) + '</div>'
         + premLine
         + '<div class="links"><a class="book" href="' + esc(bookUrl(o, t.seats)) + '" target="_blank" rel="noopener">'
@@ -2961,7 +3007,8 @@ applyTheme();
 
 var sharedId = tripIdFromHash();
 var shared = readHash();
-state.q = migrateQuery((shared && shared.q && shared.q.parties) ? shared.q : blankQuery());
+/* `shared` comes out of the URL, so it is somebody else's document. */
+state.q = migrateQuery(sanitizeQuery((shared && shared.q && shared.q.parties) ? shared.q : blankQuery()));
 if (shared && shared.v) {
     /* Adopt the sender's reading of the trip so both people see one number. */
     var v = shared.v;
@@ -3126,7 +3173,7 @@ if (sharedId) {
             TRIP_ID = null; render(); return;
         }
         var pay = res.body.payload || {};
-        if (pay.q && pay.q.parties) state.q = migrateQuery(pay.q);
+        if (pay.q && pay.q.parties) state.q = migrateQuery(sanitizeQuery(pay.q));
         if (pay.v) {
             var v = pay.v;
             if (v.target) SET.target = v.target;

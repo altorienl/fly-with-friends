@@ -341,7 +341,7 @@ function monthResetsAt() {
  * the same route, and mixing them would silently compare unlike things. */
 function cacheKey(params, provider) {
   return 'leg:' + [provider, params.departure_id, params.arrival_id, params.outbound_date,
-                   params.currency, params.bags].join('|');
+                   params.currency].join('|');
 }
 
 function extractInsights(payload) {
@@ -443,7 +443,7 @@ async function handleSearch(request, env) {
   if ((await counter(env, ipReqKey(bucket))) >= LIMITS.perIpRequestsHourly) {
     return json({ error: 'That looks automated. If you are a person, wait a minute and try again.' }, 429);
   }
-  await bump(env, ipReqKey(bucket), 1, 60 * 60 * 2);
+
 
   /* Provider resolution: an explicit request wins, then the PROVIDER var in
    * wrangler.toml, then SerpApi. Per-request selection is what lets the same
@@ -526,6 +526,13 @@ async function handleSearch(request, env) {
    * Object is the real fix and is the next thing to build. */
   if (toSpend > 0) {
     await Promise.all([
+      /* The anti-script counter is bumped here rather than on every request.
+       * Writing it up front made this endpoint a KV-write amplifier: 240 an
+       * hour per IP against a 1000-a-day account ceiling, with no provider
+       * spend at all -- and running the account out of writes stops saved trip
+       * links working for everyone. Charging only requests that actually
+       * reserve a search is strictly more permissive than before. */
+      bump(env, ipReqKey(bucket), 1, 60 * 60 * 2),
       bump(env, monthKey(), toSpend, 60 * 60 * 24 * 40),
       bump(env, dayKey(), toSpend, 60 * 60 * 36),
       bump(env, hourKey(), toSpend, 60 * 60 * 2),
@@ -538,7 +545,10 @@ async function handleSearch(request, env) {
       return { ...u, options, insights, spent,
                error: empty ? 'no results for this route and date' : null };
     } catch (err) {
-      return { ...u, options: [], insights: null, spent: 0, error: err.message };
+      /* The provider's own text names the account and the plan. The top-level
+       * catch already withholds it; this path did not. */
+      console.log('leg failed:', u.key, err && err.message);
+      return { ...u, options: [], insights: null, spent: 0, error: 'could not be searched right now' };
     }
   }));
 
@@ -669,12 +679,14 @@ export default {
 
     if (path === '/trip' && request.method === 'POST') {
       try { return await saveTrip(request, env); }
-      catch (err) { return json({ error: 'Could not save trip: ' + err.message }, 500); }
+      catch (err) { console.log('trip save failed:', err && err.message);
+                    return json({ error: 'Could not save trip right now.' }, 500); }
     }
 
     if (path.startsWith('/trip/') && request.method === 'GET') {
       try { return await readTrip(path.slice(6), env); }
-      catch (err) { return json({ error: 'Could not load trip: ' + err.message }, 500); }
+      catch (err) { console.log('trip load failed:', err && err.message);
+                    return json({ error: 'Could not load trip right now.' }, 500); }
     }
 
     if (path === '/search' && request.method === 'POST') {

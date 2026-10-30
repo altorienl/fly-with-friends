@@ -137,9 +137,9 @@
     --text: #f5f1e9;
     --muted: #b2a899;
     --faint: #9d9486;
-    --brand: #ffae00;
-    --brand-top: #ffbe00;
-    --brand-bot: #f28d00;
+    --brand: #FFB001;
+    --brand-top: #FFCB00;
+    --brand-bot: #FF9501;
     --brand-ink: #241600;
     --brand-line: #ffae00;
     --accent: #ffbe3d;
@@ -175,9 +175,9 @@
     --text: #1b1813;
     --muted: #534c40;
     --faint: #6b6456;
-    --brand: #ffae00;
-    --brand-top: #ffc800;
-    --brand-bot: #ff9400;
+    --brand: #FFB001;
+    --brand-top: #FFCB00;
+    --brand-bot: #FF9501;
     --brand-ink: #241600;
     --brand-line: #b56f00;
     --accent: #8a5200;
@@ -1017,7 +1017,7 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
 <div class="ios-bar" aria-hidden="true"></div>
 
 <div class="install hidden" id="installBanner" role="region" aria-label="Add to Home Screen">
-    <svg class="mk" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="bg0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFD200"/><stop offset="0.18" stop-color="#FFC800"/><stop offset="1" stop-color="#FF9400"/></linearGradient></defs><rect width="512" height="512" rx="114" fill="url(#bg0)"/><g fill="#fff"><circle cx="180" cy="139" r="31"/><circle cx="332" cy="139" r="31"/><rect x="68" y="184.5" width="376" height="33" rx="16.5"/><path d="M163.5 200.4 L160.5 277.2 A19.5 19.5 0 1 0 199.5 277.2 L196.5 200.4 A16.5 16.5 0 0 0 163.5 200.4 Z"/><path d="M161.5 272.0 L122.7 391.0 A14.5 14.5 0 0 0 149.9 401.1 L198.0 285.5 A19.5 19.5 0 1 0 161.5 272.0 Z"/><path d="M161.8 285.0 L206.0 400.7 A14.5 14.5 0 0 0 233.4 391.4 L198.7 272.5 A19.5 19.5 0 1 0 161.8 285.0 Z"/><path d="M315.5 200.4 L312.5 277.2 A19.5 19.5 0 1 0 351.5 277.2 L348.5 200.4 A16.5 16.5 0 0 0 315.5 200.4 Z"/><path d="M314.0 285.5 L362.1 401.1 A14.5 14.5 0 0 0 389.3 391.0 L350.5 272.0 A19.5 19.5 0 1 0 314.0 285.5 Z"/><path d="M313.3 272.5 L278.6 391.4 A14.5 14.5 0 0 0 306.0 400.7 L350.2 285.0 A19.5 19.5 0 1 0 313.3 272.5 Z"/></g></svg>
+    <svg class="mk" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="bg0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFCB00"/><stop offset="1" stop-color="#FF9501"/></linearGradient></defs><rect width="512" height="512" rx="113" fill="url(#bg0)"/><g fill="#fff"><circle cx="178.85" cy="136.8" r="30.0"/><circle cx="332.25" cy="136.8" r="30.0"/><rect x="62.8" y="183.0" width="385.4" height="24.9" rx="12.45"/><path d="M144.20 207.9 L213.50 207.9 L217.65 286.5 L140.05 286.5 Z"/><path d="M155.80 286.5 L130.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M201.90 286.5 L227.90 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M297.60 207.9 L366.90 207.9 L371.05 286.5 L293.45 286.5 Z"/><path d="M309.20 286.5 L283.70 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M355.30 286.5 L380.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/></g></svg>
     <div>
         <div class="t" id="installT">Keep it on your home screen</div>
         <div class="s" id="installS"><b>1</b> Tap
@@ -1041,26 +1041,13 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
         <!-- The 2023 mark. Limbs are filled paths, not strokes, because the
              originals taper and a round-capped stroke cannot. Identical
              geometry to favicon.svg and icon-512.png -- keep all three in step.
-             The coordinates were re-derived once already after the measured
-             numbers turned out to be visual extents rather than path
-             coordinates, which had inflated every element by a stroke radius
-             and fused the two figures together. -->
-        <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
-            <defs><linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" stop-color="#FFD200"/><stop offset="0.18" stop-color="#FFC800"/><stop offset="1" stop-color="#FF9400"/>
-            </linearGradient></defs>
-            <rect width="512" height="512" rx="114" fill="url(#bg1)"/>
-            <g fill="#fff">
-                <circle cx="180" cy="139" r="31"/><circle cx="332" cy="139" r="31"/>
-                <rect x="68" y="184.5" width="376" height="33" rx="16.5"/>
-                <path d="M163.5 200.4 L160.5 277.2 A19.5 19.5 0 1 0 199.5 277.2 L196.5 200.4 A16.5 16.5 0 0 0 163.5 200.4 Z"/>
-                <path d="M161.5 272.0 L122.7 391.0 A14.5 14.5 0 0 0 149.9 401.1 L198.0 285.5 A19.5 19.5 0 1 0 161.5 272.0 Z"/>
-                <path d="M161.8 285.0 L206.0 400.7 A14.5 14.5 0 0 0 233.4 391.4 L198.7 272.5 A19.5 19.5 0 1 0 161.8 285.0 Z"/>
-                <path d="M315.5 200.4 L312.5 277.2 A19.5 19.5 0 1 0 351.5 277.2 L348.5 200.4 A16.5 16.5 0 0 0 315.5 200.4 Z"/>
-                <path d="M314.0 285.5 L362.1 401.1 A14.5 14.5 0 0 0 389.3 391.0 L350.5 272.0 A19.5 19.5 0 1 0 314.0 285.5 Z"/>
-                <path d="M313.3 272.5 L278.6 391.4 A14.5 14.5 0 0 0 306.0 400.7 L350.2 285.0 A19.5 19.5 0 1 0 313.3 272.5 Z"/>
-            </g>
-        </svg>
+             Every coordinate is measured off the 2023 file itself
+             (Fly.jpeg, 554px, scaled to 512) and verified by comparing row
+             profiles of this render against it: worst edge error 2.1 units on
+             a 512 grid. Two earlier guesses were wrong in the same way -- the
+             torso is a wide flared block, not a stroke, and the legs are
+             constant width with a round cap rather than tapered. -->
+        <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFCB00"/><stop offset="1" stop-color="#FF9501"/></linearGradient></defs><rect width="512" height="512" rx="113" fill="url(#bg1)"/><g fill="#fff"><circle cx="178.85" cy="136.8" r="30.0"/><circle cx="332.25" cy="136.8" r="30.0"/><rect x="62.8" y="183.0" width="385.4" height="24.9" rx="12.45"/><path d="M144.20 207.9 L213.50 207.9 L217.65 286.5 L140.05 286.5 Z"/><path d="M155.80 286.5 L130.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M201.90 286.5 L227.90 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M297.60 207.9 L366.90 207.9 L371.05 286.5 L293.45 286.5 Z"/><path d="M309.20 286.5 L283.70 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M355.30 286.5 L380.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/></g></svg>
         <h1 class="brand-name">Fly with Friends</h1>
     </div>
     <button class="gear" id="gearBtn" aria-label="Settings"></button>

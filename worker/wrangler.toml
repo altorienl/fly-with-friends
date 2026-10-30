@@ -10,3 +10,11 @@ id = "25716e1f76e943bca5011c69ab6f5d52"
 
 # The SerpApi key is a secret, never a var:
 #   npx wrangler secret put SERPAPI_KEY
+
+# Required. Left unset, originOk() fails open and every POST is reachable from
+# any page on the internet, which is how a per-IP guard gets bypassed at scale:
+# one hostile page spends the allowance using thousands of visitors' IPs, each
+# looking like a single polite caller. Does not gate GET, so shared links keep
+# opening inside WhatsApp and iMessage browsers.
+[vars]
+ALLOWED_ORIGINS = "https://fly-with-friends.altorien.workers.dev"
