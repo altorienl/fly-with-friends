@@ -301,7 +301,7 @@ body {
 [data-theme="light"].standalone .ios-bar { background: var(--text); }
 /* Nothing here is a document, so the long-press magnifier and the text-selection
  * callout are pure noise. Inputs and the results prose stay selectable. */
-button, summary, .chip, .pill, .brow, .choice, .ac-item, .datefield, .rail, .grip, .ava, .tl-dot {
+button, summary, .chip, .pill, .brow, .mrow, .choice, .ac-item, .datefield, .rail, .grip, .ava, .tl-dot {
     touch-action: manipulation;
     -webkit-user-select: none; user-select: none;
     -webkit-touch-callout: none;
@@ -339,7 +339,15 @@ a { color: var(--accent); }
 /* The alternative pills were falling through to Chrome's blue auto ring -- the
  * one ring in this file with a comment explaining why it is wrong. 10.45:1 on
  * the dark page and 3.28:1 on the light one. */
-.pick-alt button:focus-visible, .win-alt button:focus-visible {
+/* .pick-alt is gone with the old choice strip; .mrow is the match row. */
+.win-alt { margin-top: var(--s3); }
+.win-alt button { display: inline-flex; align-items: center; min-height: 44px;
+    padding: var(--s2) var(--s3); border: 1px solid var(--edge-2); border-radius: var(--r-pill);
+    background: transparent; color: var(--accent); font-size: var(--t-2); font-weight: 600;
+    transition: background .15s, border-color .15s; }
+.win-alt button:active { background: var(--card); }
+
+.win-alt button:focus-visible, .mrow:focus-visible {
     outline: 2px solid var(--brand-line); outline-offset: 2px;
 }
 
@@ -585,39 +593,67 @@ a { color: var(--accent); }
 .s-p em { display: block; font-size: var(--t-2); font-style: normal; font-weight: 500; color: var(--muted); margin-top: 2px; }
 .shift.best .s-p em { color: var(--good); }
 
-.choices { margin-bottom: 18px; }
+/* ---- the named matches ----
+ *
+ * Several answers as peers, and FEWER kinds of thing than the one answer it
+ * replaced. That is the whole trick, and it is worth stating because the two
+ * requests look contradictory: more options, less on screen. Clutter is a
+ * function of variety, not of count. What was here -- an amber label, a window
+ * sentence, a 40px total, a right-aligned sub-total, a line of prose comparing
+ * the pick to the cheapest, and a wrapping row of chips -- was six different
+ * presentational devices saying one thing. This is one device saying three.
+ *
+ * A stacked list, not a row of bubbles, because two numbers per match will not
+ * fit three-across in 353px: chips carrying a price AND a gap are ~168px wide,
+ * so three of them wrap into a 2x2 block, and a 2x2 block of bordered chips is
+ * a grid of cards, which is what this screen had its fourteen boxes taken off
+ * to stop being. Stacked also buys the thing a row cannot: the prices land in
+ * one right-aligned tabular column, in order, so $1,740 / $1,788 / $1,944 is
+ * read as a ranking at a glance instead of three prices read one at a time.
+ *
+ * Same geometry as .shift and .trav below it -- baseline-aligned flex, name
+ * left, price right, hairline on top -- so three more options introduce no new
+ * vocabulary to the screen. */
+.mrow {
+    display: flex; width: 100%; align-items: baseline; justify-content: space-between;
+    gap: var(--s3); padding: var(--s3) 0; text-align: left;
+    border-top: 1px solid var(--edge);
+}
+.match .mrow:last-child { border-bottom: 1px solid var(--edge); }
+.m-main { min-width: 0; }
+.m-right { text-align: right; white-space: nowrap; }
+.m-n { display: block; font-size: var(--t-4); font-weight: 600; letter-spacing: var(--tr-4); }
+/* 3px, matching .hop-meta below: the same relationship, a 13px sub-line under
+ * a heavier one, and --s1 at 4px loosens the pairing enough to see. */
+.m-s { display: block; font-size: var(--t-2); color: var(--muted); margin-top: 3px;
+    line-height: var(--lh-snug); }
+.m-v { display: block; font-size: var(--t-4); font-weight: 600; letter-spacing: var(--tr-4); }
+.m-e { display: block; font-size: var(--t-2); font-weight: 400; color: var(--muted);
+    letter-spacing: 0; margin-top: var(--s1); }
 
-/* One recommendation, not a menu. No tinted panel and no border: the number
- * carries it, and a box around everything is what made every section of this
- * app read with the same weight. */
-.pick { padding: 2px 0 0; }
-.pick-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.pick-k { font-size: var(--t-2); font-weight: 500; color: var(--accent); margin-bottom: 3px; }
-/* A restatement of the headline at the top of the screen, kept because tapping
- * "Cheapest" changes it and the headline is two thousand pixels away -- but
- * kept as the caption it is, not as a second heading. */
-.pick-w { font-size: var(--t-2); font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
-/* Findable, honest, and no longer the loudest thing in the app. Any flight site
- * can show you a total; the window at the top of this screen is the only thing
- * this one knows. So the top of the scale is not spent here. */
-.pick-tot { font-size: var(--t-6); font-weight: 600; letter-spacing: var(--tr-6);
-    text-align: right; white-space: nowrap; line-height: var(--lh-tight); }
-.pick-tot span { display: block; font-size: var(--t-2); font-weight: 400; letter-spacing: 0;
-    color: var(--muted); margin-top: 4px; }
-.pick-why { margin-top: 10px; font-size: var(--t-2); color: var(--muted); line-height: var(--lh-text); }
-/* Alternatives: available, deliberately quieter than the pick. One shape for
- * "a different plan at a different price", wherever that choice is offered --
- * the trip's alternatives here, and the way home under its own timeline.
- * --edge was 1.49:1 against the page in dark and 1.10:1 in light, so the only
- * thing marking these as controls failed 1.4.11; --edge-2 is 4.05 and 3.21. */
-.pick-alt, .win-alt { display: flex; flex-wrap: wrap; gap: 8px; }
-.pick-alt { margin-top: 14px; }
-.pick-alt button, .win-alt button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
-    min-height: 44px; padding: 7px 13px; border: 1px solid var(--edge-2); border-radius: var(--r-pill);
-    background: transparent; text-align: left; transition: border-color .15s, background .15s; }
-.pick-alt button span:first-child, .win-alt button span:first-child { font-size: var(--t-2); font-weight: 600; }
-.pick-alt button span.mono, .win-alt button span.mono { font-size: var(--t-2); font-weight: 400; color: var(--muted); }
-.pick-alt button:active, .win-alt button:active { background: var(--card); }
+/* "This one of N", in the inverse chip the pills already use for exactly that.
+ * The name is what gets filled, not the row: a full-width slab of --chosen
+ * would put a box back, and the mark has to sit on the thing that differs
+ * between the rows. The negative margin keeps the chip's text on the same left
+ * edge as every unselected name, so the column does not step sideways when the
+ * selection moves. */
+.mrow.on .m-n {
+    display: inline-block; background: var(--chosen); color: var(--chosen-ink);
+    border-radius: var(--r-pill); padding: 2px var(--s2); margin-left: calc(var(--s2) * -1);
+}
+/* One match is not a choice. The chip says "this one of N" and there is no N,
+ * so it comes off and the row is left as what it is: the answer and its price.
+ * The class stays -- it is still the selected match, and the plan below is
+ * still rendered from it. */
+.match .mrow.on:only-child .m-n {
+    background: none; color: inherit; padding: 0; margin-left: 0;
+}
+/* And the hero number, which the screen had and should keep: it is the one
+ * figure the whole page is about. It belongs to the selected match rather than
+ * to a panel of its own, which is why any row can become the big one -- the
+ * difference between peers and a recommendation with footnotes. --t-6 rather
+ * than the old --t-7 because it now shares a row with its own name. */
+.mrow.on .m-v { font-size: var(--t-6); letter-spacing: var(--tr-6); line-height: var(--lh-tight); }
 
 .leg { display: block; margin-top: 28px; }
 
@@ -951,7 +987,7 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
 .install .t { font-size: var(--t-3); font-weight: 600; letter-spacing: var(--tr-4); }
 .install .s b { display: inline-grid; place-items: center; width: 16px; height: 16px;
     border-radius: 50%; background: var(--edge-2); color: var(--card);
-    font-size: 10px; font-weight: 700; font-variant-numeric: normal; }
+    font-size: var(--t-1); font-weight: 600; font-variant-numeric: normal; }
 .install .s { font-size: var(--t-2); color: var(--muted); line-height: var(--lh-text); margin-top: 3px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 /* The real glyph, not the word "Share" -- it is the thing being looked for. */
 .install .s svg { width: 13px; height: 15px; flex: none; color: var(--accent); transform: translateY(-1px); }
@@ -988,6 +1024,7 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
     .add-air:hover { border-color: var(--edge-2); color: var(--text); }
     /* the row lifts out of the list rather than flooding edge to edge */
     .brow:hover:not(.off) { background: var(--card-2); box-shadow: inset 0 0 0 1px var(--edge); }
+    .mrow:hover:not(.on) { background: var(--card-2); }
 }
 
 .pill:active, .tabs button:active, .add-air:active, .chip button:active,
@@ -996,6 +1033,10 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
     transform: scale(.96);
 }
 .brow:active:not(.off) { background: var(--card-2); }
+/* Not a scale: a full-bleed row that shrinks pulls away from the hairlines
+ * above and below it and reads as a glitch. A surface flash is what the other
+ * full-width rows in this app already answer a press with. */
+.mrow:active:not(.on) { background: var(--card-2); }
 
 /* Every target the finger can land on answers it. Without these the calendar,
  * the airport list, the date field and the disclosure rows were the only parts
@@ -1015,6 +1056,8 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
 .chip button, .party-x, .stepper button, footer button, .datefield, .cal-nav, .qm {
     transition-duration: .22s;
 }
+.mrow { transition: background .22s var(--ease); }
+.mrow:active { transition-duration: .06s; }
 .btn:active, .pill:active, .icon-btn:active, .choice:active, .gear:active,
 .tabs button:active, .add-air:active, .chip button:active, .party-x:active,
 .stepper button:active, footer button:active, .datefield:active, .cal-nav:active, .qm:active {
@@ -1173,14 +1216,21 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
                 <div class="ac" id="resDestAc" role="listbox" aria-label="Matching airports"></div>
             </div>
         </div>
-        <!-- The plan comes first: it is the thing the app exists to produce, and
-             burying it under a total and three prices made the answer the last
-             thing you reached. Price and its alternatives sit underneath it, so
-             changing "cheaper" or "closer" re-reads against the plan you are
-             already looking at. #perPerson was dead markup, never rendered. -->
-        <section id="planView" aria-label="The plan"></section>
+        <!-- The matches come first, and the plan is the one that is selected,
+             expanded. A chooser has to precede the thing it chooses or a tap
+             changes something off screen -- which is what the scrollTo(0, 0)
+             in the old handler was apologising for. The earlier worry, that a
+             total and three prices above the plan buried the answer, is
+             answered by what this now is: three hairline rows, no panel, no
+             boxes, and the price-answer arrives sooner than it ever did when
+             it sat below four itineraries. #perPerson was dead markup, never
+             rendered.
+             No aria-live: the list is a radiogroup, so the change is announced
+             by the row's own checked state, and re-reading three rows at every
+             tap is the noisy version of the same information. -->
+        <div class="choices hidden" id="choices"></div>
 
-        <div class="choices hidden" id="choices" aria-live="polite"></div>
+        <section id="planView" aria-label="The plan"></section>
 
         <details class="opts" id="adjust">
             <summary>Adjust the search</summary>

@@ -32,11 +32,21 @@ var state = {
     /* One chosen row per leg: a round trip is two decisions, and pricing the
      * whole trip means holding both at once. */
     th: { outbound: null, return: null },
+    /* Which named match the results screen is showing, by key. Held as the key
+     * rather than as a threshold so it survives a filter change: "I asked for
+     * the cheapest" stays true when the cheapest becomes a different plan. */
+    match: null,
     q: null, busy: false, error: null
 };
 function otherLeg() { return state.leg === 'outbound' ? 'return' : 'outbound'; }
 function thGet() { return state.th[state.leg]; }
 function thSet(v) { state.th[state.leg] = v; }
+/* A match is a decision about the trip, so it sets both legs -- the same thing
+ * one tap on a choice has always done. The default only ever set the outbound,
+ * which left a clustered return falling back to its own per-leg recommendation:
+ * the two agree on today's data, but nothing makes them, and the list now
+ * quotes a total per match that the itineraries underneath have to sum to. */
+function thBoth(v) { state.th.outbound = v; state.th['return'] = v; }
 function thReset() { state.th.outbound = null; state.th.return = null; }
 
 var el = function (id) { return document.getElementById(id); };
@@ -897,6 +907,11 @@ function hashPayload() {
         q: state.q,
         v: { th: { outbound: state.th.outbound === FWF.INF ? 'inf' : state.th.outbound,
                     return: state.th.return === FWF.INF ? 'inf' : state.th.return },
+             /* Which of the named matches the sender was looking at. Without
+              * it the fifth person opens the link, their device resolves the
+              * default, and the group argues about two totals -- the same
+              * failure the threshold above is carried for. */
+             match: state.match,
              leg: state.leg, recommend: state.recommend,
              target: SET.target, bags: SET.bags, priceDisplay: SET.priceDisplay }
     };
@@ -1233,78 +1248,248 @@ function tripBest(l) {
     return best;
 }
 
-/* Why this one, in facts the reader can check against the rows below it. */
-function pickReason(row, l) {
-    var bits = [];
-    var n = (row.conn || []).length;
-    if (!n) bits.push('everyone nonstop');
-    else bits.push(n === 1 ? name(row.conn[0]) + ' changes planes'
-                           : n + ' people change planes');
+/* ------------------------------------------------------- named matches */
 
-    var cheapest = l.reduce(function (a, b) { return b.total < a.total ? b : a; });
-    var extra = row.total - cheapest.total;
-    if (extra > 0) {
-        bits.push(money(extra) + ' over the cheapest, which lands them '
-            + FWF.fmtGap(cheapest.worst) + ' apart');
-    } else bits.push('nothing cheaper on these dates');
-    return bits.join(' \u00b7 ');
+/* What this screen renders: several named matches, as peers.
+ *
+ * The owner's complaint was that the app shows one answer and keeps the rest
+ * behind filters, so he re-runs the search to find out what else was possible
+ * -- and a re-run is a real billed search per party per leg against a 250-a-
+ * month allowance. Switching between matches here costs nothing. They are
+ * different readings of option sets already in hand; nothing below fetches.
+ *
+ * ONE ENTRY PER MATCH, and this is the contract the computation has to meet:
+ *
+ *   key     stable profile id -- 'cheapest', 'balanced', 'route'. Selection is
+ *           stored and shared as this string, so it has to survive a
+ *           re-render, a filter change and a link opened on another phone.
+ *   name    display name, sentence case, no trailing punctuation. Budget 16
+ *           characters: it shares a 353px line with the price.
+ *   total   group total. Every leg, every seat, every party -- including
+ *           anyone the filters excluded, who is still buying a ticket.
+ *   topPer  the worst single traveller's cost, per seat. Not an average: an
+ *           average hides the one person who cannot afford it.
+ *   spread  the worst clustered leg's arrival spread, in minutes, or null when
+ *           no leg is being clustered.
+ *   mins    total time in the air, summed over every person and every leg.
+ *   conn    party ids who change planes on at least one leg.
+ *   picks   the per-party picks, keyed by party id.
+ *   th      optional. The arrival-window threshold this match is equivalent
+ *           to. Only needed for as long as the plan underneath is rendered
+ *           from state.th rather than from picks.
+ *   plan    optional. A stable signature for the flights themselves. Two
+ *           profiles that produced the same trip are collapsed on it; without
+ *           it the signature is built from picks.
+ *   why     optional. One phrase naming what this match bought, used in place
+ *           of the generic line. Only reach for it if the objective is not
+ *           expressible as a spread and a count of connections -- the rows are
+ *           far easier to compare when every sub-line says the same two things
+ *           about a different plan.
+ *
+ * THE ARRAY ARRIVES RECOMMENDED-FIRST. That order is the priority order: it is
+ * what gets kept when the list is capped, and its head is what is selected
+ * when nothing has been chosen yet. Display order is by price, which is a
+ * different thing and is decided below. */
+
+/* Memoised for the length of one render. The ladder behind it is walked once
+ * per threshold per leg, and renderChoices, the default selection and the
+ * plan all ask for the same answer. Cleared in render(). */
+var MATCHES = null;
+
+/* Two profiles that produced the same flights are one match. "Cheapest" and
+ * "Balanced" side by side with identical contents is the version of this
+ * screen that makes somebody stop believing any of it. */
+function matchSig(m) {
+    if (m.plan != null) return String(m.plan);
+    if (m.picks) {
+        return Object.keys(m.picks).sort().map(function (id) {
+            var p = m.picks[id], o = (p && p.option) || p;
+            return id + ':' + (o ? [o.from, o.to, o.depart, o.arrive, o.price].join('/') : '-');
+        }).join('|');
+    }
+    return 'th' + m.th;
 }
 
+function matchList(raw) {
+    var seen = {}, out = [];
+    (raw || []).forEach(function (m) {
+        if (!m) return;
+        var sig = matchSig(m);
+        if (seen[sig]) return;
+        seen[sig] = true;
+        out.push(m);
+    });
+    /* Capped in priority order, so the recommendation survives the cut. Four is
+     * the ceiling: past that this is a search result again, and the owner's
+     * other constraint is that there be as little on the screen as possible. */
+    out = out.slice(0, 4);
+    /* The head of the delivered order is the recommendation, and it is marked
+     * before the sort destroys that order. Display order is cheapest-first,
+     * which is a different question: a column of prices that runs in order is
+     * the whole reason three prices can be compared at a glance rather than
+     * read one at a time. */
+    if (out.length) out[0].rec = true;
+    out.sort(function (a, b) { return a.total - b.total; });
+    return out;
+}
+
+/* STUB. The profiles themselves -- what "cheapest", "route optimisation" and
+ * "balanced" are actually optimising -- are being defined separately, and this
+ * function is the seam they land on: replace the body, keep the shape. It is
+ * here so the presentation could be built and looked at against real option
+ * sets rather than invented numbers, and it derives four honest profiles from
+ * the ladder the app already computes. Recommended first. */
+function tripMatches() {
+    if (MATCHES) return MATCHES;
+    var l = tripLadder();
+    if (!l || !l.length) { MATCHES = []; return MATCHES; }
+    var least = function (f) {
+        return l.reduce(function (a, b) { return f(b) < f(a) ? b : a; });
+    };
+    var row = function (key, nm, r) {
+        return r && { key: key, name: nm, total: r.total, topPer: r.topPer,
+                      spread: r.worst, mins: r.mins, conn: r.conn,
+                      picks: null, th: r.th, plan: 'th' + r.th };
+    };
+    MATCHES = matchList([
+        row('balanced', 'Balanced', tripBest(l)),
+        row('cheapest', 'Cheapest', least(function (r) { return r.total; })),
+        row('together', 'Closest together', least(function (r) { return r.worst; })),
+        row('shortest', 'Least flying', least(function (r) { return r.mins; }))
+    ]);
+    return MATCHES;
+}
+
+/* The selected one. Falls back to the recommendation when nothing has been
+ * chosen, or when what was chosen has stopped existing because a filter
+ * changed underneath it. */
+function matchOf(ms) {
+    if (!ms || !ms.length) return null;
+    var hit = ms.filter(function (m) { return m.key === state.match; })[0];
+    if (hit) return hit;
+    return ms.filter(function (m) { return m.rec; })[0] || ms[0];
+}
+
+/* The line that has to decide it without a tap, and the reason a tap is not
+ * needed. Not gapWords: that spells a gap out for the one line that states the
+ * result, and this is a column of gaps, which is the case it was never for.
+ *
+ * It prints only what DIFFERS across the matches. A fact that is identical on
+ * every row cannot decide anything, so printing it three times is three things
+ * on the screen that do no work -- and "Alex changes planes" under all three
+ * names is exactly that. The division is: the chooser states the differences,
+ * the plan below states the trip. Who changes planes is in the itineraries
+ * anyway, per person, which is the more useful place for it. */
+function matchWhy(m, ms) {
+    if (m.why) return m.why;
+    var list = (ms && ms.length) ? ms : [m];
+    var varies = function (f) {
+        var v = String(f(m));
+        return list.some(function (o) { return String(f(o)) !== v; });
+    };
+    var bits = [];
+    if (m.spread != null && varies(function (o) { return o.spread; })) {
+        bits.push(FWF.fmtGap(m.spread) + ' apart');
+    }
+    if (varies(function (o) { return (o.conn || []).slice().sort().join(','); })) {
+        var n = (m.conn || []).length;
+        bits.push(!n ? 'everyone nonstop'
+            : n === 1 ? name(m.conn[0]) + ' changes planes'
+            : n + ' people change planes');
+    }
+    /* Neither told them apart, so say it in time in the air. Something always
+     * differs: two matches that differ in nothing were collapsed into one. */
+    if (!bits.length && m.mins != null) bits.push(FWF.fmtGap(m.mins) + ' in the air');
+    return bits.join(' · ');
+}
+
+/* Choosing one. A different reading of option sets already in hand: no fetch,
+ * no billed search, nothing to wait for.
+ *
+ * And no scrollTo. The jump to the top of the page was there because the
+ * choices sat below the plan, so tapping one changed something you could not
+ * see; the list now sits above the plan, so the row stays where the thumb left
+ * it and the itineraries redraw below it.
+ *
+ * Focus is restored because innerHTML threw away the element that was just
+ * pressed, and with it the only thing that would tell a screen reader what
+ * changed. */
+function selectMatch(key) {
+    state.match = key;
+    writeHash(); render();
+    var mr = document.querySelector('.mrow.on');
+    if (mr && mr.focus) {
+        try { mr.focus({ preventScroll: true }); } catch (e) { mr.focus(); }
+    }
+}
+
+/* Arrow keys inside the list. role="radiogroup" promises them, and an ARIA
+ * contract that is announced but not honoured is worse than plain buttons: the
+ * screen reader says "2 of 3" and then the arrows do nothing. Selection
+ * follows focus, which is what a radio group does; the roving tabindex that
+ * goes with it is set in renderChoices. */
+document.addEventListener('keydown', function (ev) {
+    var k = ev.key, back = k === 'ArrowUp' || k === 'ArrowLeft';
+    if (!back && k !== 'ArrowDown' && k !== 'ArrowRight' && k !== 'Home' && k !== 'End') return;
+    var cur = ev.target && ev.target.closest && ev.target.closest('.mrow[data-match]');
+    if (!cur) return;
+    var all = [].slice.call(document.querySelectorAll('.mrow[data-match]'));
+    var at = all.indexOf(cur);
+    var to = k === 'Home' ? 0
+        : k === 'End' ? all.length - 1
+        : (at + (back ? -1 : 1) + all.length) % all.length;
+    if (!all[to] || to === at) return;
+    ev.preventDefault();
+    selectMatch(all[to].getAttribute('data-match'));
+});
+
+/* One row per match, hairline-separated, the same two facts in the same two
+ * places every time. The selected row is the answer and carries the hero
+ * number; the others are the identical row with a smaller one. That is what
+ * "peers" has to mean if it is to mean anything -- any row can become the big
+ * one, and none of them is a footnote to another.
+ *
+ * This list is also what makes the screen SHORTER. It replaced an amber label,
+ * a window sentence, a 40px total, a sentence of prose comparing the pick to
+ * the cheapest, and a row of chips -- five kinds of thing saying one answer --
+ * with one kind of thing saying three. The prose went because the list says
+ * it: "$48 over the cheapest, which lands them 5h 50m apart" is a narration of
+ * the row directly above. */
 function renderChoices() {
     var host = el('choices');
-    var l = tripLadder();
-    if (!l || !l.length) { host.className = 'choices hidden'; return; }
-
-    var best = tripBest(l);
-    if (!best) { host.className = 'choices hidden'; return; }
-    var cur = state.th.outbound;
-    var showing = l.filter(function (r) { return r.th === cur; })[0] || best;
-
-    /* Alternatives are the ends of the range, which is what people actually ask
-     * for next: the cheapest, and the closest they could possibly get. Only
-     * offered when they are genuinely different from what is on screen. */
-    var cheapest = l.reduce(function (a, b) { return b.total < a.total ? b : a; });
-    var tightest = l.reduce(function (a, b) { return b.worst < a.worst ? b : a; });
-    var alts = [];
-    if (cheapest.th !== showing.th) {
-        alts.push({ th: cheapest.th, l: 'Cheapest', v: money(cheapest.total),
-                    s: FWF.fmtGap(cheapest.worst) + ' apart' });
-    }
-    if (tightest.th !== showing.th && tightest.th !== cheapest.th) {
-        alts.push({ th: tightest.th, l: 'As close as possible', v: money(tightest.total),
-                    s: FWF.fmtGap(tightest.worst) + ' apart' });
-    }
-    /* Least time in the air across the whole group. Offered only when it is
-     * actually a different plan from the three already named -- a fourth button
-     * that repeats one of the others is worse than no fourth button. */
-    var fastest = l.reduce(function (a, b) { return b.mins < a.mins ? b : a; });
-    var named = [showing.th, cheapest.th, tightest.th];
-    if (named.indexOf(fastest.th) === -1) {
-        alts.push({ th: fastest.th, l: 'Least flying', v: money(fastest.total),
-                    s: FWF.fmtGap(fastest.mins) + ' in the air' });
-    }
-    if (showing.th !== best.th) {
-        alts.unshift({ th: best.th, l: 'Best option', v: money(best.total),
-                       s: FWF.fmtGap(best.worst) + ' apart' });
-    }
+    var ms = tripMatches();
+    /* Emptied, not just hidden. Three prices for a trip that no longer exists,
+     * sitting in the DOM above the screen they were computed for, is the kind
+     * of thing that comes back as a stale number in somebody's group chat. */
+    if (!ms.length) { host.className = 'choices hidden'; host.innerHTML = ''; return; }
+    var sel = matchOf(ms);
+    /* A list of one is worse than no list: there is nothing to choose, and the
+     * selector invites a tap that cannot do anything. */
+    var many = ms.length > 1;
 
     host.className = 'choices';
-    host.innerHTML = '<div class="pick">'
-        + '<div class="pick-top">'
-        + '<div><div class="pick-k">' + (showing.th === best.th ? 'Best option' : 'Showing')
-        + '</div>'
-        + '<div class="pick-w">Everyone lands within ' + gapWords(showing.worst) + '</div></div>'
-        + '<div class="pick-tot mono">' + money(showing.total)
-        + '<span>' + money(showing.topPer) + ' each at most</span></div>'
-        + '</div>'
-        + '<div class="pick-why">' + esc(pickReason(showing, l)) + '</div>'
-        + (alts.length
-            ? '<div class="pick-alt">' + alts.map(function (a) {
-                return '<button data-choice="' + (a.th === FWF.INF ? 'Infinity' : a.th) + '">'
-                    + '<span>' + esc(a.l) + '</span>'
-                    + '<span class="mono">' + a.v + ' &middot; ' + esc(a.s) + '</span></button>';
-              }).join('') + '</div>'
-            : '')
+    host.innerHTML = '<div class="match"'
+        + (many ? ' role="radiogroup" aria-label="Matches"' : '') + '>'
+        + ms.map(function (m) {
+            var on = m.key === sel.key;
+            var tag = many ? 'button' : 'div';
+            return '<' + tag + ' class="mrow' + (on ? ' on' : '') + '"'
+                + (many ? ' data-match="' + esc(m.key) + '" role="radio"'
+                        + ' aria-checked="' + (on ? 'true' : 'false') + '"'
+                        /* Roving: one stop on the Tab path for the whole group,
+                         * and the arrows move inside it. */
+                        + ' tabindex="' + (on ? '0' : '-1') + '"' : '')
+                + '><span class="m-main">'
+                + '<span class="m-n">' + esc(m.name) + '</span>'
+                + '<span class="m-s">' + esc(matchWhy(m, ms)) + '</span>'
+                + '</span><span class="m-right">'
+                + '<span class="m-v mono">' + money(m.total) + '</span>'
+                /* Only under the selected total. It is a can-everyone-afford-
+                 * this check on the trip being shown, not a fifth number to
+                 * rank the others by -- it tracks the total anyway. */
+                + (on ? '<span class="m-e mono">' + money(m.topPer) + ' each at most</span>' : '')
+                + '</span></' + tag + '>';
+        }).join('')
         + '</div>';
 }
 
@@ -1349,27 +1534,28 @@ function render() {
     el('go').classList.toggle('busy', state.busy);
     if (state.step !== 4) return;
     if (!C) { showStep(3); return; }
-    /* The trip-level pick is the default, so the headline total always matches
-     * the plan printed underneath it. Falls back to the per-leg recommendation
-     * when a trip ladder cannot be built -- which happens when one leg has
-     * somebody with no options at all. */
-    if (state.th.outbound === null) {
-        var tl0 = tripLadder();
-        var tb0 = tl0 && tripBest(tl0);
-        var th0 = tb0 ? tb0.th : (C.ladder ? recommendedIn(C) : null);
-        if (th0 != null) {
-            state.th.outbound = th0;
-            /* Both slots, because tripLadder prices both legs at the row's
-             * threshold when the group has asked to leave together. When it has
-             * not, legBreakdown overwrites this with returnThOf anyway. */
-            state.th['return'] = th0;
-        }
-    }
+    /* The selected match is what the plan is printed from, so its quoted total
+     * and the itineraries underneath it are the same trip. Resolved before
+     * tripTotal() because tripTotal() reads state.th. Falls back to the per-leg
+     * recommendation when no match can be built at all -- which happens when
+     * one leg has somebody with no options. */
+    var sel0 = matchOf(tripMatches());
+    if (sel0) {
+        state.match = sel0.key;
+        if (sel0.th != null) thBoth(sel0.th);
+    } else if (thGet() === null && C.ladder) thSet(recommendedIn(C));
     renderResHead();
     /* The plan is rendered from TRIP, so it still has to be computed -- it just
      * no longer prints a panel of its own. */
     TRIP = tripTotal();
-    if (!TRIP) { el('planView').innerHTML = ''; return; }
+    /* No plan means no matches either. The list used to sit below the plan, so
+     * a stale one was merely odd; above it, it would be the first thing read. */
+    if (!TRIP) {
+        el('planView').innerHTML = '';
+        el('choices').className = 'choices hidden';
+        el('choices').innerHTML = '';
+        return;
+    }
     renderChoices();
     renderStopPills();
     renderPlanView();
@@ -2186,7 +2372,13 @@ function returnNote(b, allIn) {
     if (!apart) return '';
 
     function btn(to, text) {
-        return ' <button class="linkish" data-clusterback="' + to + '">' + text + '</button>';
+        /* A pill, not a link. "no one is going to see that fien print button"
+         * was about exactly this control, and an underlined phrase inside a
+         * sentence is the shape of fine print however real the button is. Same
+         * treatment the match rows use for an alternative that changes the plan
+         * and the total, because that is what this is. */
+        return '<div class="win-alt"><button data-clusterback="' + to + '">'
+            + text + '</button></div>';
     }
 
     if (ch.how === 'together') {
@@ -2987,7 +3179,7 @@ document.addEventListener('click', function (ev) {
      * card's dismissal animation and its snooze window. */
 
     var t = tgt.closest && tgt.closest('[data-threshold],[data-set],[data-bag],'
-        + '[data-stops],[data-choice],[data-clusterback],[data-seats],'
+        + '[data-stops],[data-match],[data-clusterback],[data-seats],'
         + '[data-rmparty],[data-addair],[data-rmair],[data-air],[data-alli],'
         + '[data-air-clear],[data-qm]');
     if (!t) return;
@@ -3011,15 +3203,8 @@ document.addEventListener('click', function (ev) {
         var code = t.getAttribute('data-rmair');
         p.airports = p.airports.filter(function (c) { return c !== code; });
         renderParties();
-    } else if (t.hasAttribute('data-choice')) {
-        /* Only the outbound. This used to set both, which was never visible --
-         * legBreakdown overwrites the return's window with the return's own --
-         * except that it made the headline and the cards disagree. The return
-         * is not part of this choice; see returnWays. */
-        var cv = t.getAttribute('data-choice');
-        state.th.outbound = cv === 'Infinity' ? FWF.INF : +cv;
-        writeHash(); render();
-        window.scrollTo(0, 0);
+    } else if (t.hasAttribute('data-match')) {
+        selectMatch(t.getAttribute('data-match'));
     } else if (t.hasAttribute('data-clusterback')) {
         /* The button names the state it moves to rather than toggling, because
          * there are three of them and a toggle cannot reach 'any'. */
@@ -3291,6 +3476,8 @@ if (/[?&]unlock=dates\b/.test(location.search)) {
 if (el('homeBtn')) el('homeBtn').addEventListener('click', function () { newTrip(); });
 function newTrip() {
     state.q = blankQuery(); DATA = null; state.error = null; thReset();
+    /* The match key outlives a filter change on purpose, but not a new trip. */
+    state.match = null;
     history.replaceState(null, '', location.pathname);
     fillForm(); renderParties(); showStep(1); render();
 }
@@ -3371,6 +3558,7 @@ if (shared && shared.v) {
     if (v.priceDisplay) SET.priceDisplay = v.priceDisplay;
     if (v.leg === 'outbound' || v.leg === 'return') state.leg = v.leg;
     if (v.recommend) state.recommend = v.recommend;
+    if (v.match) state.match = v.match;
     if (v.th) {
         state.th.outbound = v.th.outbound === 'inf' ? FWF.INF : v.th.outbound;
         state.th.return = v.th.return === 'inf' ? FWF.INF : v.th.return;
@@ -3534,6 +3722,7 @@ if (sharedId) {
             if (v.bags) SET.bags = v.bags;
             if (v.priceDisplay) SET.priceDisplay = v.priceDisplay;
             if (v.recommend) state.recommend = v.recommend;
+            if (v.match) state.match = v.match;
             if (v.th) {
                 state.th.outbound = v.th.outbound === 'inf' ? FWF.INF : v.th.outbound;
                 state.th['return'] = v.th['return'] === 'inf' ? FWF.INF : v.th['return'];
