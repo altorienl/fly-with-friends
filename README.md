@@ -82,8 +82,51 @@ Three things keep that workable, all in `worker/worker.js`:
 - **Cached results still serve after the cap is hit**, so a shared link keeps working when
   the budget is gone. Sharing a link costs nothing.
 
-Shared links are how this stays affordable: the search is encoded in the URL hash, so
-passing one around replays it from cache instead of buying it again.
+Shared links are how this stays affordable. A finished trip is stored server-side by
+`POST /trip` and handed out as `?t=<id>`, so opening one costs a single KV read rather than
+re-running the search on each recipient's phone. (The older self-contained `#s=<base64>`
+form still exists for a trip that has not been saved yet, and still costs a fresh paid
+search per device — which is why every share route saves first.)
+
+### The trip is a document, not a screenshot
+
+A shared trip could say what the group *should* do and never what the group *had* done, so
+the one question that actually blocks a group trip — has Ray bought his ticket yet — lived
+in a chat window this app cannot see. The trip now carries a roster:
+
+| route | what it does | cost |
+| --- | --- | --- |
+| `POST /trip` | stores the finished trip, returns a 6-char id | 2 writes (trip + per-IP counter) |
+| `GET /trip/:id` | the trip document. Immutable, cached 300s at the edge | 1 read |
+| `GET /trip/:id/marks` | just the roster. `no-store`, so it is never stale | 1 read |
+| `POST /trip/:id/mark` | one person's status. Re-posting an unchanged state writes nothing | 1 write |
+
+**Writes.** One per real status change, so at most one per person — ten for the largest trip
+this app can produce, including the two that sharing already cost. Nothing writes on a page
+view, on a refresh, or on choosing which card is you. The search allowance (230/month, eight
+per four-person round trip) caps the system at roughly **28 shareable trips a month**, so
+~280 roster writes a month against a **1,000-a-day** ceiling. Searches are still the
+constraint; writes are two orders of magnitude from being one. `worker/test-worker.js`
+counts the writes of a whole trip lifecycle rather than asserting this in prose.
+
+**The rate limit is free.** A per-trip counter lives *inside* the trip, so the put that
+records a status change is the put that increments it. 200 per trip id, ever — twenty-five
+times what a real group needs, and a hard bound on a hostile loop.
+
+**Trust: the link is the credential, and first claim wins.** There are no accounts. The
+first device to mark a person mints a random key, kept in that device's localStorage; the
+Worker stores it beside the mark and no read ever returns it. After that only that device
+can change that person's state. So whoever later finds the link **cannot un-book Ray** —
+the move that would make the document lie about money. What they *can* do is claim a person
+nobody has claimed yet. That is the honest price of having no login, and it is the right
+trade: a group passing a private link around needs protecting from the link leaking later,
+not from each other.
+
+**Stale fares.** Flight numbers, routes and times are published months ahead and do not
+move; only the price does. So a re-opened trip says which half to stop trusting, and the
+offer is deliberately *not* "search again" — Book opens Google's live price for the exact
+pinned itinerary, free, where a re-search costs eight searches and produces a new trip id,
+silently abandoning the document the group has been ticking itself off on.
 
 ## Live
 

@@ -55,6 +55,13 @@ const LIMITS = {
   optionsPerLeg: 25,
   tripTtlSeconds: 60 * 60 * 24 * 30,   // a shared trip stays openable for a month
   tripBytesMax: 256 * 1024,            // a real 8-person round trip is ~150KB
+  /* The entire rate limit on roster updates, and it costs nothing, because it
+   * rides the write it bounds: the counter lives inside the trip, so the KV
+   * put that records a status change is also the put that increments it. A
+   * real group needs at most one per person -- eight -- so 200 is twenty-five
+   * times the honest ceiling and still bounds a hostile loop to 200 writes
+   * against the 1,000-a-day account allowance. */
+  tripMarksMax: 200,
   maxDaysAhead: 330,                   // past Google's horizon a search buys nothing
 };
 
@@ -759,6 +766,17 @@ async function saveTrip(request, env) {
     return json({ error: 'Not a trip.' }, 400);
   }
 
+  /* The roster state is owned by this endpoint's siblings, never by the poster.
+   * Stripped rather than rejected, because the app re-saves a trip it has been
+   * looking at and the honest answer for a NEW id is a clean roster: the fares
+   * behind it were re-searched, so carrying somebody's "booked" across would be
+   * the app asserting a purchase against a plan that person has never seen.
+   * Dropping `keys` here also closes the obvious land-grab -- posting a trip
+   * with a claim key already set for every party, so the real group can never
+   * mark themselves on their own trip. */
+  delete trip.marks; delete trip.keys; delete trip.n;
+  body = JSON.stringify(trip);
+
   const bucket = ipBucket(request);
   const wkey = tripWriteKey(bucket);
   if ((await counter(env, wkey)) >= LIMITS.perIpTripWrites) {
@@ -774,18 +792,203 @@ async function saveTrip(request, env) {
   return json({ id, expires_in_days: Math.round(LIMITS.tripTtlSeconds / 86400) });
 }
 
+/* ------------------------------------------------------- the roster state
+ *
+ * A shared trip was a screenshot with working Book buttons: it could say what
+ * the group should do and never what the group had done. The one fact that
+ * actually blocks a group trip -- has Ray bought his ticket yet -- lived in a
+ * chat window this app cannot see.
+ *
+ * Marks are that fact, and they are deliberately the smallest thing that can
+ * carry it. One string per person. No comments, no votes, no threads: those
+ * invite a conversation, and a conversation is what the group already has
+ * somewhere better. This is the ledger the conversation keeps asking about.
+ *
+ * WRITES. One KV put per actual status change, so at most one per person per
+ * trip in the normal case -- eight for the largest possible group, on top of
+ * the two that sharing already costs (the trip, and the per-IP trip-write
+ * counter). Ten writes for the biggest trip this app can produce. Nothing here
+ * writes on a read: GET /trip/:id/marks is a pure read, which is what makes
+ * refresh-on-return affordable, and re-posting a state somebody is already in
+ * returns 200 without touching KV. The provider search allowance (230 a month,
+ * eight per four-person round trip) caps the system at roughly 28 shareable
+ * trips a MONTH, so ~280 roster writes a month against a 1,000-a-DAY ceiling.
+ * Writes are two orders of magnitude from being the constraint; searches still
+ * are. test-worker.js counts this rather than asserting it.
+ *
+ * TRUST. There are no accounts and there is not going to be one. The link is
+ * the credential and first claim wins: the first device to mark a person mints
+ * a random key, which is stored beside the mark and NEVER returned by any read.
+ * Afterwards only that device can change that person's state. So a stranger who
+ * later finds the link cannot un-book Ray, cannot flip the roster back and
+ * forth, and cannot make the document lie about money. What they can do is
+ * claim a person nobody has claimed yet -- which is the honest cost of having
+ * no login, and is why `keys` must never reach a response body. */
+
+const MARK_STATES = new Set(['booked', 'looking']);
+
+/* Equal-length compare that does not return early on the first differing byte.
+ * A 16-character key over the public internet is not realistically attacked
+ * this way; it costs four lines not to have to argue about it. */
+function sameKey(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/* The roster is the only set of ids a mark may name. Without this a trip is
+ * free unbounded key-value storage for anybody holding the link: post a mark
+ * for a party id that does not exist and the object grows by a row. */
+function partyIdsOf(trip) {
+  const parties = (((trip || {}).payload || {}).q || {}).parties;
+  return Array.isArray(parties)
+    ? parties.map(p => String((p && p.id) == null ? '' : p.id)).filter(Boolean)
+    : [];
+}
+
+/* Everything a reader is allowed to know. `keys` is absent by construction
+ * rather than by deletion, so a field added to the stored shape later cannot
+ * leak by being forgotten here. */
+function publicMarks(trip) {
+  const src = (trip && trip.marks && typeof trip.marks === 'object') ? trip.marks : {};
+  const out = {};
+  for (const id of partyIdsOf(trip)) {
+    const m = src[id];
+    if (m && MARK_STATES.has(m.s) && m.s !== 'looking') out[id] = { s: m.s, t: +m.t || 0 };
+  }
+  return out;
+}
+
+async function markTrip(id, request, env) {
+  if (!/^[a-z2-9]{6,12}$/.test(id || '')) return json({ error: 'Not a trip id.' }, 400);
+
+  let body;
+  try { body = await request.json(); } catch (e) { return json({ error: 'Malformed request.' }, 400); }
+  if (!body || typeof body !== 'object') return json({ error: 'Malformed request.' }, 400);
+
+  const party = String(body.party == null ? '' : body.party).slice(0, 24);
+  const state = String(body.state == null ? '' : body.state);
+  const key = String(body.key == null ? '' : body.key);
+  if (!MARK_STATES.has(state)) return json({ error: 'Unknown state.' }, 400);
+  if (!/^[a-z0-9]{16,40}$/.test(key)) return json({ error: 'Missing claim key.' }, 400);
+
+  /* Read-modify-write on KV is last-write-wins, and KV reads cannot be told to
+   * skip their local cache -- 60 seconds is the floor the platform allows. So
+   * two people marking within a minute THROUGH THE SAME COLO can lose one of
+   * the two marks. This is the same hazard the budget counters above carry, it
+   * has the same real fix (a Durable Object, one binding, which both should get
+   * together), and it is deliberately being lived with here rather than
+   * half-solved, because the blast radius is a single flag:
+   *
+   *   - nothing silently corrupts. The loser's own response showed the merged
+   *     state this worker saw, and the next /marks read shows the truth.
+   *   - the UI re-reads the roster whenever somebody returns to the tab, so the
+   *     lost flag reappears as un-booked and is one tap from being right again.
+   *   - no money moves on this flag, and it cannot un-book somebody who holds
+   *     the claim key -- the write that matters is still gated.
+   *
+   * Splitting marks into one KV key per party would remove the race outright,
+   * and was rejected for a worse cost: reading the roster back would then need
+   * a list() per open, and list operations are capped at 1,000 a day on the
+   * free tier -- exactly as scarce as the writes this design is protecting. */
+  const raw = await env.FWF.get('trip:' + id);
+  if (!raw) return json({ error: 'That trip has expired or never existed.' }, 404);
+  let trip;
+  try { trip = JSON.parse(raw); } catch (e) { return json({ error: 'Not a trip.' }, 500); }
+
+  if (!partyIdsOf(trip).includes(party)) {
+    return json({ error: 'Nobody by that id is on this trip.' }, 400);
+  }
+
+  if (!trip.marks || typeof trip.marks !== 'object') trip.marks = {};
+  if (!trip.keys || typeof trip.keys !== 'object') trip.keys = {};
+
+  const held = trip.keys[party];
+  if (held && !sameKey(held, key)) {
+    return json({ error: 'Somebody else already marks that person on this trip.' }, 403);
+  }
+
+  /* Re-posting the state a person is already in writes nothing. This is what
+   * makes a double tap, a retry after a dropped connection and a stale tab all
+   * free rather than each costing a write. */
+  const current = (trip.marks[party] && trip.marks[party].s) || 'looking';
+  if (current === state) {
+    return json({ ok: true, marks: publicMarks(trip), n: +trip.n || 0, wrote: false });
+  }
+
+  const n = +trip.n || 0;
+  if (n >= LIMITS.tripMarksMax) {
+    return json({ error: 'This trip has been updated too many times.', marks: publicMarks(trip) }, 429);
+  }
+
+  /* 'looking' is the absence of a mark, not a third row to store -- but the
+   * claim key stays, so the person who un-books can book again and nobody else
+   * can take their place in the meantime. */
+  if (state === 'looking') delete trip.marks[party];
+  else trip.marks[party] = { s: state, t: Math.floor(Date.now() / 1000) };
+  trip.keys[party] = key;
+  trip.n = n + 1;
+
+  const next = JSON.stringify(trip);
+  if (next.length > LIMITS.tripBytesMax) return json({ error: 'Trip too large to update.' }, 413);
+
+  /* The TTL is reset, not preserved: a trip people are actively booking is the
+   * last thing that should expire out from under them. Bounded by tripMarksMax,
+   * so this cannot be used to keep an object alive indefinitely for free. */
+  await env.FWF.put('trip:' + id, next, { expirationTtl: LIMITS.tripTtlSeconds });
+  return json({ ok: true, marks: publicMarks(trip), n: trip.n, wrote: true });
+}
+
+/* Split from the trip body on purpose. The document is large and immutable, so
+ * it is cached hard at the edge; the roster is tiny and changes, so it is never
+ * cached at all. Serving them together would force one of those two to be
+ * wrong -- either a 150KB re-download every time somebody checks whether Ray
+ * booked, or a five-minute lie about whether he did. */
+async function readMarks(id, env) {
+  if (!/^[a-z2-9]{6,12}$/.test(id || '')) return json({ error: 'Not a trip id.' }, 400);
+  const raw = await env.FWF.get('trip:' + id);
+  if (!raw) return json({ error: 'That trip has expired or never existed.' }, 404);
+  let trip;
+  try { trip = JSON.parse(raw); } catch (e) { return json({ error: 'Not a trip.' }, 500); }
+  return new Response(JSON.stringify({ marks: publicMarks(trip), n: +trip.n || 0 }), {
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...CORS },
+  });
+}
+
 async function readTrip(id, env) {
   if (!/^[a-z2-9]{6,12}$/.test(id || '')) return json({ error: 'Not a trip id.' }, 400);
   const raw = await env.FWF.get('trip:' + id, { cacheTtl: 300 });
   if (!raw) return json({ error: 'That trip has expired or never existed.' }, 404);
-  return new Response(raw, {
+
+  /* This response is cached publicly for five minutes, at the edge, keyed only
+   * on the URL -- so anything in it is effectively published. The claim keys
+   * must not be in it, and neither must the marks, which would be served up to
+   * five minutes stale next to a /marks route that is always current. Parsed
+   * and re-serialised rather than passed through for exactly that reason; a
+   * body this route cannot parse is a body written before any of this existed
+   * and had none of these fields, so it is passed through unchanged. */
+  let trip;
+  try { trip = JSON.parse(raw); } catch (e) { trip = null; }
+  let out = raw;
+  if (trip && typeof trip === 'object') {
+    delete trip.keys; delete trip.marks; delete trip.n;
+    out = JSON.stringify(trip);
+  }
+  return new Response(out, {
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300', ...CORS },
   });
 }
 
 export const _internals = { parseBags, validate, extractOptions, extractInsights, cacheKey, LIMITS, tripId,
                             duffelBags, parseIsoDuration, extractDuffelOptions, localStamp,
-                            planSearches, legTtl, accountGate, normalize };
+                            planSearches, legTtl, accountGate, normalize,
+                            sameKey, partyIdsOf, publicMarks, MARK_STATES,
+                            /* Exported so the trust model can be tested rather than
+                             * reasoned about: that a claim key never reaches a
+                             * response body is not a property a unit test of pure
+                             * functions can see. */
+                            saveTrip, readTrip, readMarks, markTrip };
 
 export default {
   async fetch(request, env) {
@@ -828,8 +1031,21 @@ export default {
                     return json({ error: 'Could not save trip right now.' }, 500); }
     }
 
+    /* Behind the Origin gate above, like every other write: a roster update is
+     * an assertion about somebody's money, and it should come from the app. */
+    if (path.startsWith('/trip/') && request.method === 'POST') {
+      const m = /^([^/]+)\/mark$/.exec(path.slice(6));
+      if (m) {
+        try { return await markTrip(m[1], request, env); }
+        catch (err) { console.log('trip mark failed:', err && err.message);
+                      return json({ error: 'Could not update the trip right now.' }, 500); }
+      }
+    }
+
     if (path.startsWith('/trip/') && request.method === 'GET') {
-      try { return await readTrip(path.slice(6), env); }
+      const rest = path.slice(6);
+      const m = /^([^/]+)\/marks$/.exec(rest);
+      try { return m ? await readMarks(m[1], env) : await readTrip(rest, env); }
       catch (err) { console.log('trip load failed:', err && err.message);
                     return json({ error: 'Could not load trip right now.' }, 500); }
     }

@@ -47,6 +47,73 @@ ck('plural still correct', ctx.stopsText(2) === '2 stops' && ctx.stopsText(1) ==
 console.log('\n-- esc covers the remaining interpolations --');
 ck('esc neutralises angle brackets', ctx.esc(PAYLOAD).indexOf('<') === -1);
 
+/* The roster is the newest thing to arrive from a stored trip, and it reaches
+ * innerHTML by way of a badge, a sentence that names people and a data-mark
+ * attribute. It is driven by the party ids the app already holds rather than by
+ * the keys of the response, which is what makes the attack surface a single
+ * enum value rather than an arbitrary object. */
+console.log('\n-- sanitizeMarks only lets through people on the trip --');
+var sm = src.indexOf('function sanitizeMarks');
+vm.runInContext(src.slice(sm, src.indexOf('\n}', sm) + 2), ctx);
+
+var ids = ['alex', 'ray'];
+var marks = ctx.sanitizeMarks({
+    alex: { s: 'booked' },
+    ray: { s: PAYLOAD },
+    mallory: { s: 'booked' },
+    __proto__: { s: 'booked' },
+    constructor: { s: 'booked' }
+}, ids);
+ck('a real mark survives', marks.alex === 'booked');
+ck('an unknown state is dropped', marks.ray === undefined);
+ck('somebody not on the trip is dropped', marks.mallory === undefined);
+ck('nothing but the two ids is present', JSON.stringify(Object.keys(marks)) === '["alex"]');
+ck('the prototype is untouched', ({}).s === undefined);
+ck('a non-object roster is an empty roster',
+   JSON.stringify(ctx.sanitizeMarks(PAYLOAD, ids)) === '{}'
+   && JSON.stringify(ctx.sanitizeMarks(null, ids)) === '{}'
+   && JSON.stringify(ctx.sanitizeMarks([1, 2, 3], ids)) === '{}');
+ck('the bare-string form is accepted too, and only for booked',
+   ctx.sanitizeMarks({ alex: 'booked', ray: 'looking' }, ids).alex === 'booked'
+   && ctx.sanitizeMarks({ alex: 'booked', ray: 'looking' }, ids).ray === undefined);
+ck('no ids means no marks', JSON.stringify(ctx.sanitizeMarks({ alex: 'booked' }, [])) === '{}');
+
+/* The trip id read off the URL is concatenated straight into a fetch path, so
+ * the regex that extracts it is load-bearing: anything it lets through becomes
+ * part of a request this app makes on its own origin's behalf. All three forms
+ * are checked, because all three are read -- ?t= is what the app writes, /t/ is
+ * read so links keep working if the app ever moves behind a host that rewrites
+ * unknown paths, and #t= is read forever because those links are already in
+ * people's group chats. */
+console.log('\n-- the trip id comes off the URL, so it is a parser, not a lookup --');
+var u0 = src.indexOf('function tripIdFromUrl');
+var u1 = src.indexOf('function appUrl');
+vm.runInContext(src.slice(u0, src.indexOf('\n}', u1) + 2), ctx);
+
+function at(search, pathname, hash) {
+    ctx.location = { search: search || '', pathname: pathname || '/', hash: hash || '', origin: 'https://x' };
+    return ctx.tripIdFromUrl();
+}
+ck('?t= is read', at('?t=abc234') === 'abc234');
+ck('?t= among other params is read', at('?demo=1&t=abc234') === 'abc234');
+ck('/t/<id> is read', at('', '/t/abc234') === 'abc234');
+ck('#t= still opens every link already pasted into a chat', at('', '/', '#t=abc234') === 'abc234');
+ck('no id anywhere is null', at('?demo=1', '/', '#s=eyJx') === null);
+ck('a path traversal is not an id', at('?t=../../etc/passwd') === null);
+ck('an uppercase or punctuated id is not an id',
+   at('?t=ABC234') === null && at('?t=abc-234') === null && at('?t=abc.234') === null);
+/* 0 and 1 are not in the alphabet the worker mints ids from, because they are
+ * the two characters a person retypes wrongly from a screen. */
+ck('a digit outside the id alphabet rejects the whole id', at('?t=abc01x') === null);
+/* The trailing anchor is what does this: without it a 40-character payload
+ * would match its first 16 and be accepted as an id. */
+ck('an over-long id is not silently truncated', at('?t=abcdefghijklmnopqrst') === null);
+
+var baseAt = function (pathname) { at('', pathname); return ctx.basePath(); };
+ck('basePath drops the trip it was reading', baseAt('/t/abc234') === '/');
+ck('basePath keeps a subdirectory deploy', baseAt('/app/t/abc234') === '/app/');
+ck('basePath leaves an ordinary path alone', baseAt('/index.html') === '/index.html');
+
 console.log('\n-- a genuine link is untouched --');
 var real = ctx.sanitizeQuery({ dest: 'PIT', dep: '2027-02-12', ret: '2027-02-15', maxStops: 1,
     maxDetour: 180, avoid: [], clusterReturn: false,
@@ -64,7 +131,7 @@ ck('real payload survives verbatim',
  * which of the two it is -- and the link people actually copy is the one in the
  * address bar, which is what writeHash puts there. */
 console.log('\n-- which kind of link is in the address bar --');
-var h0 = src.indexOf('function tripIdFromHash');
+var h0 = src.indexOf('function tripIdFromUrl');
 var h1 = src.indexOf('function shareUrl');
 ctx.location = { hash: '' };
 ctx.escape = escape; ctx.unescape = unescape;
@@ -77,7 +144,7 @@ var enc = Buffer.from(unescape(encodeURIComponent(JSON.stringify(
 
 function readAt(hash) {
     ctx.location.hash = hash;
-    return { id: ctx.tripIdFromHash(), view: ctx.readHash() };
+    return { id: ctx.tripIdFromUrl(), view: ctx.readHash() };
 }
 var bare = readAt('#s=' + enc);
 ck('a bare #s= link carries no trip id -- it is the expensive form',

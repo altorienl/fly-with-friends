@@ -332,14 +332,23 @@ a { color: var(--accent); }
  * the :focus-visible rules below. */
 [tabindex="-1"]:focus { outline: none; }
 
-/* Buttons lose the UA ring because they are unstyled, so put one back. */
+/* Buttons lose the UA ring because they are unstyled, so put one back.
+ *
+ * Keep every selector in this list on its own line with no comment between them.
+ * A comment after the trailing comma does not end the list -- it is skipped, and
+ * the next selector joins it. That happened twice: .win-alt and then .mrow each
+ * got appended here, so instead of an outline every button in the app received
+ * margin-top on keyboard focus. The ring was gone app-wide and nothing visibly
+ * broke, which is why it survived two commits. */
 .btn:focus-visible, .pill:focus-visible, .brow:focus-visible, .icon-btn:focus-visible,
 .gear:focus-visible, .ac-item:focus-visible, .chip button:focus-visible,
 .stepper button:focus-visible, .add-air:focus-visible, footer button:focus-visible,
-/* The alternative pills were falling through to Chrome's blue auto ring -- the
- * one ring in this file with a comment explaining why it is wrong. 10.45:1 on
- * the dark page and 3.28:1 on the light one. */
-/* .pick-alt is gone with the old choice strip; .mrow is the match row. */
+.win-alt button:focus-visible, .share-alt button:focus-visible, .mrow:focus-visible,
+.mark-btn:focus-visible {
+    outline: 2px solid var(--brand-line); outline-offset: 2px;
+}
+
+/* 10.45:1 on the dark page, 3.28:1 on the light one. */
 .win-alt { margin-top: var(--s3); }
 .win-alt button { display: inline-flex; align-items: center; min-height: 44px;
     padding: var(--s2) var(--s3); border: 1px solid var(--edge-2); border-radius: var(--r-pill);
@@ -347,10 +356,10 @@ a { color: var(--accent); }
     transition: background .15s, border-color .15s; }
 .win-alt button:active { background: var(--card); }
 
-.win-alt button:focus-visible, /* The rows are radio buttons and were reading as text, so nobody knew the other
-   plans were tappable. Unselected rows now carry an explicit word where the
-   selected row carries its per-person figure, and the whole row gets a pressed
-   surface -- the cheapest honest affordance that does not add an element. */
+/* The rows are radio buttons and were reading as text, so nobody knew the other
+   plans were tappable. Unselected rows carry an explicit word where the selected
+   row carries its per-person figure, and the whole row gets a pressed surface --
+   the cheapest honest affordance that does not add an element. */
 .mrow { cursor: pointer; transition: background .15s; }
 .mrow:not(.on):active { background: var(--card); }
 .m-pick { font-size: var(--t-2); font-weight: 600; color: var(--accent); }
@@ -865,6 +874,36 @@ a { color: var(--accent); }
     border: 1px solid var(--brand); box-shadow: none; }
 .trav-book .btn:active { background: var(--accent-dim); }
 .trav-book .fine { font-size: var(--t-2); color: var(--muted); margin-top: 8px; line-height: var(--lh-text); text-align: center; }
+.trav-book .fine.bad { color: var(--bad); }
+/* The other half of the Book button, and deliberately the quieter half: Book is
+   the thing the app is for, and this is a note somebody makes afterwards. Text,
+   not a box, so it does not read as a second decision to make -- but 44px tall
+   and centred under the button, because it is still a thumb target. */
+.mark-btn { display: block; width: 100%; min-height: 44px; margin-top: var(--s1);
+    background: transparent; border: 0; color: var(--muted);
+    font-size: var(--t-2); font-weight: 500; text-decoration: underline;
+    text-underline-offset: 3px; text-decoration-color: var(--edge-2); }
+.mark-btn.on { color: var(--faint); }
+.mark-btn:active { color: var(--text); }
+.mark-btn[disabled] { opacity: .6; text-decoration: none; }
+.mark-btn:focus-visible { outline: 2px solid var(--brand-line); outline-offset: 2px; border-radius: var(--r-sm); }
+/* Once somebody has booked, their row is settled: the hairline that separates
+   it says so, and nothing else about the row changes. A tint or a fill here
+   would make five booked people into five panels. */
+.trav.booked { border-color: var(--good); }
+
+/* ---------------- the trip's own state ----------------
+   Two short lines of plain text under the title: who has booked, and whether
+   the money on this page is still real. No box, no icon, no panel -- it is a
+   sentence, and it is the sentence somebody opened the link to read. It renders
+   empty on a trip that has nothing to report, which is every trip on the day it
+   is made, so the search flow never sees it at all. */
+.tstate:empty { display: none; }
+.tstate { border-top: 1px solid var(--edge); padding-top: var(--s4); margin-bottom: var(--s2); }
+.tst-line { font-size: var(--t-3); color: var(--muted); line-height: var(--lh-text); }
+.tst-line b { font-weight: 600; color: var(--text); }
+.tst-ask { margin-bottom: var(--s3); }
+.tst-ask .k { display: block; font-size: var(--t-2); color: var(--muted); margin-bottom: var(--s2); }
 .opts { margin-top: var(--s5); border-top: 1px solid var(--edge); }
 .opts > summary { padding: var(--s4) 0; font-size: var(--t-3); font-weight: 500; color: var(--muted); cursor: pointer; list-style: none; }
 .opts > summary::-webkit-details-marker { display: none; }
@@ -1019,6 +1058,10 @@ a { color: var(--accent); }
 .badge { font-size: var(--t-1); font-weight: 500; padding: 2px 8px; border-radius: var(--r-sm); border: 1px solid var(--edge-2); color: var(--muted); }
 .badge.me { border-color: var(--edge-2); color: var(--text); }
 .badge.out { border-color: var(--bad); color: var(--bad); }
+/* The one piece of good news on the screen, and the only thing on it that is a
+   fact about a person rather than a fact about a fare. Green because it is the
+   same green the app already uses for "this is settled". */
+.badge.ok { border-color: var(--good); color: var(--good); }
 .book { display: inline-block; margin-top: 4px; padding: 10px 0; font-size: var(--t-2); font-weight: 600; color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--edge-2); }
 .links { display: flex; gap: 14px; flex-wrap: wrap; align-items: baseline; }
 .links .book { margin-top: 6px; padding: 6px 0; }
@@ -1346,7 +1389,10 @@ footer .sep { color: var(--faint); margin: 0 8px; }
     </div>
 
     <div class="notice hidden" id="nSample" role="status" aria-live="polite"></div>
-    <div class="notice warn hidden" id="nStale" role="status" aria-live="polite"></div>
+    <!-- #nStale lived here: a red bar at ten days telling the group to search
+         again. Both halves of that were wrong, and the one thing a re-opened
+         trip has to say now lives in #tripState, next to the other thing it has
+         to say. See renderNotices(). -->
     <div class="notice bad hidden" id="nShort" role="status" aria-live="polite"></div>
     <div class="notice bad hidden" id="nErr" role="alert"></div>
     <div class="notice warn hidden" id="nQuota" role="status" aria-live="polite"></div>
@@ -1435,6 +1481,19 @@ footer .sep { color: var(--faint); margin: 0 8px; }
                 <div class="ac" id="resDestAc" role="listbox" aria-label="Matching airports"></div>
             </div>
         </div>
+        <!-- What has happened since, which is the only thing a document can
+             tell you and a pasted screenshot cannot: who has booked, who the
+             trip is waiting on, and whether the money on this page is still
+             real. Above the chooser because it is a fact about the trip rather
+             than about the options, and empty -- therefore invisible, via
+             .tstate:empty -- on the day the trip is made, when it has nothing
+             to report. The search flow never sees it at all.
+             aria-live, because this is the one region on the screen that
+             changes without the reader having touched anything: it fills in
+             when the roster comes back, and again when somebody returns to the
+             tab and the group has moved while they were away. -->
+        <div class="tstate" id="tripState" role="status" aria-live="polite"></div>
+
         <!-- The matches come first, and the plan is the one that is selected,
              expanded. A chooser has to precede the thing it chooses or a tap
              changes something off screen -- which is what the scrollTo(0, 0)

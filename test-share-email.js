@@ -9,7 +9,7 @@
  * thousand characters, so these assert that the per-person links are dropped
  * before the trip link, which can never go -- the trip link is the whole plan. */
 var fs = require('fs'), vm = require('vm');
-var src = fs.readFileSync('/Users/alockwood/fly-with-friends/app.js', 'utf8');
+var src = fs.readFileSync(__dirname + '/app.js', 'utf8');
 
 var pass = 0, fail = 0;
 function ck(n, c, extra) {

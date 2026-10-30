@@ -332,6 +332,126 @@ check('DEFECT: with 30 of 230 left, six simultaneous groups spend 96',
   billed === 96, 'got ' + billed);
 
 globalThis.fetch = realFetch;
+/* ------------------------------------------------------- the roster state
+ *
+ * Driven against a fake KV rather than against pure helpers, because the two
+ * properties that matter are not visible from a helper: that a claim key never
+ * appears in any response body, and that a status change costs exactly one
+ * write. Both are counted here. */
+await (async () => {
+  console.log('\n5. Roster marks');
+  const { saveTrip, readTrip, readMarks, markTrip, LIMITS } = _internals;
+
+  const kv = {
+    store: new Map(), writes: 0, reads: 0,
+    async get(k) { this.reads++; const v = this.store.get(k); return v === undefined ? null : v; },
+    async put(k, v) { this.writes++; this.store.set(k, v); },
+  };
+  const env = { FWF: kv };
+  const post = (url, body) => new Request(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.9' },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  });
+
+  const trip = {
+    v: 1,
+    data: { trips: { query: { outbound: {}, return: {} } }, currency: 'USD', generated_at: '2026-10-29T00:00:00Z' },
+    payload: { q: { dest: 'PIT', dep: '2027-02-12', parties: [
+      { id: 'alex', name: 'Alex', seats: 1, airports: ['SFO'] },
+      { id: 'ray', name: 'Ray', seats: 1, airports: ['DEN'] },
+    ] }, v: {} },
+  };
+
+  // A poster cannot pre-seed the roster or the keys on a trip they create.
+  const saved = await (await saveTrip(post('https://x/trip',
+    { ...trip, marks: { ray: { s: 'booked' } }, keys: { ray: 'aaaaaaaaaaaaaaaa' }, n: 99 }), env)).json();
+  const id = saved.id;
+  check('save returns an id', /^[a-z2-9]{6}$/.test(id || ''), JSON.stringify(saved));
+  const stored0 = JSON.parse(kv.store.get('trip:' + id));
+  check('a posted roster is stripped on save',
+    stored0.marks === undefined && stored0.keys === undefined && stored0.n === undefined);
+
+  const RAY = 'r4yk3yr4yk3yr4yk3y';
+  const ALEX = 'al3xal3xal3xal3xal3x';
+
+  // Input shapes.
+  const bad = async (name, body, status) => {
+    const r = await markTrip(id, post('https://x/trip/' + id + '/mark', body), env);
+    check(name, r.status === status, 'got ' + r.status);
+  };
+  await bad('an unknown state is refused', { party: 'ray', state: 'vibing', key: RAY }, 400);
+  await bad('a short key is refused', { party: 'ray', state: 'booked', key: 'abc' }, 400);
+  await bad('a key with markup in it is refused',
+    { party: 'ray', state: 'booked', key: '<img src=x onerror=1>' }, 400);
+  await bad('a party id not on the trip is refused',
+    { party: 'nobody', state: 'booked', key: RAY }, 400);
+  const nowhere = await markTrip('zzzzzz', post('https://x/', { party: 'ray', state: 'booked', key: RAY }), env);
+  check('marking a trip that does not exist is a 404', nowhere.status === 404);
+
+  /* Two, both from the save: the trip itself and the per-IP trip-write counter.
+   * None of the refusals above added to it, which is the property under test --
+   * a rejected mark must not be a way to spend a write. */
+  check('none of those refusals wrote anything', kv.writes === 2, 'writes ' + kv.writes);
+
+  // The claim.
+  const w0 = kv.writes;
+  const m1 = await (await markTrip(id, post('https://x/', { party: 'ray', state: 'booked', key: RAY }), env)).json();
+  check('Ray books', m1.ok && m1.marks.ray && m1.marks.ray.s === 'booked', JSON.stringify(m1));
+  check('booking costs exactly one write', kv.writes === w0 + 1, 'writes ' + (kv.writes - w0));
+
+  const m2 = await (await markTrip(id, post('https://x/', { party: 'ray', state: 'booked', key: RAY }), env)).json();
+  check('re-posting the same state writes nothing', m2.wrote === false && kv.writes === w0 + 1);
+
+  // The trust boundary.
+  const steal = await markTrip(id, post('https://x/', { party: 'ray', state: 'looking', key: ALEX }), env);
+  check('a stranger cannot un-book Ray', steal.status === 403, 'got ' + steal.status);
+  check('and that refusal wrote nothing', kv.writes === w0 + 1);
+
+  const alexOk = await (await markTrip(id, post('https://x/', { party: 'alex', state: 'booked', key: ALEX }), env)).json();
+  check('but an unclaimed person is still claimable', alexOk.ok && alexOk.marks.alex.s === 'booked');
+
+  // Reads.
+  const marksBody = await (await readMarks(id, env)).json();
+  check('/marks reports both', marksBody.marks.ray.s === 'booked' && marksBody.marks.alex.s === 'booked');
+  check('/marks leaks no keys', JSON.stringify(marksBody).indexOf('r4yk3y') === -1
+    && marksBody.keys === undefined, JSON.stringify(marksBody));
+  const marksRes = await readMarks(id, env);
+  check('/marks is never cached', marksRes.headers.get('Cache-Control') === 'no-store');
+
+  const tripRes = await readTrip(id, env);
+  const tripBody = await tripRes.json();
+  const tripText = JSON.stringify(tripBody);
+  check('the trip document leaks no keys', tripText.indexOf('r4yk3y') === -1 && tripText.indexOf('al3x') === -1);
+  check('and carries no roster at all, so it can stay cached',
+    tripBody.marks === undefined && tripBody.n === undefined);
+  check('the trip document is still the trip',
+    tripBody.v === 1 && tripBody.payload.q.dest === 'PIT' && !!tripBody.data.trips);
+  check('the trip document is still cached hard',
+    (tripRes.headers.get('Cache-Control') || '').indexOf('max-age=300') > -1);
+
+  // Un-booking keeps the claim.
+  await markTrip(id, post('https://x/', { party: 'ray', state: 'looking', key: RAY }), env);
+  const after = await (await readMarks(id, env)).json();
+  check('un-booking removes the mark', after.marks.ray === undefined, JSON.stringify(after.marks));
+  const stillRays = await markTrip(id, post('https://x/', { party: 'ray', state: 'booked', key: ALEX }), env);
+  check('but not the claim', stillRays.status === 403, 'got ' + stillRays.status);
+
+  // The write ceiling, which is the whole rate limit.
+  const stored = JSON.parse(kv.store.get('trip:' + id));
+  stored.n = LIMITS.tripMarksMax;
+  kv.store.set('trip:' + id, JSON.stringify(stored));
+  const w1 = kv.writes;
+  const capped = await markTrip(id, post('https://x/', { party: 'ray', state: 'booked', key: RAY }), env);
+  check('the per-trip write ceiling stops further updates', capped.status === 429, 'got ' + capped.status);
+  check('and the refusal itself writes nothing', kv.writes === w1);
+
+  /* The whole lifecycle, counted: 2 to share it (trip + the per-IP counter),
+   * then 1 each for Ray booking, Alex booking and Ray un-booking. Everything
+   * else above -- five refusals, a repeat post, a 403, two reads of the roster
+   * and a read of the document -- was free. */
+  check('a two-person trip shared, booked and un-booked cost 5 writes end to end',
+    kv.writes === 5, 'writes ' + kv.writes);
+})();
 
 console.log('\n' + (fail === 0 ? 'ALL ' + pass + ' CHECKS PASSED' : pass + ' passed, ' + fail + ' FAILED'));
 process.exit(fail === 0 ? 0 : 1);

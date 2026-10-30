@@ -83,6 +83,9 @@ var DATA = null, SET = null, BUDGET = null, C = null, TRIP = null;
 var SHIFTS = {}, shiftBusy = false, shiftErr = null;
 /* Short id for the saved trip, once it has been shared. */
 var TRIP_ID = null, savingTrip = false;
+/* Who in this trip has said they bought their ticket. Party id -> 'booked'.
+ * Read from the trip, never computed, and sanitised on the way in. */
+var MARKS = {}, markBusy = null, markErr = null, marksAt = 0;
 /* Bumped by every search and by starting a new trip, so a response that belongs
  * to a trip nobody is looking at any more can be identified and dropped. */
 var searchGen = 0;
@@ -1217,7 +1220,11 @@ function doSearch() {
             return;
         }
         DATA = res.body;
-        SHIFTS = {}; shiftErr = null; TRIP_ID = null;
+        /* A search produces a different document: different fares, and a plan
+         * nobody in the group has seen. Carrying somebody's "booked" across
+         * would be the app asserting a purchase against flights that may not be
+         * the ones they bought. */
+        SHIFTS = {}; shiftErr = null; TRIP_ID = null; MARKS = {}; markErr = null;
         thReset(); state.leg = 'outbound';
         /* Remember who went, now that a real search has confirmed they are a
          * real group. Written after DATA is set so saveGroup can tell the
@@ -1394,15 +1401,48 @@ function hashPayload() {
  * sender's current reading of them travels too. tripIdFromHash and readHash
  * already match on [#&], so both halves are found either way round. */
 function writeHash() {
+    /* A saved trip already has the URL it wants, and it is the cheap one:
+     * overwriting ?t= with the self-contained #s= form would convert a link
+     * costing one KV read into one that buys a fresh paid search on every
+     * recipient's device. Changing a filter is a local reading of the document,
+     * not a new document, so the address bar stays pointed at the document. */
+    if (TRIP_ID) return;
     try {
         var enc = btoa(unescape(encodeURIComponent(JSON.stringify(hashPayload())))).replace(/=+$/, '');
         history.replaceState(null, '', TRIP_ID ? '#t=' + TRIP_ID + '&s=' + enc : '#s=' + enc);
     } catch (e) {}
 }
-function tripIdFromHash() {
-    var m = /[#&]t=([a-z2-9]{4,16})/.exec(location.hash || '');
+/* A trip is a document the group keeps coming back to, so it gets a URL rather
+ * than a position inside one. Three forms are read, one is written:
+ *
+ *   ?t=<id>   written. A real URL -- the server sees it, a bookmark keeps it,
+ *             a chat client cannot eat it the way some eat a fragment, and it
+ *             works unchanged on GitHub Pages, on the Cloudflare asset Worker
+ *             and on a plain `python3 -m http.server`.
+ *   /t/<id>   read only. The prettier form, but it needs the host to serve the
+ *             app for unknown paths. The deployed asset Worker does
+ *             (not_found_handling = single-page-application); Pages and a local
+ *             server do not, so writing it would break the two places this is
+ *             developed. Reading it costs one regex and means the day the app
+ *             sits behind a rewrite, those links already work.
+ *   #t=<id>   read only, forever. Every link already pasted into somebody's
+ *             group chat is this form, and a shared link that stops opening is
+ *             the one failure this whole feature exists to prevent. */
+function tripIdFromUrl() {
+    var m = /[?&]t=([a-z2-9]{4,16})(?:&|$)/.exec(location.search || '');
+    if (m) return m[1];
+    m = /^.*\/t\/([a-z2-9]{4,16})\/?$/.exec(location.pathname || '');
+    if (m) return m[1];
+    m = /[#&]t=([a-z2-9]{4,16})/.exec(location.hash || '');
     return m ? m[1] : null;
 }
+
+/* Where the app lives, with any /t/<id> suffix stripped -- so New trip and the
+ * share link do not inherit the path of the trip somebody was reading. */
+function basePath() {
+    return (location.pathname || '/').replace(/\/t\/[a-z2-9]{4,16}\/?$/, '/');
+}
+function appUrl() { return location.origin + basePath(); }
 
 function readHash() {
     var m = /[#&]s=([^&]+)/.exec(location.hash || '');
@@ -1414,9 +1454,9 @@ function readHash() {
     } catch (e) { return null; }
 }
 function shareUrl() {
-    if (TRIP_ID) return location.origin + location.pathname + '#t=' + TRIP_ID;
+    if (TRIP_ID) return appUrl() + '?t=' + TRIP_ID;
     try {
-        return location.origin + location.pathname + '#s='
+        return appUrl() + '#s='
             + btoa(unescape(encodeURIComponent(JSON.stringify(hashPayload())))).replace(/=+$/, '');
     } catch (e) { return location.href; }
 }
@@ -1432,9 +1472,245 @@ function saveTrip() {
         body: JSON.stringify({ v: 1, data: DATA, payload: hashPayload() })
     }).then(function (r) { return r.json(); }).then(function (j) {
         savingTrip = false;
-        if (j && j.id) { TRIP_ID = j.id; history.replaceState(null, '', '#t=' + j.id); }
+        if (j && j.id) {
+            TRIP_ID = j.id;
+            history.replaceState(null, '', basePath() + '?t=' + j.id);
+            /* The trip only becomes a document people can write to at this
+             * moment, so this is where the roster control appears. */
+            if (state.step === 4) render();
+        }
         return shareUrl();
     }).catch(function () { savingTrip = false; return shareUrl(); });
+}
+
+/* ------------------------------------------------------ the roster state
+ *
+ * The product was being built as a better flight search. A group does not need
+ * a better flight search; it needs somewhere the answer stays put while five
+ * people get around to acting on it. The share flow already produced a block of
+ * text to paste into a chat, after which the group argued in a medium this app
+ * cannot see -- and the one fact that argument keeps circling is "has Ray
+ * actually bought his ticket".
+ *
+ * So the trip holds one string per person and nothing else. Not comments, not
+ * votes, not a thread: the group already has a better place to talk, and what
+ * it does not have is a ledger the talking keeps asking about.
+ *
+ * WRITES: one per real status change, so at most one per person per trip.
+ * Zero on open, zero on refresh, zero on claiming an identity, and zero for
+ * re-posting a state somebody is already in. Eight people fully booked costs
+ * eight writes against a 1,000-a-day ceiling, and the search allowance caps the
+ * app at roughly one shareable trip a day. See worker.js for the arithmetic.
+ *
+ * TRUST: there is no login and there is not going to be one, so the link is the
+ * credential and first claim wins. The first device to mark somebody mints a
+ * random key kept in that device's localStorage; the Worker stores it beside
+ * the mark and never returns it to anybody. After that only that device can
+ * change that person's state. A stranger who later finds the link can still
+ * claim a person nobody has claimed -- that is the honest price of no accounts,
+ * and it is the right trade: a group passing a private link around needs
+ * protecting from a link leaking later, not from each other. What it must never
+ * be possible to do is UN-book somebody, because that is the move that makes
+ * the document lie about money, and that is closed. */
+
+var CLAIM_LS = 'fwf_claims';
+
+function randKey() {
+    var out = '', i;
+    if (window.crypto && window.crypto.getRandomValues) {
+        var a = new Uint8Array(20);
+        window.crypto.getRandomValues(a);
+        for (i = 0; i < a.length; i++) out += 'abcdefghijkmnopqrstuvwxyz23456789'[a[i] % 33];
+        return out;
+    }
+    while (out.length < 20) out += Math.random().toString(36).replace(/[^a-z0-9]/g, '');
+    return out.slice(0, 20);
+}
+
+/* Minted lazily and kept per trip, so the key only exists for a person this
+ * device has actually spoken for. A ring rather than a history: twelve trips is
+ * well past anything anybody is still booking, and localStorage is not a place
+ * to accumulate secrets forever. */
+function claimFor(pid) {
+    if (!TRIP_ID) return null;
+    var all = {};
+    try { all = JSON.parse(localStorage.getItem(CLAIM_LS) || '{}') || {}; } catch (e) { all = {}; }
+    if (!all[TRIP_ID] || typeof all[TRIP_ID] !== 'object') all[TRIP_ID] = {};
+    if (typeof all[TRIP_ID][pid] !== 'string') {
+        all[TRIP_ID][pid] = randKey();
+        var ids = Object.keys(all);
+        while (ids.length > 12) { delete all[ids.shift()]; }
+        try { localStorage.setItem(CLAIM_LS, JSON.stringify(all)); } catch (e) {}
+    }
+    return all[TRIP_ID][pid];
+}
+
+function partyIds() {
+    return ((state.q && state.q.parties) || []).map(function (p) { return p.id; });
+}
+
+/* The roster comes back from the same untrusted place as the rest of a stored
+ * trip, and it reaches the screen. Driven by the roster we already hold rather
+ * than by the keys of the response, so neither a prototype-poisoning key nor a
+ * ten-thousand-entry object can get in; the only value that survives is the one
+ * state the app knows how to draw. The worst a hostile document can therefore
+ * do is claim that somebody booked. */
+function sanitizeMarks(raw, ids) {
+    var out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    for (var i = 0; i < (ids || []).length; i++) {
+        var id = ids[i];
+        if (!Object.prototype.hasOwnProperty.call(raw, id)) continue;
+        var m = raw[id];
+        var s = (m && typeof m === 'object') ? m.s : m;
+        if (s === 'booked') out[id] = 'booked';
+    }
+    return out;
+}
+
+/* A read, not a poll. Nothing here runs on a timer: coming back to the tab is
+ * both the human-paced moment and the only moment the answer can have changed,
+ * and the cooldown stops a fast app-switcher turning it into one. */
+var MARKS_COOLDOWN = 15000;
+function loadMarks(force) {
+    if (!TRIP_ID || !API) return Promise.resolve();
+    if (!force && Date.now() - marksAt < MARKS_COOLDOWN) return Promise.resolve();
+    marksAt = Date.now();
+    return fetch(API + '/trip/' + TRIP_ID + '/marks', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+            if (!j) return;
+            MARKS = sanitizeMarks(j.marks, partyIds());
+            if (state.step === 4) render();
+        }).catch(function () {});
+}
+
+function postMark(pid, next) {
+    if (!TRIP_ID || markBusy) return;
+    if (partyIds().indexOf(pid) < 0) return;
+    if (next !== 'booked' && next !== 'looking') return;
+    markBusy = pid; markErr = null;
+    render();
+    fetch(API + '/trip/' + TRIP_ID + '/mark', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ party: pid, state: next, key: claimFor(pid) })
+    }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+        markBusy = null;
+        /* Never applied optimistically. This is an assertion about whether
+         * somebody spent money; showing it as saved when it was not is the one
+         * lie that would make the whole thing worse than the group chat. */
+        if (!res.ok) markErr = (res.body && res.body.error) || 'Could not save that. Try again.';
+        else MARKS = sanitizeMarks(res.body.marks, partyIds());
+        marksAt = Date.now();
+        render();
+    }).catch(function () {
+        markBusy = null;
+        markErr = 'Could not reach the trip. Try again in a moment.';
+        render();
+    });
+}
+
+/* Which card is you, resolved against THIS trip's roster -- a device that has
+ * answered for its own group carries an id that means nothing on somebody
+ * else's trip, and the prompt has to appear in that case rather than silently
+ * matching nobody. */
+function meParty() {
+    if (!SET.meId || !state.q) return null;
+    var ps = state.q.parties || [];
+    for (var i = 0; i < ps.length; i++) if (ps[i].id === SET.meId) return ps[i];
+    return null;
+}
+
+/* Your own name reads oddly in a list the document is showing to you, and
+ * fronting "You" is the fastest way to find out whether the trip is waiting on
+ * you. */
+function whoList(ids) {
+    var mine = [], rest = [];
+    (ids || []).forEach(function (id) { (id === SET.meId ? mine : rest).push(id); });
+    return listOf((mine.length ? ['You'] : []).concat(rest.map(name)));
+}
+
+/* Fares are the only part of a trip that goes off. Flight numbers, routes and
+ * times are published months ahead and do not move; the price moves daily. So
+ * the sentence has to name which half of the document to stop trusting -- and
+ * the answer is deliberately not "search again". Book opens Google's live price
+ * for the exact pinned itinerary, free, which is a better re-price than eight
+ * paid searches off a 230-a-month allowance, and it does not replace the
+ * document the group has been ticking itself off on. */
+function fareAgeDays() {
+    var gen = DATA && DATA.generated_at ? Date.parse(DATA.generated_at) : NaN;
+    if (!isFinite(gen)) return null;
+    return Math.floor((Date.now() - gen) / 86400000);
+}
+/* The age itself is the freshness chip's job, up in the title, and it has been
+ * all along -- so when the booking count leads this line the number is not
+ * repeated here, only its consequence. Standing alone it needs an anchor, and
+ * then the age is it. One number, one place either way. */
+function staleLine(hasLead) {
+    var d = fareAgeDays();
+    if (d == null || d < 3) return '';
+    return (hasLead ? '' : '<b>These fares are ' + d + ' days old.</b> ')
+        + 'The flights and the times still hold; only the prices move. Book opens the live fare.';
+}
+
+/* The line a re-opened trip exists for. Everything else on this screen answers
+ * "what should we book"; this answers "what has happened since", which is the
+ * only question a document can answer and a pasted screenshot cannot.
+ *
+ * Silent on the day it is made. Nobody has booked, the fares are minutes old,
+ * and "0 of 5 booked" five seconds after a search is the app congratulating
+ * itself for having state. It appears when it has something to report, which is
+ * also the first time anybody has a reason to come back. */
+function renderTripState() {
+    var host = el('tripState');
+    if (!host) return;
+    if (state.step !== 4 || !C || !DATA || DATA.sample) { host.innerHTML = ''; return; }
+
+    var people = travelers();
+    var ids = people.map(function (t) { return t.id; });
+    var booked = ids.filter(function (id) { return MARKS[id] === 'booked'; });
+    var waiting = ids.filter(function (id) { return MARKS[id] !== 'booked'; });
+    var html = '';
+
+    /* Asked once, inline, only on a trip that arrived from somebody else --
+     * because there it is not a preference, it is the question the document
+     * needs answered before it can say anything about you. Settings keeps the
+     * same control for changing the answer. Choosing costs nothing; it is the
+     * mark underneath that costs a write. */
+    if (TRIP_ID && !meParty() && people.length > 1) {
+        html += '<div class="tst-ask"><span class="k">Which one are you?</span>'
+            + '<div class="pills">'
+            + people.map(function (t) {
+                return '<button class="pill" data-me="' + esc(t.id) + '">' + esc(t.name) + '</button>';
+            }).join('')
+            + '</div></div>';
+    }
+
+    var said = '';
+    if (booked.length) {
+        /* "You haven't yet" is correct; "You hasn't yet" is what a bare
+         * singular test gives you. */
+        var verb = (waiting.length === 1 && waiting[0] !== SET.meId) ? 'hasn’t' : 'haven’t';
+        /* Counted in seats, not in cards, because the title three lines above
+         * says "5 people" and one card can be two of them. "2 of 4 booked"
+         * under "Pittsburgh - 5 people" invites exactly the arithmetic the
+         * reader cannot do: whether Sam's second seat is bought is a thing this
+         * app knows, and it belongs in the same unit as the headline. */
+        said = '<b>' + (waiting.length === 0
+                ? 'Everyone’s booked.'
+                : seatsOf(booked) + ' of ' + seatsAll() + ' booked.') + '</b>'
+            + (waiting.length ? ' ' + esc(whoList(waiting)) + ' ' + verb + ' yet.' : '');
+    }
+    var stale = staleLine(!!said);
+    if (said || stale) html += '<div class="tst-line">' + said + (said && stale ? ' ' : '') + stale + '</div>';
+
+    /* Only on a real change. This is an aria-live region and render() runs on
+     * every filter tap, so writing identical markup back would re-announce
+     * "3 of 5 booked" to a screen reader each time somebody adjusted the stops
+     * -- the live region turning into a stutter. */
+    if (host.innerHTML !== html) host.innerHTML = html;
 }
 
 /* -------------------------------------------------------------- render */
@@ -2027,6 +2303,10 @@ function render() {
         if (sel0.th != null) thBoth(sel0.th);
     } else if (thGet() === null && C.ladder) thSet(recommendedIn(C));
     renderResHead();
+    /* Above the TRIP check: a trip whose plan is short still has a roster and
+     * still has fares that have aged, and those are exactly the facts somebody
+     * re-opening a half-broken trip needs. */
+    renderTripState();
     /* The plan is rendered from TRIP, so it still has to be computed -- it just
      * no longer prints a panel of its own. */
     TRIP = tripTotal();
@@ -2080,12 +2360,15 @@ function renderNotices() {
             + 'Start a new trip to search for real.';
     } else s.className = 'notice hidden';
 
-    var st = el('nStale'), gen = DATA && DATA.generated_at ? new Date(DATA.generated_at) : null;
-    var days = gen ? Math.floor((Date.now() - gen.getTime()) / 86400000) : null;
-    if (DATA && !DATA.sample && days != null && days >= 10) {
-        st.className = 'notice warn';
-        st.innerHTML = '<b>These fares are ' + days + ' days old.</b> Search again before anyone books.';
-    } else st.className = 'notice warn hidden';
+    /* The stale-fares notice used to live here: a red bar at ten days saying
+     * "search again before anyone books". It moved into #tripState, above the
+     * plan, for three reasons. Ten days was far too generous -- fares move in
+     * days, not fortnights. "Search again" was the wrong offer: it costs the
+     * group eight searches off a 230-a-month allowance and produces a NEW trip
+     * id, silently abandoning the document the group has been ticking itself
+     * off on, when Book already opens the live price for free. And a re-opened
+     * trip has two things to report, not one, so they belong in one sentence
+     * rather than in a notice and a status line saying adjacent things. */
 
     /* The standing allowance notice below says this already, and in better
      * words than the provider's own 429 body. Two red bars saying one thing is
@@ -2203,9 +2486,15 @@ function renderResHead() {
     var cls = state.busy ? 'fresh-sample'
         : DATA.sample ? 'fresh-sample'
         : hrs == null ? 'fresh-mid' : hrs < 6 ? 'fresh-ok' : hrs < 24 ? 'fresh-mid' : 'fresh-old';
+    /* Past two days the hour count stops being a figure and starts being a
+     * puzzle: "fares 144h old" is six days, and nobody divides by 24 to find
+     * that out. The chip is the one place the age is stated, so it has to be
+     * stated in the unit the reader thinks in. */
     var word = state.busy ? 'searching…'
         : DATA.sample ? 'example data'
-        : hrs == null ? 'age unknown' : hrs < 1 ? 'fares just now' : 'fares ' + hrs + 'h old';
+        : hrs == null ? 'age unknown' : hrs < 1 ? 'fares just now'
+        : hrs < 48 ? 'fares ' + hrs + 'h old'
+        : 'fares ' + Math.round(hrs / 24) + ' days old';
     el('resS').innerHTML = esc(prettyRange(q.dep, q.ret))
         + ' &nbsp;<span class="fresh"><span class="dot ' + cls + '"></span>' + esc(word) + '</span>';
 }
@@ -3083,13 +3372,20 @@ function windowStrip(leg, b, label) {
     var measure = loose ? gapWords(b.spread) + ' apart'
         : allIn ? withinEachOther(b.spread)
         : seatsOf(included) + ' of ' + seatsAll() + ' within ' + gapWords(b.spread);
-    /* At display size the line breaks at the first space, which put the number
-     * on one line and its unit on the next. The number is the only part anybody
-     * reads, so in the hero the phrase is one word. */
+    /* At display size the line used to break at the first space, which put the
+     * number on one line and its unit on the next. The fix was to replace every
+     * space with a non-breaking one, which made the whole phrase a single
+     * unbreakable word: at 393px "everyone within 20 minutes of each other" set
+     * at 30px is 536px wide, so it ran straight off the screen and gave the
+     * results page 159px of horizontal scroll. Measured, not guessed.
+     *
+     * Only the join between a number and its unit needs protecting, so that is
+     * the only join that gets a non-breaking space. Everything else may wrap,
+     * and text-wrap: balance shapes what is left. */
     var html = '<div class="win">'
         + (hero
             ? '<div class="win-head hero"><div class="t">' + esc(label) + '</div>'
-              + '<div class="r">' + esc(measure).replace(/ /g, '\u00a0') + '</div></div>'
+              + '<div class="r">' + esc(measure).replace(/(\d) /g, '$1\u00a0') + '</div></div>'
             : '<div class="win-head"><span class="t">' + esc(label) + '</span>'
               + '<span class="s">' + esc(measure) + '</span></div>')
         + timeline(picks, included, excluded, !loose)
@@ -3194,12 +3490,37 @@ function travellerCard(id, i) {
     if (o && o.option) chosen.push(o.option);
     if (b && b.option) chosen.push(b.option);
 
-    return '<div class="trav' + (apart ? ' apart' : '') + '">'
+    /* Book was a one-way door: it opened Google and the app never heard from
+     * the trip again. This is the other half of that door, and it is only ever
+     * on your own row -- marking somebody ELSE booked is the single thing a
+     * group trip must not let whoever holds the link do, because it is the
+     * version of this feature that lies about money.
+     *
+     * Nothing before the trip is shared. There is no document to write to yet,
+     * and a disabled control explaining a feature is worse than no control; the
+     * moment sharing creates the document, the control appears under the hand
+     * that is already on this card. */
+    var booked = MARKS[id] === 'booked';
+    var mine = SET.meId === id;
+    var saving = markBusy === id;
+    var control = (mine && TRIP_ID)
+        ? '<button class="mark-btn' + (booked ? ' on' : '') + '" data-mark="' + esc(id)
+          + '" data-to="' + (booked ? 'looking' : 'booked') + '"'
+          + (saving ? ' disabled aria-busy="true"' : '') + '>'
+          + (saving ? 'Saving…' : booked ? 'Not booked after all' : 'I’ve booked this')
+          + '</button>'
+          + (markErr && !markBusy ? '<div class="fine bad">' + esc(markErr) + '</div>' : '')
+        : '';
+
+    return '<div class="trav' + (apart ? ' apart' : '') + (booked ? ' booked' : '') + '">'
         + '<div class="trav-top">'
         + '<div class="ava" aria-hidden="true" style="background:' + partyColor(idx < 0 ? 0 : idx) + '">'
         + esc(partyInitials(state.q.parties[idx] || { name: t.name }, idx < 0 ? 0 : idx)) + '</div>'
         + '<div><div class="trav-name">' + esc(t.name)
         + (t.seats > 1 ? ' <span class="badge seats">' + t.seats + ' seats</span>' : '')
+        /* The fact the group keeps asking the chat for, printed where the group
+         * is already looking: beside the person's name, on their own row. */
+        + (booked ? ' <span class="badge ok">booked</span>' : '')
         + (apart ? ' <span class="badge out">not with the group</span>' : '') + '</div></div>'
         + '<div class="trav-tot mono">' + money(pp.total)
         + '<span>' + (t.seats > 1 ? money(each) + ' each' : 'all in') + '</span></div>'
@@ -3213,6 +3534,7 @@ function travellerCard(id, i) {
         + '<a class="btn primary" style="display:block;text-align:center;text-decoration:none" href="'
         + esc(tripBookUrl(origin, state.q.dest, state.q.dep, state.q.ret || null, t.seats, chosen))
         + '" target="_blank" rel="noopener">Book ' + esc(t.name) + '&rsquo;s trip &rarr;</a>'
+        + control
         + '</div></div></div>';
 }
 
@@ -3894,6 +4216,17 @@ document.addEventListener('click', function (ev) {
     if (tgt.closest('#shiftBtn')) { runShiftScan(); return; }
     if (tgt.closest('#shiftLock')) return;
     if (tgt.closest('#gearBtn')) { settingsSheet(); return; }
+    /* Both read their party id back out of the markup, so both are validated
+     * against the roster rather than trusted -- data-* attributes are the one
+     * place a rendering bug turns into a request for somebody else's row. */
+    var mk = tgt.closest && tgt.closest('[data-mark]');
+    if (mk) { postMark(mk.getAttribute('data-mark'), mk.getAttribute('data-to')); return; }
+    var me = tgt.closest && tgt.closest('[data-me]');
+    if (me) {
+        var pick = me.getAttribute('data-me');
+        if (partyIds().indexOf(pick) > -1) { SET.meId = pick; saveSet(); renderGear(); render(); }
+        return;
+    }
     if (tgt.closest('#aboutBtn')) { aboutSheet(); return; }
     if (tgt.id === 'sheetClose' || tgt.id === 'scrim') { closeSheet(); return; }
     if (tgt.closest && tgt.closest('[data-forgetgroup]')) {
@@ -4314,7 +4647,10 @@ function newTrip() {
     state.q = blankQuery();
     if (keep) state.q.parties = keep;
     DATA = null; state.error = null; thReset();
-    history.replaceState(null, '', location.pathname);
+    TRIP_ID = null; MARKS = {}; markErr = null; markBusy = null;
+    /* basePath, not pathname: leaving /t/<id> in the address bar would mean a
+     * reload re-opened the trip somebody had just closed. */
+    history.replaceState(null, '', basePath());
     fillForm(); renderParties(); showStep(1); render();
 }
 el('newBtn').addEventListener('click', newTrip);
@@ -4419,12 +4755,21 @@ if (window.matchMedia) {
     });
 }
 
+/* What makes the trip a living document rather than a stored one, and the whole
+ * reason it is worth coming back to: somebody who switches back to this tab,
+ * or re-opens the app from the home screen, sees what the group did while they
+ * were away. It is a read, so it is free against the write ceiling, and it is
+ * paced by a person returning rather than by a timer -- nothing here polls. */
+document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && TRIP_ID && state.step === 4) loadMarks();
+});
+
 /* ----------------------------------------------------------------- boot */
 
 SET = loadSet();
 applyTheme();
 
-var sharedId = tripIdFromHash();
+var sharedId = tripIdFromUrl();
 var shared = readHash();
 /* A shared link carries its own cast and always wins -- opening somebody else's
  * trip must show their group, not yours. Failing that, the group from last time
@@ -4628,6 +4973,12 @@ if (sharedId) {
         DATA = res.body.data;
         fillForm(); renderParties();
         showStep(4); render();
+        /* A second, tiny request. The document is large and immutable so it is
+         * cached hard at the edge; the roster is small and changes, so it is
+         * never cached. Asking for them together would force one of those two to
+         * be wrong -- either a 150KB re-download every time somebody checks
+         * whether Ray booked, or a five-minute-old answer to the question. */
+        loadMarks(true);
     }).catch(function (e) {
         if (window.console) console.error('shared trip failed', e);
         state.error = 'Could not open that trip. Check your connection, or start a new trip.';
