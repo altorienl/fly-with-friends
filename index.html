@@ -225,7 +225,7 @@ section { animation: stepIn .2s var(--ease); }
 
 /* ---------------- party cards ---------------- */
 .party { background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-md); padding: 12px 16px 16px; margin-bottom: 12px; box-shadow: var(--lift); }
-.party-top { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.party-top { display: grid; grid-template-columns: 32px minmax(0,1fr) auto auto; gap: 10px; align-items: center; margin-bottom: 12px; }
 .ava { width: 32px; height: 32px; border-radius: var(--r-pill); flex-shrink: 0; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: var(--brand-ink); letter-spacing: .2px; }
 .party-top .inp { min-height: 44px; padding: 8px 12px; font-size: 16px; box-shadow: none; }
 .stepper { display: flex; align-items: center; flex-shrink: 0; border: 1px solid var(--edge); border-radius: var(--r-sm); }
@@ -590,8 +590,10 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
     <!-- step 1 -->
     <section id="s1" tabindex="-1" aria-labelledby="h-s1">
         <div class="step-head">
-            <h2 id="h-s1">Where are we going?</h2>
-            <p>One destination, everyone converging on it.</p>
+            <h2 id="h-s1">Everyone lands together</h2>
+            <p>Friends in different cities, one destination. This finds the flights that put
+               you all on the ground within minutes of each other, and tells you what that
+               costs compared with everyone booking separately.</p>
         </div>
         <div class="field">
             <label class="k" for="dest" style="display:block;text-align:center;margin-bottom:8px">Destination</label>
@@ -647,9 +649,10 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
         </div>
 
         <div class="field">
-            <span class="k">Nobody absorbs more than</span>
-            <div class="pills" id="sCap" role="radiogroup" aria-label="Cap on what one party absorbs"></div>
-            <div class="party-note">Stops any one person eating the cost of everyone else landing together.</div>
+            <span class="k">Nobody pays more than their share by</span>
+            <div class="pills" id="sCap" role="radiogroup" aria-label="Limit on what one traveller pays extra"></div>
+            <div class="party-note">Landing together usually costs one person more than the rest —
+                normally whoever is furthest away. This stops that going too far.</div>
         </div>
 
         <div class="field">

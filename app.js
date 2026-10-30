@@ -109,7 +109,13 @@ function currentBand() { return bandFor(state.leg); }
 function bandMinutesFor(leg) {
     var b = bandFor(leg);
     var f = FWF.parseTimeOfDay(b.from), t = FWF.parseTimeOfDay(b.to);
-    return (f != null && t != null) ? { from: f, to: t } : null;
+    /* One side is the natural way to say it -- "land by 8pm", "nothing before
+     * 9am" -- and it used to be ignored with no warning at all. Fill the open
+     * end rather than discarding the constraint. */
+    if (f == null && t == null) return null;
+    if (f == null) return { from: 0, to: t };
+    if (t == null) return { from: f, to: 1439 };
+    return { from: f, to: t };
 }
 function bandMinutes() { return bandMinutesFor(state.leg); }
 
@@ -307,6 +313,13 @@ function showStep(n) {
 /* ------------------------------------------------------------ parties */
 
 function renderParties() {
+    /* Re-rendering throws away whatever is typed in the inputs, and there are
+     * eleven call sites -- expecting each to remember to save first is how a
+     * name silently disappears the moment you pick an airport. Save here, once,
+     * so no caller can lose it. readNames only writes to parties that still
+     * exist, so replacing the query wholesale is unaffected. */
+    readNames();
+
     el('parties').innerHTML = state.q.parties.map(function (p, i) {
         var chips = p.airports.map(function (code) {
             var a = AIRPORTS.get(code);
@@ -359,6 +372,10 @@ function renderParties() {
         var input = card.querySelector('[data-airinput]');
         var drop = card.querySelector('[data-airac]');
         attachAc(input, drop, function (a) {
+            /* Read the typed names back before re-rendering, or picking an
+             * airport silently wipes the name someone just typed -- which is the
+             * obvious order to do it in. */
+            readNames();
             var p = party(pid);
             if (p && p.airports.indexOf(a.code) === -1) p.airports.push(a.code);
             renderParties();
@@ -371,6 +388,9 @@ function renderParties() {
 function party(pid) {
     return state.q.parties.filter(function (p) { return p.id === pid; })[0] || null;
 }
+
+/* Pulls whatever is currently typed in the name inputs back into state. Only
+ * touches parties that still exist, so it is safe to call before any render. */
 
 function readNames() {
     Array.prototype.forEach.call(document.querySelectorAll('.party'), function (card) {
@@ -407,7 +427,13 @@ function doSearch() {
     /* Validate before touching the query: a failed search must not silently eat
      * the cards someone has half-filled in. */
     var bad = validate();
-    if (bad) { state.error = bad; render(); return; }
+    if (bad) {
+        state.error = bad; render();
+        /* The notice lives at the top of the page; on a phone the button that
+         * triggered it is at the bottom, so the message was simply off-screen. */
+        el('nErr').scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
+    }
 
     /* Only now drop the cards with no airport, so ids, totals and the plan all
      * agree on who is actually travelling. */
@@ -471,7 +497,10 @@ function loadDemo() {
             state.error = null; thReset(); state.leg = 'outbound';
             fillForm(); renderParties(); showStep(4); render();
         })
-        .catch(function (e) { state.error = 'Could not load the example: ' + e.message; render(); });
+        .catch(function (e) {
+            state.error = 'Could not load the example. ' + ((e && e.message) || 'Try reloading the page.');
+            render();
+        });
 }
 
 /* ---------------------------------------------------------------- hash */
@@ -812,7 +841,12 @@ function name(id) {
     return t ? t.name : id;
 }
 function legVerb() { return state.leg === 'outbound' ? 'land' : 'leave'; }
-function bandText() { var b = currentBand(); return b.from + '–' + b.to; }
+function bandText() {
+    var b = currentBand();
+    if (b.from && !b.to) return 'after ' + b.from;
+    if (!b.from && b.to) return 'by ' + b.to;
+    return b.from + '–' + b.to;
+}
 function filterText() {
     var bits = [];
     if (C.band) bits.push(legVerb() + ' between ' + bandText());
@@ -865,7 +899,7 @@ function bandRow(leg) {
 function renderStepPrefs() {
     var cap = el('sCap');
     if (cap) {
-        cap.innerHTML = [{ v: null, l: 'No cap' }, { v: 50, l: '$50' }, { v: 100, l: '$100' }, { v: 200, l: '$200' }]
+        cap.innerHTML = [{ v: null, l: 'No limit' }, { v: 50, l: '$50' }, { v: 100, l: '$100' }, { v: 200, l: '$200' }]
             .map(function (x) {
                 var on = state.q.maxPremium === x.v;
                 return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
@@ -908,10 +942,10 @@ function renderStopPills() {
 }
 
 function renderCapPills() {
-    var o = [{ v: null, l: 'No cap' }, { v: 50, l: '$50' }, { v: 100, l: '$100' }, { v: 200, l: '$200' }];
+    var o = [{ v: null, l: 'No limit' }, { v: 50, l: '$50' }, { v: 100, l: '$100' }, { v: 200, l: '$200' }];
     el('capPills').setAttribute('role', 'radiogroup');
-    el('capPills').setAttribute('aria-label', 'Cap on what one party absorbs');
-    el('capPills').innerHTML = '<span class="k">Nobody absorbs over</span>' + o.map(function (x) {
+    el('capPills').setAttribute('aria-label', 'Limit on what one traveller pays extra');
+    el('capPills').innerHTML = '<span class="k">Nobody pays more than</span>' + o.map(function (x) {
         var on = state.q.maxPremium === x.v;
         return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
             + '" data-cap="' + (x.v === null ? '' : x.v) + '">' + x.l + '</button>';
@@ -1259,9 +1293,10 @@ function priceLevel(leg, id) {
     return '';
 }
 
-function hopRow(dir, r, leg, id) {
+function hopRow(dir, r, leg, id, seats) {
     if (!r) return '';
     var o = r.option;
+    seats = seats || 1;
     var code = (o.airlines || [])[0] || '';
     var fb = code.split(/\s+/).map(function (w) { return w[0]; }).join('').slice(0, 2).toUpperCase();
     var logo = o.airline_logo
@@ -1272,14 +1307,21 @@ function hopRow(dir, r, leg, id) {
     return '<div class="hop"><span class="hop-dir">' + dir + '</span>' + logo
         + '<div class="hop-main"><div class="hop-route">' + esc(o.from) + ' &rarr; ' + esc(o.to)
         + '</div><div class="hop-meta">' + esc((o.airlines || []).join(', ')) + ' · '
-        + (o.stops === 0 ? 'nonstop' : o.stops + ' stop') + ' · ' + FWF.fmtGap(o.duration_minutes)
+        + (o.stops === 0 ? 'nonstop' : o.stops + (o.stops === 1 ? ' stop' : ' stops')) + ' · ' + FWF.fmtGap(o.duration_minutes)
         + (r.inWindow ? '' : ' · <span style="color:var(--bad)">outside the window</span>') + '</div>'
         + priceLevel(leg, id) + '</div>'
         + '<div class="hop-right"><div class="hop-time mono">'
         + (leg === 'outbound' ? 'lands ' : 'leaves ') + clock(showMin) + '</div>'
         + '<div class="hop-cost mono">' + money(r.cost)
-        + (r.premium > 0 ? ' <span style="color:var(--warn)">+' + money(r.premium) + '</span>' : '')
-        + '</div></div></div>';
+        + (seats > 1 ? ' <span class="for-seats">for ' + seats + '</span>' : '')
+        + '</div>'
+        /* This number was previously a bare orange "+$16" beside the fare, which
+         * reads as a fee to add on. It is not: it is already inside the fare.
+         * A tester added it to their own total for every traveller. */
+        + (r.premium > 0
+            ? '<div class="hop-prem">incl. ' + money(r.premium) + ' to land with the group</div>'
+            : '')
+        + '</div></div>';
 }
 
 function travellerCard(id, i) {
@@ -1303,8 +1345,8 @@ function travellerCard(id, i) {
         + '<div class="trav-tot mono">' + money(pp.total)
         + '<span>' + (t.seats > 1 ? money(each) + ' each' : 'all in') + '</span></div>'
         + '</div>'
-        + hopRow('Out', o, 'outbound', id)
-        + (b ? hopRow('Back', b, 'return', id) : '')
+        + hopRow('Out', o, 'outbound', id, t.seats)
+        + (b ? hopRow('Back', b, 'return', id, t.seats) : '')
         + '<div class="trav-book">'
         + '<a class="btn primary" style="display:block;text-align:center;text-decoration:none" href="'
         + tripBookUrl(origin, state.q.dest, state.q.dep, state.q.ret || null, t.seats)
@@ -1324,8 +1366,17 @@ function renderPlanView() {
     var host = el('planView');
     if (!TRIP || !C) { host.innerHTML = ''; return; }
 
+    /* "Together" is the one word this product exists to say, and it was attached
+     * to the wrong fact: it meant "nobody was dropped from the list", so it read
+     * "everyone together" above "all within 7h 25m". It now describes the spread. */
+    var worst = Math.max(TRIP.legOut ? TRIP.legOut.spread : 0,
+                         TRIP.legBack ? TRIP.legBack.spread : 0);
+    var verdict = !TRIP.allClustered ? 'not everyone fits'
+        : worst <= 90 ? 'everyone together'
+        : 'everyone on the same day, but ' + FWF.fmtGap(worst) + ' apart';
     var html = '<div class="plan-head"><div class="t">The plan</div>'
-        + '<div class="s">' + (TRIP.allClustered ? 'everyone together' : 'not everyone fits') + '</div></div>';
+        + '<div class="s' + (TRIP.allClustered && worst > 90 ? ' warnish' : '') + '">'
+        + esc(verdict) + '</div></div>';
 
     html += windowStrip('outbound', TRIP.legOut, 'Landing together');
     if (TRIP.legBack) html += windowStrip('return', TRIP.legBack, 'Leaving together');
@@ -1578,7 +1629,7 @@ function paxRow(id, pick, out, gap) {
         + logo
         + '<div class="pax-main"><div class="pax-name">' + esc(t.name) + badges + '</div>'
         + '<div class="pax-meta">' + esc(o.from) + ' &rarr; ' + esc(o.to) + ' · '
-        + esc((o.airlines || []).join(', ')) + ' · ' + (o.stops === 0 ? 'nonstop' : o.stops + ' stop')
+        + esc((o.airlines || []).join(', ')) + ' · ' + (o.stops === 0 ? 'nonstop' : o.stops + (o.stops === 1 ? ' stop' : ' stops'))
         + ' · ' + FWF.fmtGap(o.duration_minutes) + '</div>'
         + premLine
         + '<div class="links"><a class="book" href="' + bookUrl(o, t.seats) + '" target="_blank" rel="noopener">'
@@ -1716,7 +1767,7 @@ function settingsSheet() {
         + [15, 30, 45, 60].map(function (n) { return pill(SET.target === n, 'target', n, n + ' min'); }).join('')
         + '</div><div class="tip">The window everyone has to land inside for the trip to count as working.</div></div>'
 
-        + '<div class="grp"><span class="k">Bags, per person</span><div class="pills">'
+        + '<div class="grp"><span class="k">What everyone is bringing</span><div class="pills">'
         + '<button class="pill' + (SET.bags.carry_on > 0 ? ' on' : '') + '" data-bag="carry_on">Carry-on</button>'
         + '<button class="pill' + (SET.bags.checked > 0 ? ' on' : '') + '" data-bag="checked">Checked bag</button>'
         + '</div><div class="tip">Applied to everyone so totals stay comparable. Where Google publishes no fee, '
@@ -2024,6 +2075,7 @@ el('to2').addEventListener('click', function () {
         el('destHint').className = 'hint bad';
         el('destHint').textContent = 'Pick one from the list so we search the right airport';
         el('dest').focus();
+        el('dest').scrollIntoView({ block: 'center', behavior: 'smooth' });
         return;
     }
     showStep(2);

@@ -1,0 +1,8 @@
+# Serves the static app. The API lives in worker/ as a separate Worker so that
+# searching and serving can be deployed, paused and rate-limited independently.
+name = "fly-with-friends"
+compatibility_date = "2026-10-30"
+
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"

@@ -6,3 +6,9 @@ node_modules/
 
 _*
 *.pyc
+dist/
+
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example

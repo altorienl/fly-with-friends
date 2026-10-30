@@ -34,7 +34,7 @@
     ['SMF','Sacramento','Sacramento Intl','US'],['SNA','Santa Ana','John Wayne','US'],
     ['MCI','Kansas City','Kansas City Intl','US'],['PIT','Pittsburgh','Pittsburgh Intl','US'],
     ['CLE','Cleveland','Hopkins','US'],['IND','Indianapolis','Indianapolis Intl','US'],
-    ['CVG','Cincinnati','Cincinnati/N. Kentucky','US'],['NSH','Nashville','BNA','US'],
+    ['CVG','Cincinnati','Cincinnati/N. Kentucky','US'],
     ['BNA','Nashville','Nashville Intl','US'],['CMH','Columbus','John Glenn','US'],
     ['PBI','West Palm Beach','Palm Beach Intl','US'],['RSW','Fort Myers','SW Florida','US'],
     ['JAX','Jacksonville','Jacksonville Intl','US'],['ONT','Ontario','Ontario Intl','US'],
