@@ -454,15 +454,29 @@ function attachAc(input, drop, onPick, opts) {
 var STEPS = ['Where', 'When', 'Who', 'Flights'];
 
 function showStep(n) {
+    /* Which way the screen came from. Going to a lower-numbered step is Back,
+     * and the CSS slides it in from the opposite edge; landing on step 4 from a
+     * shared link has no previous step and reads as forward. */
+    document.documentElement.classList.toggle('stepping-back', n < state.step);
     state.step = n;
     [1, 2, 3, 4].forEach(function (i) { el('s' + i).classList.toggle('hidden', i !== n); });
     el('s' + n).focus({ preventScroll: true });
     var rail = el('rail');
     rail.classList.toggle('hidden', n === 4);
     if (n !== 4) {
-        rail.innerHTML = STEPS.slice(0, 3).map(function (_, i) {
-            return '<span class="seg' + (i < n ? ' done' : '') + '"></span>';
-        }).join('') + '<span class="lbl">' + STEPS[n - 1] + '</span>';
+        /* The segments are in the markup and only get their class toggled here.
+         * Rewriting the innerHTML made each segment arrive already wearing
+         * .done, and a transition cannot run on an element created this frame
+         * in its end state -- so the 360ms fill on .seg::after never once
+         * played. Same rail, same markup; now it actually moves. */
+        if (!rail.querySelector('.seg')) {
+            rail.innerHTML = STEPS.slice(0, 3).map(function () {
+                return '<span class="seg"></span>';
+            }).join('') + '<span class="lbl"></span>';
+        }
+        var segs = rail.querySelectorAll('.seg');
+        for (var i = 0; i < segs.length; i++) segs[i].classList.toggle('done', i < n);
+        rail.querySelector('.lbl').textContent = STEPS[n - 1];
     }
     window.scrollTo(0, 0);
 }
@@ -2330,10 +2344,20 @@ function openSheet(html) {
         + '<button class="btn primary wide" id="sheetClose" style="margin-top:8px">Done</button>';
     sheet.classList.remove('hidden', 'out');
     el('scrim').classList.remove('hidden', 'out');
-    /* The page must not stay tabbable behind the scrim. */
+    /* The page must not stay tabbable behind the scrim. The install card is a
+     * sibling of main, so it needs naming separately -- the scrim covers it to
+     * the eye and to the finger, but not to the Tab key. */
     document.querySelector('main').setAttribute('inert', '');
     document.querySelector('.brand').setAttribute('inert', '');
+    el('installBanner').setAttribute('inert', '');
     sheet.focus();
+}
+
+/* Matches the .sheet.out animation in the stylesheet. Honouring the reduced
+ * motion preference in CSS alone leaves the element on screen for the full
+ * timeout with nothing happening, so the timing has to know about it too. */
+function sheetOutMs() {
+    return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 220;
 }
 
 function closeSheet() {
@@ -2341,15 +2365,81 @@ function closeSheet() {
     if (sheet.classList.contains('hidden')) return;
     document.querySelector('main').removeAttribute('inert');
     document.querySelector('.brand').removeAttribute('inert');
+    el('installBanner').removeAttribute('inert');
+    /* Hand the close animation its starting point. Dismissing by drag has
+     * already moved the sheet, and animating from 0 would snap it back up a
+     * hundred pixels before it leaves. */
+    sheet.classList.remove('dragging', 'settling');
     sheet.classList.add('out');
     scrim.classList.add('out');
     setTimeout(function () {
         sheet.classList.add('hidden'); sheet.classList.remove('out');
+        sheet.style.removeProperty('--drag');
         scrim.classList.add('hidden'); scrim.classList.remove('out');
-    }, 200);
+    }, sheetOutMs());
     if (sheetReturn && sheetReturn.focus) sheetReturn.focus();
     sheetReturn = null;
 }
+
+/* Drag to dismiss. A bottom sheet that can only be closed by a button is the
+ * single loudest "this is a web page" tell left in the app, because every sheet
+ * on the phone closes with a downward flick.
+ *
+ * Two rules keep it from fighting the content: the drag only starts when the
+ * sheet is scrolled to its top, so a list inside it still scrolls normally, and
+ * upward movement is heavily damped rather than blocked, so pulling the wrong
+ * way feels like resistance instead of a dead gesture. */
+(function sheetDrag() {
+    var sheet = el('sheet');
+    if (!sheet || !('ontouchstart' in window)) return;
+    var startY = 0, startT = 0, dy = 0, active = false;
+
+    sheet.addEventListener('touchstart', function (ev) {
+        if (ev.touches.length !== 1 || sheet.scrollTop > 0) return;
+        active = true; dy = 0;
+        startY = ev.touches[0].clientY;
+        startT = Date.now();
+        sheet.classList.remove('settling');
+    }, { passive: true });
+
+    sheet.addEventListener('touchmove', function (ev) {
+        if (!active) return;
+        dy = ev.touches[0].clientY - startY;
+        var dragging = sheet.classList.contains('dragging');
+        /* An upward move from the top of a sheet is someone scrolling its
+         * contents, so hand the gesture back rather than translating and
+         * scrolling at the same time. Once the sheet is already pulled down,
+         * upward is the way back and gets damped instead. */
+        if (dy < 0 && !dragging) { active = false; return; }
+        if (dy < 0) dy = dy / 6;
+        /* Below a few pixels this is a tap, not a drag, and claiming it would
+         * stop buttons inside the sheet from firing. */
+        if (!dragging && dy < 6) return;
+        sheet.classList.add('dragging');
+        sheet.style.setProperty('--drag', dy + 'px');
+    }, { passive: true });
+
+    function release() {
+        if (!active) return;
+        active = false;
+        if (!sheet.classList.contains('dragging')) return;
+        var flick = dy / Math.max(Date.now() - startT, 1);   /* px per ms */
+        sheet.classList.remove('dragging');
+        /* Either far enough or fast enough. The velocity test is what makes a
+         * short sharp flick work, which is how people actually close these. */
+        if (dy > sheet.offsetHeight * 0.3 || flick > 0.6) {
+            closeSheet();
+        } else {
+            sheet.classList.add('settling');
+            sheet.style.removeProperty('--drag');
+        }
+    }
+    sheet.addEventListener('touchend', release, { passive: true });
+    sheet.addEventListener('touchcancel', release, { passive: true });
+    sheet.addEventListener('transitionend', function (ev) {
+        if (ev.propertyName === 'transform') sheet.classList.remove('settling');
+    });
+})();
 
 document.addEventListener('keydown', function (ev) {
     var sheet = el('sheet');
@@ -2454,11 +2544,8 @@ document.addEventListener('click', function (ev) {
     if (tgt.closest('#gearBtn')) { settingsSheet(); return; }
     if (tgt.closest('#aboutBtn')) { aboutSheet(); return; }
     if (tgt.id === 'sheetClose' || tgt.id === 'scrim') { closeSheet(); return; }
-    if (tgt.closest('#installX')) {
-        el('installBanner').classList.add('hidden');
-        try { localStorage.setItem('fwf_install', new Date().toISOString().slice(0, 10)); } catch (e) {}
-        return;
-    }
+    /* #installX and #installAdd are handled by installPrompt(), which owns the
+     * card's dismissal animation and its snooze window. */
 
     var t = tgt.closest && tgt.closest('[data-threshold],[data-set],[data-bag],'
         + '[data-stops],[data-choice],[data-clusterback],[data-seats],'
@@ -2906,14 +2993,83 @@ renderParties();
 showStep(1);
 render();
 
-(function installBanner() {
+/* The app is built to live on a home screen -- that is where the launch screen,
+ * the status bar handling and the full-height layout come from -- so someone who
+ * only ever opens it in Safari is using a worse version of it without knowing
+ * there is a better one. This is the only thing that tells them.
+ *
+ * It is deliberately quiet: not on the first visit, dismissible, and silent for
+ * a fortnight afterwards. An install prompt that argues is worse than none. */
+(function installPrompt() {
+    var card = el('installBanner');
+    if (!card) return;
+
+    var ua = navigator.userAgent;
+    /* iPadOS reports itself as a Mac, so the giveaway is a Mac with a
+     * touchscreen. Chrome and Firefox on iOS cannot add to the home screen at
+     * all, and their own UA strings are the only way to tell. */
+    var iOS = /iPhone|iPod/i.test(ua)
+        || (/iPad/i.test(ua))
+        || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    var iOSSafari = iOS && !/CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
     var standalone = window.navigator.standalone
         || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-    var mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    var seen = null;
-    try { seen = localStorage.getItem('fwf_install'); } catch (e) {}
-    if (mobile && !standalone && seen !== new Date().toISOString().slice(0, 10)) {
-        el('installBanner').classList.remove('hidden');
+
+    var deferred = null;
+    window.addEventListener('beforeinstallprompt', function (ev) {
+        /* Chrome's own mini-infobar would otherwise cover this card. */
+        ev.preventDefault();
+        deferred = ev;
+        el('installT').textContent = 'Keep it on your home screen';
+        el('installS').textContent = 'One tap. It opens full screen, with no address bar.';
+        el('installAdd').classList.remove('hidden');
+        offer();
+    });
+
+    function store(v) { try { localStorage.setItem('fwf_install', v); } catch (e) {} }
+    function read() { try { return localStorage.getItem('fwf_install'); } catch (e) { return null; } }
+
+    function muted() {
+        var s = read();
+        if (!s) return false;
+        if (s === 'installed') return true;
+        var until = Date.parse(s);
+        return isFinite(until) && Date.now() < until;
+    }
+
+    function offer() {
+        if (standalone || muted() || !card.classList.contains('hidden')) return;
+        card.classList.remove('hidden');
+    }
+
+    function dismiss() {
+        card.classList.add('out');
+        setTimeout(function () { card.classList.add('hidden'); card.classList.remove('out'); },
+                   sheetOutMs());
+        store(new Date(Date.now() + 14 * 86400000).toISOString());
+    }
+
+    card.addEventListener('click', function (ev) {
+        if (ev.target.closest('#installX')) { dismiss(); return; }
+        if (ev.target.closest('#installAdd') && deferred) {
+            deferred.prompt();
+            deferred.userChoice.then(function (r) {
+                if (r.outcome === 'accepted') store('installed');
+                deferred = null;
+                dismiss();
+            });
+        }
+    });
+
+    window.addEventListener('appinstalled', function () { store('installed'); dismiss(); });
+
+    /* Asking on arrival is asking before the app has earned it. Second visit
+     * onward, and after the first screen has settled. */
+    if (iOSSafari && !standalone && !muted()) {
+        var visits = 0;
+        try { visits = (+localStorage.getItem('fwf_visits') || 0) + 1;
+              localStorage.setItem('fwf_visits', visits); } catch (e) { visits = 2; }
+        if (visits >= 2) setTimeout(offer, 1600);
     }
 })();
 

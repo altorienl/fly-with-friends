@@ -1,8 +1,10 @@
 {
+  "id": "/",
   "name": "Fly with Friends",
   "short_name": "FlyWithFriends",
   "description": "Find the set of flights that gets everyone on the ground within 15-30 minutes of each other.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0b0a08",
   "theme_color": "#0b0a08",

@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<!-- iOS turns anything that looks like a phone number into a blue tappable link.
+     Flight numbers, 24-hour times and four-figure prices all look like one. -->
+<meta name="format-detection" content="telephone=no">
 <title>Fly with Friends</title>
 <meta name="description" content="Find the set of flights that gets everyone on the ground within 15–30 minutes of each other.">
 <meta property="og:type" content="website">
@@ -16,8 +19,108 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<!-- black-translucent is what puts the page behind the status bar, which is the
+     whole point of viewport-fit=cover. It also forces the clock and battery
+     white, which is why .ios-bar exists: in the light theme that white would be
+     sitting on cream. -->
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FlyWithFriends">
+<!-- iOS launch screens. apple-touch-startup-image is the only mechanism iOS honours
+     for this; the web app manifest cannot do it. iOS uses an image only when its
+     media query matches the device exactly, so there is one file per logical size
+     and orientation, and anything unmatched launches to a bare white screen.
+     device-width/device-height are always the portrait values -- they do not swap
+     when the phone turns -- so orientation is what separates the two halves.
+     The dark images carry no colour-scheme clause, so one of them always matches;
+     the light ones are listed afterwards and win wherever the scheme query is
+     understood. Regenerate both the files and this block with tools/make-splash.sh. -->
+<!-- dark, portrait -->
+<link rel="apple-touch-startup-image" href="splash/dark-750x1334.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)"><!-- iPhone SE 2nd/3rd gen, 6, 6s, 7, 8 -->
+<link rel="apple-touch-startup-image" href="splash/dark-1242x2208.png" media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"><!-- iPhone 6+, 6s+, 7+, 8+ -->
+<link rel="apple-touch-startup-image" href="splash/dark-1125x2436.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"><!-- iPhone X, XS, 11 Pro, 12 mini, 13 mini -->
+<link rel="apple-touch-startup-image" href="splash/dark-828x1792.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)"><!-- iPhone XR, 11 -->
+<link rel="apple-touch-startup-image" href="splash/dark-1242x2688.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"><!-- iPhone XS Max, 11 Pro Max -->
+<link rel="apple-touch-startup-image" href="splash/dark-1170x2532.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"><!-- iPhone 12, 12 Pro, 13, 13 Pro, 14 -->
+<link rel="apple-touch-startup-image" href="splash/dark-1284x2778.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"><!-- iPhone 12 Pro Max, 13 Pro Max, 14 Plus -->
+<link rel="apple-touch-startup-image" href="splash/dark-1179x2556.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"><!-- iPhone 14 Pro, 15, 15 Pro, 16, 16e -->
+<link rel="apple-touch-startup-image" href="splash/dark-1290x2796.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"><!-- iPhone 14 Pro Max, 15 Plus, 15 Pro Max, 16 Plus -->
+<link rel="apple-touch-startup-image" href="splash/dark-1206x2622.png" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"><!-- iPhone 16 Pro, 17, 17 Pro -->
+<link rel="apple-touch-startup-image" href="splash/dark-1320x2868.png" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"><!-- iPhone 16 Pro Max, 17 Pro Max -->
+<link rel="apple-touch-startup-image" href="splash/dark-1260x2736.png" media="(device-width: 420px) and (device-height: 912px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"><!-- iPhone Air -->
+<!-- dark, landscape -->
+<link rel="apple-touch-startup-image" href="splash/dark-1334x750.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)"><!-- iPhone SE 2nd/3rd gen, 6, 6s, 7, 8 -->
+<link rel="apple-touch-startup-image" href="splash/dark-2208x1242.png" media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)"><!-- iPhone 6+, 6s+, 7+, 8+ -->
+<link rel="apple-touch-startup-image" href="splash/dark-2436x1125.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)"><!-- iPhone X, XS, 11 Pro, 12 mini, 13 mini -->
+<link rel="apple-touch-startup-image" href="splash/dark-1792x828.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape)"><!-- iPhone XR, 11 -->
+<link rel="apple-touch-startup-image" href="splash/dark-2688x1242.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)"><!-- iPhone XS Max, 11 Pro Max -->
+<link rel="apple-touch-startup-image" href="splash/dark-2532x1170.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)"><!-- iPhone 12, 12 Pro, 13, 13 Pro, 14 -->
+<link rel="apple-touch-startup-image" href="splash/dark-2778x1284.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)"><!-- iPhone 12 Pro Max, 13 Pro Max, 14 Plus -->
+<link rel="apple-touch-startup-image" href="splash/dark-2556x1179.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)"><!-- iPhone 14 Pro, 15, 15 Pro, 16, 16e -->
+<link rel="apple-touch-startup-image" href="splash/dark-2796x1290.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)"><!-- iPhone 14 Pro Max, 15 Plus, 15 Pro Max, 16 Plus -->
+<link rel="apple-touch-startup-image" href="splash/dark-2622x1206.png" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)"><!-- iPhone 16 Pro, 17, 17 Pro -->
+<link rel="apple-touch-startup-image" href="splash/dark-2868x1320.png" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)"><!-- iPhone 16 Pro Max, 17 Pro Max -->
+<link rel="apple-touch-startup-image" href="splash/dark-2736x1260.png" media="(device-width: 420px) and (device-height: 912px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape)"><!-- iPhone Air -->
+<!-- light, portrait -->
+<link rel="apple-touch-startup-image" href="splash/light-750x1334.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait) and (prefers-color-scheme: light)"><!-- iPhone SE 2nd/3rd gen, 6, 6s, 7, 8 -->
+<link rel="apple-touch-startup-image" href="splash/light-1242x2208.png" media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)"><!-- iPhone 6+, 6s+, 7+, 8+ -->
+<link rel="apple-touch-startup-image" href="splash/light-1125x2436.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)"><!-- iPhone X, XS, 11 Pro, 12 mini, 13 mini -->
+<link rel="apple-touch-startup-image" href="splash/light-828x1792.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait) and (prefers-color-scheme: light)"><!-- iPhone XR, 11 -->
+<link rel="apple-touch-startup-image" href="splash/light-1242x2688.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)"><!-- iPhone XS Max, 11 Pro Max -->
+<link rel="apple-touch-startup-image" href="splash/light-1170x2532.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)"><!-- iPhone 12, 12 Pro, 13, 13 Pro, 14 -->
+<link rel="apple-touch-startup-image" href="splash/light-1284x2778.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)"><!-- iPhone 12 Pro Max, 13 Pro Max, 14 Plus -->
+<link rel="apple-touch-startup-image" href="splash/light-1179x2556.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)"><!-- iPhone 14 Pro, 15, 15 Pro, 16, 16e -->
+<link rel="apple-touch-startup-image" href="splash/light-1290x2796.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)"><!-- iPhone 14 Pro Max, 15 Plus, 15 Pro Max, 16 Plus -->
+<link rel="apple-touch-startup-image" href="splash/light-1206x2622.png" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)"><!-- iPhone 16 Pro, 17, 17 Pro -->
+<link rel="apple-touch-startup-image" href="splash/light-1320x2868.png" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)"><!-- iPhone 16 Pro Max, 17 Pro Max -->
+<link rel="apple-touch-startup-image" href="splash/light-1260x2736.png" media="(device-width: 420px) and (device-height: 912px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)"><!-- iPhone Air -->
+<!-- light, landscape -->
+<link rel="apple-touch-startup-image" href="splash/light-1334x750.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape) and (prefers-color-scheme: light)"><!-- iPhone SE 2nd/3rd gen, 6, 6s, 7, 8 -->
+<link rel="apple-touch-startup-image" href="splash/light-2208x1242.png" media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape) and (prefers-color-scheme: light)"><!-- iPhone 6+, 6s+, 7+, 8+ -->
+<link rel="apple-touch-startup-image" href="splash/light-2436x1125.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape) and (prefers-color-scheme: light)"><!-- iPhone X, XS, 11 Pro, 12 mini, 13 mini -->
+<link rel="apple-touch-startup-image" href="splash/light-1792x828.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: landscape) and (prefers-color-scheme: light)"><!-- iPhone XR, 11 -->
+<link rel="apple-touch-startup-image" href="splash/light-2688x1242.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape) and (prefers-color-scheme: light)"><!-- iPhone XS Max, 11 Pro Max -->
+<link rel="apple-touch-startup-image" href="splash/light-2532x1170.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape) and (prefers-color-scheme: light)"><!-- iPhone 12, 12 Pro, 13, 13 Pro, 14 -->
+<link rel="apple-touch-startup-image" href="splash/light-2778x1284.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape) and (prefers-color-scheme: light)"><!-- iPhone 12 Pro Max, 13 Pro Max, 14 Plus -->
+<link rel="apple-touch-startup-image" href="splash/light-2556x1179.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape) and (prefers-color-scheme: light)"><!-- iPhone 14 Pro, 15, 15 Pro, 16, 16e -->
+<link rel="apple-touch-startup-image" href="splash/light-2796x1290.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape) and (prefers-color-scheme: light)"><!-- iPhone 14 Pro Max, 15 Plus, 15 Pro Max, 16 Plus -->
+<link rel="apple-touch-startup-image" href="splash/light-2622x1206.png" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape) and (prefers-color-scheme: light)"><!-- iPhone 16 Pro, 17, 17 Pro -->
+<link rel="apple-touch-startup-image" href="splash/light-2868x1320.png" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape) and (prefers-color-scheme: light)"><!-- iPhone 16 Pro Max, 17 Pro Max -->
+<link rel="apple-touch-startup-image" href="splash/light-2736x1260.png" media="(device-width: 420px) and (device-height: 912px) and (-webkit-device-pixel-ratio: 3) and (orientation: landscape) and (prefers-color-scheme: light)"><!-- iPhone Air -->
+
+<!-- Loaded as a link, not an @import inside the stylesheet. @import makes the
+     font request wait for the CSS to parse first, so the launch handed you a
+     frame of fallback type and then reflowed it -- the most visible "this is a
+     web page" tell there is on a cold standalone start. -->
+
+<!-- Runs before the first paint on purpose. data-theme is hard-coded dark in the
+     markup and app.js only corrects it once three script files have loaded, so a
+     light-theme user used to watch the app launch black and then flip. Mirrors
+     loadSet()/applyTheme() in app.js; keep the key and the two colours in step. -->
+<script>
+(function () {
+    var m = 'dark';
+    try {
+        var s = JSON.parse(localStorage.getItem('fwf_settings') || '{}');
+        m = s.theme || 'system';
+    } catch (e) { m = 'system'; }
+    if (m === 'system') {
+        m = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+            ? 'light' : 'dark';
+    }
+    var r = document.documentElement;
+    r.setAttribute('data-theme', m);
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', m === 'light' ? '#ece8e1' : '#0f0d0a');
+    /* Home-screen launch has no browser chrome and no back button, so a handful
+     * of rules below only make sense there. navigator.standalone is readable
+     * this early; the media query covers the standards-track spelling. */
+    if (window.navigator.standalone
+        || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)) {
+        r.classList.add('standalone');
+    }
+})();
+</script>
 <style>
 /* Neutrals are tinted into the mark's hue rather than left hue-less grey. That
    one decision is why the amber belongs to the surface instead of sitting on
@@ -144,7 +247,21 @@
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html {
+    -webkit-text-size-adjust: 100%;
+    /* The rubber-band gutter is painted by the root element, not by body, so
+     * without this the bounce at the top of a home-screen launch flashes white
+     * under a near-black app. */
+    background: var(--bg);
+    /* And then there is no bounce at all: a standalone app that drags away from
+     * its own top edge is the clearest tell that it is a web page. */
+    overscroll-behavior-y: none;
+    /* The step screens slide in horizontally, which for 280ms puts them past the
+     * right edge. clip, not hidden: hidden on one axis forces the other to auto
+     * and would turn the root into a nested scroller. */
+    overflow-x: clip;
+    overscroll-behavior-x: none;
+}
 body {
     font-family: var(--sans);
     font-size: var(--t-3); line-height: var(--lh-snug);
@@ -154,7 +271,45 @@ body {
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     -webkit-font-smoothing: antialiased;
     -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
 }
+
+/* ---------------- standalone chrome ----------------
+ * Only applies to a home-screen launch, where there is no address bar, no
+ * toolbar and no back button. In Safari the status bar belongs to Safari and
+ * none of this should fire, so it all hangs off .standalone, which the inline
+ * script in <head> sets before the first paint. */
+
+/* black-translucent draws the clock and battery in white over whatever the page
+ * puts behind them. Two things follow: content scrolling up into the status bar
+ * collides with the clock, and in the light theme white-on-cream vanishes. One
+ * opaque band fixes both. It is deliberately the dark surface in both themes --
+ * a near-black strip above a cream app reads as a title bar, where a cream strip
+ * would read as a bug. z-index sits under the scrim so a sheet still covers it. */
+.ios-bar { display: none; }
+.standalone .ios-bar {
+    display: block;
+    position: fixed; top: 0; left: 0; right: 0; z-index: 70;
+    height: env(safe-area-inset-top); background: var(--bg);
+    pointer-events: none;
+}
+/* In the dark theme the band is the background and cannot be seen. In the light
+ * theme it has to be dark for the white clock to survive, so it uses that
+ * theme's own ink rather than importing the dark theme's surface -- a strip of
+ * the light theme's own ink above cream reads as a title bar; the dark
+ * theme's page colour there would read as a different app. */
+[data-theme="light"].standalone .ios-bar { background: var(--text); }
+/* Nothing here is a document, so the long-press magnifier and the text-selection
+ * callout are pure noise. Inputs and the results prose stay selectable. */
+button, summary, .chip, .pill, .brow, .choice, .ac-item, .datefield, .rail, .grip, .ava, .tl-dot {
+    touch-action: manipulation;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+}
+/* showStep() focuses the step it just revealed so screen readers land in the
+ * right place. That is a programmatic focus on a container, and the ring it
+ * draws around the whole screen looks like a rendering fault. */
+[tabindex="-1"]:focus { outline: none; }
 ::selection { background: var(--accent-dim); color: var(--text); }
 .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
 .hidden { display: none !important; }
@@ -214,9 +369,18 @@ a { color: var(--accent); }
 .notice b { font-weight: 600; }
 .notice:empty { display: none; }
 
-/* ---------------- steps ---------------- */
-section { animation: stepIn .2s var(--ease); }
-@keyframes stepIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+/* ---------------- steps ----------------
+ * Scoped to the four step screens by id. As a bare `section` rule it also
+ * caught #planView nested inside step 4, so arriving at the results ran two
+ * fades at once over the same pixels.
+ *
+ * Direction carries meaning on a four-step flow: forward comes in from the
+ * right, Back comes in from the left, which is the one cue iOS gives for free
+ * and a standalone web app has to draw itself. showStep() sets the class. */
+#s1, #s2, #s3, #s4 { animation: stepFwd .28s var(--ease) both; }
+.stepping-back #s1, .stepping-back #s2, .stepping-back #s3, .stepping-back #s4 { animation-name: stepBack; }
+@keyframes stepFwd  { from { opacity: 0; transform: translate3d(16px, 0, 0); } to { opacity: 1; transform: none; } }
+@keyframes stepBack { from { opacity: 0; transform: translate3d(-16px, 0, 0); } to { opacity: 1; transform: none; } }
 .step-head { margin-bottom: 20px; }
 .step-head h2 { font-size: var(--t-6); font-weight: 600; letter-spacing: var(--tr-6); line-height: var(--lh-tight); }
 .step-head p { font-size: var(--t-3); color: var(--muted); line-height: var(--lh-text); margin-top: 8px; }
@@ -659,9 +823,21 @@ section { animation: stepIn .2s var(--ease); }
 .share-note { font-size: var(--t-2); color: var(--muted); margin-top: 8px; line-height: var(--lh-text); text-align: center; }
 .share-note.ok { color: var(--good); }
 
-/* ---------------- sheet ---------------- */
-.scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 80; opacity: 1; transition: opacity .22s ease; }
+/* ---------------- sheet ----------------
+ * The scrim used to appear at full opacity on the same frame the sheet started
+ * sliding, so the room went dark before the panel had moved. It fades with the
+ * sheet now. The blur is what makes it read as an iOS sheet rather than a
+ * modal: the page behind it stays recognisable but goes out of focus. */
+.scrim {
+    position: fixed; inset: 0; background: var(--scrim); z-index: 80;
+    -webkit-backdrop-filter: blur(14px) saturate(.9); backdrop-filter: blur(14px) saturate(.9);
+    /* No fill-mode. A filled animation keeps winning the cascade after it ends,
+     * which would pin opacity at 1 and make .scrim.out do nothing at all. */
+    animation: scrimIn .26s var(--ease);
+    transition: opacity .22s ease;
+}
 .scrim.out { opacity: 0; }
+@keyframes scrimIn { from { opacity: 0; } to { opacity: 1; } }
 .sheet {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 90;
     background: var(--card); border-top: 1px solid var(--edge-2);
@@ -670,14 +846,34 @@ section { animation: stepIn .2s var(--ease); }
     padding-left: max(20px, env(safe-area-inset-left));
     padding-right: max(20px, env(safe-area-inset-right));
     padding-bottom: calc(24px + env(safe-area-inset-bottom));
-    max-height: 90vh; max-height: 85dvh; overflow-y: auto; overscroll-behavior: contain;
+    /* svh, not dvh. dvh is the live viewport, so in Safari the sheet grew and
+     * shrank under the finger every time the toolbar collapsed. svh is the
+     * small-viewport height, which is the one value that does not move. */
+    max-height: 90vh; max-height: 85svh; overflow-y: auto; overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
-    animation: up .26s var(--ease); max-width: 640px; margin: 0 auto;
+    animation: up .3s var(--ease); max-width: 640px; margin: 0 auto;
+    /* Promoted up front so the first frame of the drag is not the one that
+     * builds the layer. */
+    will-change: transform;
+    /* Vertical gestures belong to the sheet; horizontal ones are not ours. */
+    touch-action: pan-y;
 }
-.sheet.out { animation: down .2s var(--ease) forwards; }
+.sheet.out { animation: down .22s var(--ease) forwards; }
+/* Set by the drag handler. The sheet follows the finger, and releasing short of
+ * the dismiss threshold animates the remainder back to zero. */
+.sheet.dragging { animation: none; transform: translateY(var(--drag, 0px)); transition: none; }
+.sheet.settling { animation: none; transform: translateY(0); transition: transform .26s var(--ease); }
 @keyframes up { from { transform: translateY(100%); } to { transform: translateY(0); } }
-@keyframes down { from { transform: translateY(0); } to { transform: translateY(100%); } }
-.grip { width: 36px; height: 4px; border-radius: 2px; background: var(--edge-2); margin: 8px auto 20px; }
+@keyframes down { from { transform: translateY(var(--drag, 0px)); } to { transform: translateY(100%); } }
+/* The grip is only the affordance -- the gesture is handled on the whole sheet,
+ * which is what iOS does too -- so it needs no hit area of its own, just a state
+ * that confirms the sheet heard the finger. */
+.grip {
+    width: 36px; height: 4px; border-radius: 2px; background: var(--edge-2);
+    margin: 8px auto 20px;
+    transition: background .15s, width .2s var(--ease);
+}
+.sheet.dragging .grip { background: var(--brand); width: 48px; }
 .sheet h2 { font-size: var(--t-5); font-weight: 600; letter-spacing: var(--tr-5); }
 .sheet .sub { font-size: var(--t-3); color: var(--muted); margin: 4px 0 20px; line-height: var(--lh-text); }
 .sheet .grp { margin-bottom: 20px; }
@@ -700,6 +896,54 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
 .banner b { color: var(--warn); }
 .banner .x { position: absolute; top: 0; right: 0; width: 44px; height: 44px; color: var(--muted); font-size: var(--t-5); }
 
+/* ---------------- install ----------------
+ * Only ever seen in a browser, never in standalone. It sits at the bottom
+ * because that is where iOS Safari keeps the Share button it is pointing at --
+ * at the top of the page it was an instruction about something off-screen in
+ * the opposite direction. The caret under the card aims at the toolbar. */
+.install {
+    position: fixed; z-index: 75;
+    left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right));
+    bottom: calc(14px + env(safe-area-inset-bottom));
+    max-width: 420px; margin: 0 auto;
+    display: grid; grid-template-columns: 40px minmax(0, 1fr) 36px; gap: 14px; align-items: center;
+    padding: 14px 14px 16px;
+    border-radius: var(--r-lg); border: 1px solid var(--edge-2);
+    background: var(--card); box-shadow: var(--pop);
+    animation: installIn .42s var(--ease) both;
+}
+@keyframes installIn { from { opacity: 0; transform: translateY(24px) scale(.97); } to { opacity: 1; transform: none; } }
+.install.out { animation: installOut .24s var(--ease) both; }
+@keyframes installOut { to { opacity: 0; transform: translateY(16px) scale(.98); } }
+.install::after {
+    content: ''; position: absolute; bottom: -7px; left: 50%; width: 13px; height: 13px;
+    transform: translateX(-50%) rotate(45deg);
+    background: var(--card);
+    border-right: 1px solid var(--edge-2); border-bottom: 1px solid var(--edge-2);
+}
+.install .mk { width: 40px; height: 40px; border-radius: 10px; display: block; }
+.install .t { font-size: var(--t-3); font-weight: 600; letter-spacing: var(--tr-4); }
+.install .s { font-size: var(--t-2); color: var(--muted); line-height: var(--lh-text); margin-top: 3px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+/* The real glyph, not the word "Share" -- it is the thing being looked for. */
+.install .s svg { width: 13px; height: 15px; flex: none; color: var(--accent); transform: translateY(-1px); }
+.install .x {
+    width: 36px; height: 36px; border-radius: var(--r-pill);
+    display: grid; place-items: center; font-size: var(--t-4); line-height: 1;
+    color: var(--muted); background: var(--card-2); border: 1px solid var(--edge);
+    transition: transform .22s var(--ease), color .15s;
+}
+.install .x:active { transform: scale(.92); }
+/* Android and desktop Chrome can do this in one tap, so there they get a button
+ * instead of a set of directions. JS reveals it only if the browser fires
+ * beforeinstallprompt. */
+.install-add {
+    grid-column: 1 / -1; min-height: 44px; margin-top: 4px;
+    border-radius: var(--r-md); background: var(--brand); color: var(--brand-ink);
+    font-size: var(--t-3); font-weight: 600;
+    transition: transform .22s var(--ease);
+}
+.install-add:active { transition-duration: .06s; }
+
 /* Pointer devices only, so a tap on iPhone does not leave a stuck hover state. */
 @media (hover: hover) and (pointer: fine) {
     .btn:hover { background: var(--card-2); border-color: var(--edge-2); }
@@ -718,10 +962,35 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
 }
 
 .pill:active, .tabs button:active, .add-air:active, .chip button:active,
-.party-x:active, .stepper button:active:not(:disabled), footer button:active {
+.party-x:active, .stepper button:active:not(:disabled), footer button:active,
+.cal-nav:active:not(:disabled), .qm:active, .install-add:active {
     transform: scale(.96);
 }
 .brow:active:not(.off) { background: var(--card-2); }
+
+/* Every target the finger can land on answers it. Without these the calendar,
+ * the airport list, the date field and the disclosure rows were the only parts
+ * of the app that stayed completely still when pressed, which reads as a dead
+ * tap and gets tapped twice. */
+.datefield:active { transform: scale(.99); border-color: var(--edge-2); }
+.cal-d:active:not(:disabled):not(.on) { background: var(--card-2); }
+.cal-d:not(:disabled) { transition: background .12s, transform .12s var(--ease); }
+.cal-d:active:not(:disabled) { transform: scale(.9); }
+.ac-item:active { background: var(--card-2); }
+.opts > summary:active, .cal-clear:active, .linkish:active, .book:active { opacity: .55; }
+.trav:has(.btn:active) { border-color: var(--edge-2); }
+/* The whole point of a transform-based press is that it springs back. Keeping
+ * the release slower than the press is what separates "responsive" from
+ * "twitchy", and it is the one timing most web buttons get wrong. */
+.btn, .pill, .icon-btn, .choice, .gear, .tabs button, .add-air,
+.chip button, .party-x, .stepper button, footer button, .datefield, .cal-nav, .qm {
+    transition-duration: .22s;
+}
+.btn:active, .pill:active, .icon-btn:active, .choice:active, .gear:active,
+.tabs button:active, .add-air:active, .chip button:active, .party-x:active,
+.stepper button:active, footer button:active, .datefield:active, .cal-nav:active, .qm:active {
+    transition-duration: .06s;
+}
 
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
@@ -733,15 +1002,38 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
     .step-head h2 { font-size: var(--t-5); }
     .container { padding: 8px 16px 48px; }
     .brand { padding: 16px 16px 4px; }
-    .banner { margin: 12px 16px 0; }
 }
 </style>
 </head>
 <body>
 
-<div class="banner hidden" id="installBanner">
-    <button class="x" id="installX" aria-label="Dismiss">&times;</button>
-    <b>Add to Home Screen</b><br>Tap Share, then “Add to Home Screen”.
+<div class="ios-bar" aria-hidden="true"></div>
+
+<div class="install hidden" id="installBanner" role="region" aria-label="Add to Home Screen">
+    <svg class="mk" viewBox="0 0 512 512" aria-hidden="true">
+        <defs><linearGradient id="bg0" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#FFC800"/><stop offset="1" stop-color="#FF9400"/>
+        </linearGradient></defs>
+        <rect width="512" height="512" rx="114" fill="url(#bg0)"/>
+        <g fill="none" stroke="#fff" stroke-width="33" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="180" cy="143" r="32" fill="#fff" stroke="none"/>
+            <circle cx="332" cy="143" r="32" fill="#fff" stroke="none"/>
+            <path d="M68 201 H444"/>
+            <path d="M180 201 V278 M180 278 L122 410 M180 278 L234 410"/>
+            <path d="M332 201 V278 M332 278 L278 410 M332 278 L390 410"/>
+        </g>
+    </svg>
+    <div>
+        <div class="t" id="installT">Keep it on your home screen</div>
+        <div class="s" id="installS">Tap
+            <svg viewBox="0 0 16 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M8 13V2"/><path d="M4.5 5.5 8 2l3.5 3.5"/>
+                <path d="M3 9H1.5v9.5h13V9H13"/>
+            </svg>
+            then &ldquo;Add to Home Screen&rdquo;</div>
+    </div>
+    <button class="x" id="installX" aria-label="Not now">&times;</button>
+    <button class="install-add hidden" id="installAdd">Add to Home Screen</button>
 </div>
 
 <header class="brand">
@@ -771,7 +1063,12 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
 </header>
 
 <main class="container">
-    <div class="rail hidden" id="rail"></div>
+    <!-- Pre-rendered in the state showStep(1) would have produced. It used to
+         ship hidden and empty, so the first frame of a cold launch was 39px
+         shorter than the second one and the headline visibly dropped. -->
+    <div class="rail" id="rail">
+        <span class="seg done"></span><span class="seg"></span><span class="seg"></span><span class="lbl">Where</span>
+    </div>
 
     <div class="notice hidden" id="nSample" role="status" aria-live="polite"></div>
     <div class="notice warn hidden" id="nStale" role="status" aria-live="polite"></div>

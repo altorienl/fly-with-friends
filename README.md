@@ -95,7 +95,13 @@ taking the app down. Deploy them with an explicit config path — run bare from 
 wrangler walks up, finds `wrangler.site.toml` and tries to serve a `public/` directory
 that does not exist:
 
+`wrangler.site.toml` serves `./dist`, which is assembled by copying — so `splash/` has to
+be copied in with everything else. A missing launch image does not error, it just means
+iOS launches that phone to a white screen, which is the one failure mode nobody reports.
+
 ```
+cp index.html app.js airports.js optimizer.js flights.json manifest.json *.png dist/
+cp -r splash dist/
 npx wrangler deploy -c wrangler.site.toml          # the app, from the repo root
 cd worker && npx wrangler deploy -c ./wrangler.toml # the API
 ```
@@ -379,6 +385,14 @@ which turns an impossible constraint into a real decision.
 | `config.json` | fixed-roster mode only (see above) |
 | `.github/scripts/scan.py` | fixed-roster scan; schedule disabled |
 | `.github/workflows/scan.yml` | manual trigger only |
+| `splash/` | iOS launch images, one per logical size, orientation and colour scheme |
+| `tools/make-splash.sh` | regenerates `splash/` and the `<link>` block in `index.html` |
 
 Icons are generated stand-ins derived from the 2023 app icon; swap in the originals if you
 still have the exports.
+
+`apple-touch-startup-image` is the only launch-screen mechanism iOS honours, and it only
+uses an image whose media query matches the device exactly — so the set has to be
+exhaustive or the unmatched phones launch to a white screen. `tools/make-splash.sh`
+regenerates the files and prints the matching `<link>` block; if the mark in `index.html`
+changes, run it and paste the block back over the existing one.
