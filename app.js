@@ -1150,17 +1150,35 @@ function presetFor(band) {
     return 'exact';
 }
 
-function renderBandPresets() {
-    var host = el('sBandPre');
-    if (!host) return;
-    var cur = presetFor(state.q.band.outbound);
-    host.innerHTML = BAND_PRESETS.map(function (x) {
+function bandPresetHtml(cur, withExact) {
+    return BAND_PRESETS.map(function (x) {
         var on = cur === x.k;
         return '<button class="pill' + (on ? ' on' : '') + '" role="radio" aria-checked="' + on
             + '" data-bpre="' + x.k + '">' + esc(x.l) + '</button>';
     }).join('')
-        + '<button class="pill' + (cur === 'exact' ? ' on' : '') + '" role="radio"'
-        + ' aria-checked="' + (cur === 'exact') + '" data-bpre="exact">Exact times</button>';
+        + (withExact
+            ? '<button class="pill' + (cur === 'exact' ? ' on' : '') + '" role="radio"'
+              + ' aria-checked="' + (cur === 'exact') + '" data-bpre="exact">Exact times</button>'
+            : '');
+}
+
+function renderBandPresets() {
+    var cur = presetFor(state.q.band.outbound);
+
+    /* Also on the results screen, where you can see the plan you are
+     * constraining. The click handler sets the step-2 inputs, which are in the
+     * DOM on every step, so one handler serves both copies. The exact-time
+     * pickers stay on the step that has room for them. */
+    var res = el('bandPills');
+    if (res) {
+        res.setAttribute('role', 'radiogroup');
+        res.setAttribute('aria-label', 'Landing time');
+        res.innerHTML = '<span class="k">Landing time</span>' + bandPresetHtml(cur, false);
+    }
+
+    var host = el('sBandPre');
+    if (!host) return;
+    host.innerHTML = bandPresetHtml(cur, true);
     /* Once revealed the pickers stay put, so typing a time never makes the
      * field you are editing disappear under you. */
     var box = el('sBandExact');
@@ -1181,6 +1199,7 @@ function renderStepStops() {
 
 function renderStopPills() {
     renderAirlinePills();
+    renderBandPresets();
     var o = [{ v: 0, l: 'Nonstop' }, { v: 1, l: 'Up to 1 stop' }, { v: null, l: 'Any' }];
     el('stopPills').setAttribute('role', 'radiogroup');
     el('stopPills').setAttribute('aria-label', 'Maximum stops');
@@ -1770,14 +1789,19 @@ function hopRow(dir, r, leg, id, seats) {
         + (leg === 'outbound' ? 'lands ' : 'leaves ') + clock(showMin) + '</div>'
         + '<div class="hop-cost mono">' + money(r.cost)
         + (seats > 1 ? ' <span class="for-seats">for ' + seats + '</span>' : '')
-        + '</div>'
+        + '</div></div>'
         /* This number was previously a bare orange "+$16" beside the fare, which
          * reads as a fee to add on. It is not: it is already inside the fare.
-         * A tester added it to their own total for every traveller. */
+         * A tester added it to their own total for every traveller.
+         *
+         * It sits OUTSIDE .hop-right, as its own grid item spanning the row. In
+         * the fare column it inherited white-space: nowrap, forced that column
+         * to ~220px and wrapped "ORD -> PIT" onto three lines -- and it had no
+         * CSS rule at all, so it rendered at body size over the route. */
         + (r.premium > 0
             ? '<div class="hop-prem">incl. ' + money(r.premium) + ' to land together</div>'
             : '')
-        + '</div></div>';
+        + '</div>';
 }
 
 function travellerCard(id, i) {
@@ -2655,6 +2679,9 @@ function applyStepBand() {
     state.q.band.outbound = { from: el('sFrom').value, to: el('sTo').value };
     renderBandPresets();
     thReset();
+    /* Changing the window from the results screen has to repaint the plan it is
+     * filtering, which the step-2 copy never needed to do. */
+    if (state.step === 4) { writeHash(); render(); }
 }
 document.addEventListener('click', function (ev) {
     var n = ev.target.closest && ev.target.closest('[data-bpre]');

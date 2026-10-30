@@ -11,7 +11,8 @@
 <meta property="og:description" content="Three or more people, three or more cities, one destination. Land together.">
 <meta property="og:image" content="og.png">
 <meta name="theme-color" content="#0b0a08">
-<link rel="icon" type="image/png" href="favicon.png">
+<link rel="icon" type="image/png" href="favicon.png" sizes="64x64">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -69,6 +70,7 @@
 
 :root {
     --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
     --ease: cubic-bezier(.2,.8,.2,1);
 
     /* No webfont. The audience is iPhone, so the system face is SF Pro:
@@ -158,7 +160,8 @@ a { color: var(--accent); }
 .brand-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .brand-mark { width: 34px; height: 34px; border-radius: var(--r-sm); flex-shrink: 0; display: block; }
 .brand-name { font-size: var(--t-4); font-weight: 600; letter-spacing: var(--tr-4); white-space: nowrap; }
-.gear { position: relative; width: 36px; height: 36px; border-radius: var(--r-pill); display: grid; place-items: center; flex-shrink: 0; border: 1px solid var(--edge); background: var(--card); box-shadow: var(--lift); transition: border-color .15s, transform .12s var(--ease); }
+.gear { position: relative; width: 44px; height: 44px; margin-right: -11px; border-radius: var(--r-pill);
+    display: grid; place-items: center; flex-shrink: 0; transition: transform .12s var(--ease); }
 .gear::after { content: ''; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
 .gear svg { width: 16px; height: 16px; display: block; }
 .gear:active { transform: scale(.94); }
@@ -174,7 +177,8 @@ a { color: var(--accent); }
 .rail .lbl { font-size: var(--t-2); color: var(--faint); white-space: nowrap; margin-left: 4px; font-weight: 500; }
 
 /* ---------------- notices ---------------- */
-.notice { border-radius: var(--r-md); padding: 12px 16px; margin-bottom: 12px; font-size: var(--t-3); line-height: var(--lh-text); border: 1px solid var(--edge); background: var(--card); }
+.notice { padding: 2px 0 2px var(--s3); margin-bottom: var(--s4); font-size: var(--t-2);
+    line-height: var(--lh-text); border-left: 2px solid var(--edge); }
 .notice.warn { border-color: var(--warn); color: var(--warn); }
 .notice.bad { border-color: var(--bad); color: var(--bad); }
 .notice b { font-weight: 600; }
@@ -325,8 +329,9 @@ section { animation: stepIn .2s var(--ease); }
 .nav .btn.primary { flex: 1 1 auto; }
 
 /* ---------------- results ---------------- */
-.res-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-.icon-btn { width: 44px; height: 44px; flex-shrink: 0; border-radius: var(--r-md); border: 1px solid var(--edge); background: var(--card); box-shadow: var(--lift); display: grid; place-items: center; font-size: var(--t-4); transition: transform .12s var(--ease), border-color .15s; }
+.res-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s5); }
+.icon-btn { width: 44px; height: 44px; margin-left: -11px; flex-shrink: 0; border-radius: var(--r-pill);
+    display: grid; place-items: center; font-size: var(--t-4); transition: transform .12s var(--ease); }
 .icon-btn:active { transform: scale(.97); }
 .res-title { min-width: 0; }
 .res-title .t { font-size: var(--t-4); font-weight: 600; letter-spacing: var(--tr-4); }
@@ -343,9 +348,9 @@ section { animation: stepIn .2s var(--ease); }
 .dot.fresh-old { background: var(--bad); box-shadow: 0 0 0 3px rgba(255,138,114,.16); }
 .dot.fresh-sample { background: var(--edge-2); }
 
-.shifts { margin-top: 24px; }
+.shifts { margin-top: var(--s5); border-top: 1px solid var(--edge); padding-top: var(--s4); }
 .shifts > .k { display: block; margin-bottom: 10px; }
-.shift { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 12px 16px; border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card); margin-bottom: 8px; }
+.shift { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); padding: var(--s3) 0; }
 .shift.here { border-color: var(--brand); background: var(--accent-dim); }
 .shift.best { border-color: var(--good); }
 .s-d { font-size: var(--t-3); font-weight: 500; }
@@ -390,13 +395,13 @@ section { animation: stepIn .2s var(--ease); }
 .win-note .more { color: var(--accent); font-weight: 600; }
 .linkish { font: inherit; color: var(--accent); font-weight: 600; border-bottom: 1px solid var(--accent-dim); padding: 2px 0; }
 
-.trav { border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card); box-shadow: var(--lift); margin-bottom: 12px; overflow: hidden; }
+.trav { border-top: 1px solid var(--edge); padding: var(--s4) 0 var(--s2); }
 .trav.apart { border-color: var(--bad); border-style: dashed; }
-.trav-top { display: grid; grid-template-columns: 34px 1fr auto; gap: 12px; align-items: center; padding: 14px 16px 10px; }
+.trav-top { display: grid; grid-template-columns: 34px 1fr auto; gap: var(--s3); align-items: center; }
 .trav-name { font-size: var(--t-4); font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .trav-tot { font-size: var(--t-5); font-weight: 600; letter-spacing: var(--tr-5); text-align: right; }
 .trav-tot span { display: block; font-size: var(--t-2); font-weight: 400; color: var(--muted); margin-top: 2px; }
-.hop { display: grid; grid-template-columns: 34px 24px 1fr auto; gap: 12px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--edge); }
+.hop { display: grid; grid-template-columns: 34px 24px 1fr auto; gap: var(--s3); align-items: center; padding: var(--s2) 0; }
 .hop-dir { font-size: var(--t-2); font-weight: 400; color: var(--faint); }
 .hop-main { min-width: 0; }
 /* An airport pair is one token; it must not break across the arrow. */
@@ -410,16 +415,23 @@ section { animation: stepIn .2s var(--ease); }
 .hop-cost { font-size: var(--t-2); color: var(--muted); margin-top: 3px; }
 /* This had no rule at all, so it inherited 16px from the body and nowrap from
    .hop-right and ran straight out of the card. */
-.hop-prem { font-size: var(--t-2); line-height: var(--lh-snug); color: var(--muted); margin-top: 3px; white-space: normal; }
-.trav-book { padding: 12px 16px 14px; border-top: 1px solid var(--edge); background: var(--card-2); }
-.trav-book .btn { width: 100%; }
+.hop-prem { grid-column: 3 / -1; font-size: var(--t-2); line-height: var(--lh-snug);
+    color: var(--muted); margin-top: 2px; white-space: normal; text-align: right; }
+/* No band: the card frame it used to sit inside is gone. And the per-person
+ * button is secondary, because five full-width amber buttons on one screen
+ * meant none of them was the primary action. Booking still reads as a button --
+ * it is the thing the app exists to hand you -- just not as the loudest one. */
+.trav-book { padding: var(--s3) 0 var(--s1); }
+.trav-book .btn { width: 100%; background: transparent; color: var(--accent);
+    border: 1px solid var(--brand); box-shadow: none; }
+.trav-book .btn:active { background: var(--accent-dim); }
 .trav-book .fine { font-size: var(--t-2); color: var(--muted); margin-top: 8px; line-height: var(--lh-text); text-align: center; }
-.opts { margin-top: 16px; border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card); }
-.opts > summary { padding: 14px 16px; font-size: var(--t-3); font-weight: 500; color: var(--muted); cursor: pointer; list-style: none; }
+.opts { margin-top: var(--s5); border-top: 1px solid var(--edge); }
+.opts > summary { padding: var(--s4) 0; font-size: var(--t-3); font-weight: 500; color: var(--muted); cursor: pointer; list-style: none; }
 .opts > summary::-webkit-details-marker { display: none; }
 .opts > summary::after { content: ' ▾'; color: var(--faint); }
 .opts[open] > summary::after { content: ' ▴'; }
-.opts > .filters, .opts > .board { margin: 0 12px 12px; border-radius: var(--r-sm); }
+.opts > .filters { margin: 0; }
 .leg-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--edge); }
 .leg-head h2 { font-size: var(--t-5); font-weight: 600; letter-spacing: var(--tr-5); }
 .leg-head .when { font-size: var(--t-2); color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -460,7 +472,7 @@ section { animation: stepIn .2s var(--ease); }
 .pills { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .pill { min-height: 44px; background: var(--card); border: 1px solid var(--edge); color: var(--muted); border-radius: var(--r-pill); padding: 8px 16px; font-size: var(--t-3); font-weight: 500; transition: background .15s, border-color .15s, color .15s; }
 .pill.on { border-color: var(--brand); color: var(--accent); background: var(--accent-dim); }
-.pills .k { margin-right: 4px; }
+.pills > .k { flex: 1 0 100%; margin: 0 0 var(--s2); }
 
 /* Locked feature: readable, clearly not tappable, and not greyed out so far
  * that it reads as broken. */
@@ -492,8 +504,8 @@ section { animation: stepIn .2s var(--ease); }
     font-size: var(--t-3); font-weight: 600; line-height: 1; }
 .alli-g .qm[aria-expanded="true"] { color: var(--accent); background: var(--accent-dim); }
 .pill.alli-b.clear { margin-left: auto; color: var(--accent); border-color: var(--brand); }
-.qm-pop { margin-top: 10px; padding: 12px 14px; border: 1px solid var(--edge);
-    border-radius: var(--r-md); background: var(--bg); font-size: var(--t-2); line-height: var(--lh-text); }
+.qm-pop { margin-top: var(--s3); padding: 0 0 0 var(--s3); border-left: 2px solid var(--edge);
+    font-size: var(--t-2); line-height: var(--lh-text); }
 .qm-pop > b { display: block; margin-bottom: 8px; font-size: var(--t-3); font-weight: 600; }
 .qm-list { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); }
 .qm-list span { white-space: nowrap; }
@@ -502,7 +514,8 @@ section { animation: stepIn .2s var(--ease); }
 .qm-list span.here { color: var(--text); font-weight: 600; }
 .qm-f { margin-top: 9px; font-size: var(--t-2); color: var(--muted); opacity: .85; }
 
-.filters { background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-md); padding: 16px; margin-bottom: 16px; box-shadow: var(--lift); }
+.filters { padding: 0 0 var(--s5); }
+.filters > * + * { margin-top: var(--s5); }
 .row2 { display: flex; align-items: center; gap: 8px; }
 .row2 .inp { flex: 1 1 0; min-width: 0; }
 .row2 .sep { font-size: var(--t-2); color: var(--muted); flex-shrink: 0; }
@@ -535,13 +548,13 @@ section { animation: stepIn .2s var(--ease); }
 .plan-head .t { font-size: var(--t-5); font-weight: 600; letter-spacing: var(--tr-5); }
 .plan-head .s { font-size: var(--t-2); color: var(--muted); }
 
-.timeline { position: relative; height: 108px; margin-bottom: 16px; border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card); overflow: hidden; }
+.timeline { position: relative; height: 100px; margin-bottom: var(--s4); overflow: hidden; }
 .tl-band { position: absolute; top: 0; bottom: 0; background: var(--accent-dim); }
 .tl-axis { position: absolute; left: 0; right: 0; top: 56px; height: 1px; background: var(--edge); }
 .tl-mark { position: absolute; top: 36px; transform: translateX(-50%); text-align: center; }
 /* rtl so the earliest arrival paints on top, like an iOS facepile */
 .tl-dots { display: flex; justify-content: center; direction: rtl; }
-.tl-dot { position: relative; direction: ltr; width: 24px; height: 24px; border-radius: var(--r-pill); display: grid; place-items: center; font-size: var(--t-1); font-weight: 600; color: var(--brand-ink); box-shadow: 0 0 0 2px var(--card); }
+.tl-dot { position: relative; direction: ltr; width: 24px; height: 24px; border-radius: var(--r-pill); display: grid; place-items: center; font-size: var(--t-1); font-weight: 600; color: var(--brand-ink); box-shadow: 0 0 0 2px var(--bg); }
 .tl-dots .tl-dot + .tl-dot { margin-right: -8px; }
 .tl-t { font-size: var(--t-1); line-height: 1; color: var(--muted); margin-top: 8px; white-space: nowrap; }
 .tl-t.alt { margin-top: 20px; }
@@ -622,11 +635,12 @@ section { animation: stepIn .2s var(--ease); }
 .about-body p { margin-bottom: 12px; }
 .about-body strong { color: var(--text); }
 
-footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--edge); text-align: center; font-size: var(--t-2); color: var(--faint); line-height: 2; }
+footer { margin-top: var(--s7); padding-top: var(--s5); border-top: 1px solid var(--edge); text-align: center; font-size: var(--t-2); color: var(--faint); line-height: 2; }
 footer button { font-family: inherit; font-size: var(--t-2); color: var(--muted); border-bottom: 1px solid var(--edge-2); padding: 14px 10px; display: inline-block; }
 footer .sep { color: var(--edge-2); margin: 0 8px; }
 
-.banner { margin: 12px 20px 0; padding: 12px 16px; border-radius: var(--r-md); border: 1px solid var(--brand); background: var(--accent-dim); font-size: var(--t-3); line-height: var(--lh-text); position: relative; max-width: 640px; }
+.banner { margin: var(--s3) 20px 0; padding: 2px 44px 2px var(--s3); border-left: 2px solid var(--brand);
+    font-size: var(--t-2); line-height: var(--lh-text); position: relative; max-width: 640px; }
 .banner b { color: var(--accent); }
 .banner .x { position: absolute; top: 0; right: 0; width: 44px; height: 44px; color: var(--muted); font-size: var(--t-5); }
 
@@ -678,15 +692,18 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
              icon-512.png, scaled; keep the two in step if either changes. -->
         <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
             <defs><linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" stop-color="#FFC800"/><stop offset="1" stop-color="#FF9400"/>
+                <stop offset="0" stop-color="#FFD200"/><stop offset="0.18" stop-color="#FFC800"/><stop offset="1" stop-color="#FF9400"/>
             </linearGradient></defs>
             <rect width="512" height="512" rx="114" fill="url(#bg1)"/>
-            <g fill="none" stroke="#fff" stroke-width="33" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="180" cy="143" r="32" fill="#fff" stroke="none"/>
-                <circle cx="332" cy="143" r="32" fill="#fff" stroke="none"/>
-                <path d="M68 201 H444"/>
-                <path d="M180 201 V278 M180 278 L122 410 M180 278 L234 410"/>
-                <path d="M332 201 V278 M332 278 L278 410 M332 278 L390 410"/>
+            <g fill="#fff">
+                <circle cx="180" cy="139" r="31"/><circle cx="332" cy="139" r="31"/>
+                <rect x="68" y="184.5" width="376" height="33" rx="16.5"/>
+                <path d="M163.5 200.4 L160.5 277.2 A19.5 19.5 0 1 0 199.5 277.2 L196.5 200.4 A16.5 16.5 0 0 0 163.5 200.4 Z"/>
+                <path d="M161.5 272.0 L122.7 391.0 A14.5 14.5 0 0 0 149.9 401.1 L198.0 285.5 A19.5 19.5 0 1 0 161.5 272.0 Z"/>
+                <path d="M161.8 285.0 L206.0 400.7 A14.5 14.5 0 0 0 233.4 391.4 L198.7 272.5 A19.5 19.5 0 1 0 161.8 285.0 Z"/>
+                <path d="M315.5 200.4 L312.5 277.2 A19.5 19.5 0 1 0 351.5 277.2 L348.5 200.4 A16.5 16.5 0 0 0 315.5 200.4 Z"/>
+                <path d="M314.0 285.5 L362.1 401.1 A14.5 14.5 0 0 0 389.3 391.0 L350.5 272.0 A19.5 19.5 0 1 0 314.0 285.5 Z"/>
+                <path d="M313.3 272.5 L278.6 391.4 A14.5 14.5 0 0 0 306.0 400.7 L350.2 285.0 A19.5 19.5 0 1 0 313.3 272.5 Z"/>
             </g>
         </svg>
         <h1 class="brand-name">Fly with Friends</h1>
@@ -798,6 +815,7 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
         <details class="opts" id="adjust">
             <summary>Adjust the search</summary>
             <div class="filters">
+                <div class="pills" id="bandPills"></div>
                 <div class="pills" id="stopPills"></div>
                 <div class="pills airlines" id="airlinePills"></div>
             </div>
