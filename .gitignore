@@ -12,3 +12,6 @@ dist/
 !.dev.vars.example
 .env*
 !.env.example
+
+# Agent worktrees are separate checkouts, not content.
+.claude/worktrees/
