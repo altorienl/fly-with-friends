@@ -4912,6 +4912,18 @@ function settingsSheet() {
         + pill(!SET.time24, 'time24', '12', '1:40pm') + pill(SET.time24, 'time24', '24', '13:40')
         + '</div></div>'
 
+        /* The banner is polite -- second visit onward, and silent for a
+         * fortnight once dismissed -- which is right, and means somebody who
+         * waved it away and later wanted it has nowhere to go. Here is where
+         * they look. Hidden once the app is installed, because then it is an
+         * instruction for something already done. */
+        + (installable()
+            ? '<div class="grp"><span class="k">On your phone</span><div class="pills">'
+              + '<button class="pill" data-showinstall="1">Add to Home Screen</button>'
+              + '</div><div class="tip">Opens full screen, with no address bar, and keeps '
+              + 'your group between trips.</div></div>'
+            : '')
+
         + '<div class="sheet-foot"><span>' + (DATA ? (DATA.sample ? 'example data'
             : 'fares ' + (gen ? gen.toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : 'unknown'))
             : 'nothing loaded') + '</span>'
@@ -4978,6 +4990,7 @@ document.addEventListener('click', function (ev) {
         if (partyIds().indexOf(pick) > -1) { SET.meId = pick; saveSet(); renderGear(); render(); }
         return;
     }
+    if (tgt.closest('[data-showinstall]')) { closeSheet(); showInstall(); return; }
     if (tgt.closest('#aboutBtn')) { aboutSheet(); return; }
     if (tgt.id === 'sheetClose' || tgt.id === 'scrim') { closeSheet(); return; }
     if (tgt.closest && tgt.closest('[data-forgetgroup]')) {
@@ -5586,6 +5599,13 @@ render();
  *
  * It is deliberately quiet: not on the first visit, dismissible, and silent for
  * a fortnight afterwards. An install prompt that argues is worse than none. */
+/* Two handles out of the prompt below, so Settings can offer the steps to
+ * somebody who dismissed the banner and later wanted it back. Declared here
+ * rather than returned, because the prompt runs once at startup and Settings
+ * is opened long afterwards. */
+var installable = function () { return false; };
+var showInstall = function () {};
+
 (function installPrompt() {
     var card = el('installBanner');
     if (!card) return;
@@ -5654,6 +5674,17 @@ render();
     });
 
     window.addEventListener('appinstalled', function () { store('installed'); dismiss(); });
+
+    /* Already on a home screen means there is nothing to offer. Everything
+     * else can be shown the steps, including a browser that will never fire
+     * beforeinstallprompt -- the steps are the whole point on iOS. */
+    installable = function () { return !standalone; };
+    /* Ignores the fortnight mute and the visit count on purpose: this one is
+     * asked for rather than offered. */
+    showInstall = function () {
+        if (standalone) return;
+        card.classList.remove('hidden', 'out');
+    };
 
     /* Asking on arrival is asking before the app has earned it. Second visit
      * onward, and after the first screen has settled. */

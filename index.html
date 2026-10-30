@@ -333,6 +333,21 @@ body {
     .boot-mark { animation: none; }
 }
 
+/* Three beats and two arrows, not three numbered badges: the badges were as
+   much ink as the words between them, and at 393px the thing wrapped so that
+   "Add to Home Screen" -- the only part that names what you are looking for --
+   landed alone on the second line under a row of circled digits.
+   The ... is Safari's own glyph for the menu that now hides Share, so it is set
+   like a control rather than like prose. Each step is nowrap so a break can
+   only ever land on an arrow. */
+.install .s { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.install .s .step { white-space: nowrap; }
+.install .s .arr { color: var(--faint); }
+.install .s .dots { font-weight: 600; letter-spacing: .05em; }
+/* The other tab layout still shows the arrow in the toolbar and has no ... at
+   all. One faint line, on its own row, for the people that is true for. */
+.install .s .alt { flex-basis: 100%; color: var(--faint); margin-top: 2px; }
+
 /* .ios-bar is gone with black-translucent. It was an opaque band the height of
  * the safe-area inset, dark in both themes, there only to keep a forced-white
  * clock readable over cream. Nothing needs it now: the status bar is the
@@ -1450,16 +1465,25 @@ footer .sep { color: var(--faint); margin: 0 8px; }
     <svg class="mk" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="bg0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFCB00"/><stop offset="1" stop-color="#FF9501"/></linearGradient></defs><rect width="512" height="512" rx="113" fill="url(#bg0)"/><g fill="#fff"><circle cx="178.85" cy="136.8" r="30.0"/><circle cx="332.25" cy="136.8" r="30.0"/><rect x="62.8" y="183.0" width="385.4" height="24.9" rx="12.45"/><path d="M144.20 207.9 L213.50 207.9 L217.65 286.5 L140.05 286.5 Z"/><path d="M155.80 286.5 L130.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M201.90 286.5 L227.90 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M297.60 207.9 L366.90 207.9 L371.05 286.5 L293.45 286.5 Z"/><path d="M309.20 286.5 L283.70 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M355.30 286.5 L380.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/></g></svg>
     <div>
         <div class="t" id="installT">Keep it on your home screen</div>
-        <div class="s" id="installS"><b>1</b> Tap
-            <svg viewBox="0 0 16 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M8 13V2"/><path d="M4.5 5.5 8 2l3.5 3.5"/>
-                <path d="M3 9H1.5v9.5h13V9H13"/>
-            </svg>
-            below &nbsp;<b>2</b> Choose
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <rect x="2.5" y="2.5" width="15" height="15" rx="4"/><path d="M10 6.5v7M6.5 10h7"/>
-            </svg>
-            Add to Home Screen</div>
+        <!-- iOS 26 moved this. The Share arrow is no longer in the toolbar on the
+             default Compact tab layout -- it is behind the ... menu, and Add to
+             Home Screen is inside the sheet that opens from it. So the steps
+             lead with ... and name the Share arrow as the other way in, which
+             is what the Top and Bottom layouts still show. Saying "tap the
+             share icon below" was true until this autumn and is now an
+             instruction that points at nothing. -->
+        <div class="s" id="installS">
+            <span class="step">Tap <span class="dots">&#8943;</span></span>
+            <span class="arr" aria-hidden="true">&rarr;</span>
+            <span class="step">Share</span>
+            <span class="arr" aria-hidden="true">&rarr;</span>
+            <span class="step">Add to Home Screen</span>
+            <span class="alt">No <span class="dots">&#8943;</span>? Tap
+                <svg viewBox="0 0 16 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M8 13V2"/><path d="M4.5 5.5 8 2l3.5 3.5"/>
+                    <path d="M3 9H1.5v9.5h13V9H13"/>
+                </svg> instead.</span>
+        </div>
     </div>
     <button class="x" id="installX" aria-label="Not now">&times;</button>
     <button class="install-add hidden" id="installAdd">Add to Home Screen</button>
