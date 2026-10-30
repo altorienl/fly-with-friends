@@ -143,7 +143,7 @@ be copied in with everything else. A missing launch image does not error, it jus
 iOS launches that phone to a white screen, which is the one failure mode nobody reports.
 
 ```
-cp index.html app.js airports.js optimizer.js flights.json manifest.json *.png dist/
+cp index.html app.js airports.js airports-extra.js optimizer.js flights.json manifest.json *.png dist/
 cp -r splash dist/
 npx wrangler deploy -c wrangler.site.toml          # the app, from the repo root
 cd worker && npx wrangler deploy -c ./wrangler.toml # the API

@@ -70,7 +70,7 @@
     ['MEX','Mexico City','Benito Juarez','MX'],['PVR','Puerto Vallarta','Lic. Gustavo Diaz Ordaz','MX'],
     ['GDL','Guadalajara','Miguel Hidalgo','MX'],['MTY','Monterrey','Mariano Escobedo','MX'],
     ['TIJ','Tijuana','Tijuana Intl','MX'],['ZIH','Ixtapa','Zihuatanejo','MX'],
-    ['HUX','Huatulco','Bahias de Huatulco','MX'],['MID','Merida','Merida Intl','MX'],
+    ['HUX','Huatulco','Bahias de Huatulco','MX'],['CEN','Ciudad Obregón','Ignacio Pesqueira García','MX'],['MID','Merida','Merida Intl','MX'],
     ['PUJ','Punta Cana','Punta Cana Intl','DO'],['SDQ','Santo Domingo','Las Americas','DO'],
     ['MBJ','Montego Bay','Sangster','JM'],['KIN','Kingston','Norman Manley','JM'],
     ['NAS','Nassau','Lynden Pindling','BS'],['AUA','Aruba','Queen Beatrix','AW'],
@@ -286,11 +286,80 @@
     SJO: 'Costa Rica'
   };
 
+
+  /* Two-letter state and province codes, spelled out. The generated table carries
+   * ISO codes ("US-AZ") because that is what the source has; everything that
+   * reads a region reads a name, so the expansion happens once, here, rather than
+   * at every display site. */
+  var STATE_NAME = {
+      AB: 'Alberta', AK: 'Alaska', AL: 'Alabama', AR: 'Arkansas',
+      AZ: 'Arizona', BC: 'British Columbia', CA: 'California', CO: 'Colorado',
+      CT: 'Connecticut', DC: 'D.C.', DE: 'Delaware', FL: 'Florida',
+      GA: 'Georgia', HI: 'Hawaii', IA: 'Iowa', ID: 'Idaho',
+      IL: 'Illinois', IN: 'Indiana', KS: 'Kansas', KY: 'Kentucky',
+      LA: 'Louisiana', MA: 'Massachusetts', MB: 'Manitoba', MD: 'Maryland',
+      ME: 'Maine', MI: 'Michigan', MN: 'Minnesota', MO: 'Missouri',
+      MS: 'Mississippi', MT: 'Montana', NB: 'New Brunswick', NC: 'North Carolina',
+      ND: 'North Dakota', NE: 'Nebraska', NH: 'New Hampshire', NJ: 'New Jersey',
+      NL: 'Newfoundland and Labrador', NM: 'New Mexico', NS: 'Nova Scotia', NT: 'Northwest Territories',
+      NU: 'Nunavut', NV: 'Nevada', NY: 'New York', OH: 'Ohio',
+      OK: 'Oklahoma', ON: 'Ontario', OR: 'Oregon', PA: 'Pennsylvania',
+      PE: 'Prince Edward Island', QC: 'Quebec', RI: 'Rhode Island', SC: 'South Carolina',
+      SD: 'South Dakota', SK: 'Saskatchewan', TN: 'Tennessee', TX: 'Texas',
+      UT: 'Utah', VA: 'Virginia', VT: 'Vermont', WA: 'Washington',
+      WI: 'Wisconsin', WV: 'West Virginia', WY: 'Wyoming', YT: 'Yukon'
+  };
+
+  /* The long tail, generated into airports-extra.js from a public-domain
+   * dataset: every airport with scheduled passenger service that the curated
+   * table above does not already name. It is loaded separately and merged here
+   * rather than pasted in, so the curated list stays a file a person can read
+   * and edit, and so refreshing 3,642 rows never touches a hand-written name.
+   *
+   * Appended AFTER the curated rows and skipped on a code collision, which is
+   * what keeps PHX as "Sky Harbor" instead of "Phoenix Sky Harbor Intl". */
+  var EXTRA = [], EXTRA_REG = {}, COUNTRY = {};
+  try {
+    if (typeof module !== 'undefined' && module.exports) {
+      var ex = require('./airports-extra.js');
+      EXTRA = ex.AIRPORTS_EXTRA || []; EXTRA_REG = ex.REGIONS_EXTRA || {};
+      COUNTRY = ex.COUNTRY_NAMES || {};
+    } else {
+      EXTRA = root.FWF_AIRPORTS_EXTRA || []; EXTRA_REG = root.FWF_REGIONS_EXTRA || {};
+      COUNTRY = root.FWF_COUNTRY_NAMES || {};
+    }
+  } catch (e) { EXTRA = []; EXTRA_REG = {}; COUNTRY = {}; }
+
+  /* Where an airport is, in the one term that settles it.
+   *
+   * A state inside the US and Canada, a country everywhere else. The country
+   * half used to be left to a two-letter chip in the picker on the argument
+   * that only one city name in the table appeared twice -- which was true of
+   * 308 airports and is not true of 3,951. London is now both England and
+   * Ontario. Sydney is Australia and Nova Scotia. Birmingham is England and
+   * Alabama; Manchester, Hamilton, Melbourne, Santiago, Santo Domingo, San
+   * Juan and Valencia all land in two countries at once. Sixty-one city names
+   * in this table are now ambiguous, and the whole point of the field is that
+   * somebody can be sure which one they tapped. */
+  function regionFor(code, country) {
+    if (REGION[code]) return REGION[code];
+    var st = EXTRA_REG[code];
+    if (st && STATE_NAME[st]) return STATE_NAME[st];
+    return COUNTRY[country] || '';
+  }
+
   var LIST = A.map(function (r) {
     var o = { code: r[0], city: r[1], name: r[2], country: r[3],
-              region: REGION[r[0]] || '', closed: false };
+              region: regionFor(r[0], r[3]), closed: false };
     BY_CODE[r[0]] = o;
     return o;
+  });
+  EXTRA.forEach(function (r) {
+    if (BY_CODE[r[0]]) return;
+    var o = { code: r[0], city: r[1], name: r[2], country: r[3],
+              region: regionFor(r[0], r[3]), closed: false };
+    BY_CODE[r[0]] = o;
+    LIST.push(o);
   });
 
   var METRO_LIST = METROS.map(function (r) {
@@ -302,7 +371,7 @@
 
   CLOSED.forEach(function (r) {
     var o = { code: r[0], city: r[1], name: r[2], country: r[3],
-              region: REGION[r[0]] || '', closed: true,
+              region: regionFor(r[0], r[3]), closed: true,
               note: r[4], alternates: r[5] ? r[5].split(',') : [] };
     BY_CODE[r[0]] = o;
     LIST.push(o);
@@ -340,7 +409,18 @@
       else if (a.code.indexOf(s) === 0) codePre.push(a);
       else if (city.indexOf(s) === 0) cityPre.push(a);
       else if (city.indexOf(s) > -1) cityIn.push(a);
-      else if (name.indexOf(s) > -1) nameIn.push(a);
+      /* Airport NAMES are only searched from four characters up. A three-letter
+       * query is somebody typing a code, and matching it inside a name is pure
+       * noise: "INT" is in every "Intl", "HAR" is in Hartsfield and O'Hare and
+       * Harry Reid. Across all 17,268 three-letter strings that are not codes
+       * in this table, 1,344 of them -- 8% -- returned a confident suggestion
+       * built this way, and several were real airports the owner's friends
+       * actually fly from. Somebody next to CEN typed CEN and was offered
+       * Istanbul, matched through "Sabiha Gokcen". Nothing real is lost: all
+       * 253 name-only three-letter hits in this table are substrings of "Intl"
+       * and surnames. From four characters it is a name again -- Heathrow,
+       * Gatwick, O'Hare. */
+      else if (s.length >= 4 && name.indexOf(s) > -1) nameIn.push(a);
     }
     /* An exact code match still wins -- typing JFK means JFK. */
     var head = exact.length ? exact.concat(metros) : metros.concat(exact);

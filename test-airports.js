@@ -32,6 +32,9 @@ function check(n, c, extra) {
     if (c) { pass++; console.log('  PASS  ' + n); }
     else { fail++; console.log('  FAIL  ' + n + (extra ? '\n          ' + extra : '')); }
 }
+function eq(n, got, want) {
+    check(n, got === want, 'got ' + JSON.stringify(got) + ', wanted ' + JSON.stringify(want));
+}
 
 var STATES = ('Alabama Alaska Arizona Arkansas California Colorado Connecticut Delaware Florida '
   + 'Georgia Hawaii Idaho Illinois Indiana Iowa Kansas Kentucky Louisiana Maine Maryland '
@@ -41,71 +44,120 @@ var STATES = ('Alabama Alaska Arizona Arkansas California Colorado Connecticut D
   'New Hampshire', 'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota',
   'Rhode Island', 'South Carolina', 'South Dakota', 'West Virginia', 'D.C.', 'Puerto Rico'
 ]);
+/* Ten provinces and three territories. The territories were missing and the
+ * generated table reaches all three -- Iqaluit, Yellowknife and Whitehorse all
+ * have scheduled service. */
 var PROVINCES = ['Alberta', 'British Columbia', 'Manitoba', 'New Brunswick',
   'Newfoundland and Labrador', 'Nova Scotia', 'Ontario', 'Prince Edward Island',
-  'Quebec', 'Saskatchewan'];
+  'Quebec', 'Saskatchewan',
+  'Northwest Territories', 'Nunavut', 'Yukon'];
 /* Deliberate: a country, not a state, because what tells SJO from SJC is the
  * country. See the note on the REGION map. */
 var EXCEPTIONS = { SJO: 'Costa Rica' };
+/* Every country name the generated table can produce. Read from the generated
+ * file rather than retyped, because the point of checking a region against a
+ * list is that the list is not the same keystrokes that produced the value. */
+var COUNTRIES = (function () {
+    var names = require(__dirname + '/airports-extra.js').COUNTRY_NAMES || {};
+    return Object.keys(names).map(function (k) { return names[k]; });
+}());
 
 var AIR = AIRPORTS.LIST.filter(function (a) { return !a.metro; });
 
-console.log('\n-- every region names a place that exists --');
+console.log('\n-- every airport says where it is --');
 (function () {
+    var blank = AIR.filter(function (a) { return !a.region; });
+    /* A region is a state or province inside the US and Canada and a country
+     * everywhere else, so there is no airport left that cannot say where it
+     * is. A blank one means a country code with no name behind it, which shows
+     * up as a bare city in the picker. */
+    check('no airport is left without a region', blank.length === 0,
+          blank.slice(0, 8).map(function (a) { return a.code + '/' + a.country; }).join(', '));
+
     var bad = [];
     AIR.forEach(function (a) {
         if (!a.region) return;
-        if (EXCEPTIONS[a.code] === a.region) return;
-        var ok = a.country === 'CA' ? PROVINCES.indexOf(a.region) > -1
-               : STATES.indexOf(a.region) > -1;
-        if (!ok) bad.push(a.code + ' -> "' + a.region + '" (' + a.country + ')');
+        if (a.country === 'US' || a.country === 'PR' || a.country === 'GU') {
+            if (STATES.indexOf(a.region) === -1 && COUNTRIES.indexOf(a.region) === -1) {
+                bad.push(a.code + ' -> "' + a.region + '" (US)');
+            }
+        } else if (a.country === 'CA') {
+            if (PROVINCES.indexOf(a.region) === -1 && COUNTRIES.indexOf(a.region) === -1) {
+                bad.push(a.code + ' -> "' + a.region + '" (CA)');
+            }
+        } else if (COUNTRIES.indexOf(a.region) === -1 && !EXCEPTIONS[a.code]) {
+            /* Anywhere else it must be a country NAME, not a state: "Aarhus,
+             * Denmark" is the answer, "Aarhus, Texas" is the bug this catches. */
+            bad.push(a.code + ' -> "' + a.region + '" (' + a.country + ')');
+        }
     });
-    check('no misspelled or invented region', bad.length === 0, bad.join('\n          '));
+    check('no misspelled, invented or misplaced region', bad.length === 0,
+          bad.slice(0, 8).join('\n          '));
 
-    var wrongCountry = AIR.filter(function (a) {
-        return a.region && ['US', 'CA', 'PR'].indexOf(a.country) === -1 && !EXCEPTIONS[a.code];
+    /* The states are spelled out from two-letter ISO codes, and a typo in that
+     * map would read as a real place. Every US airport in the generated set
+     * resolves through it. */
+    var usRegions = {};
+    AIR.forEach(function (a) { if (a.country === 'US' && a.region) usRegions[a.region] = 1; });
+    var unknown = Object.keys(usRegions).filter(function (r) {
+        return STATES.indexOf(r) === -1 && COUNTRIES.indexOf(r) === -1;
     });
-    check('nothing outside the US and Canada claims a state',
-          wrongCountry.length === 0,
-          wrongCountry.map(function (a) { return a.code + '/' + a.country; }).join(', '));
-
-    var caWithState = AIR.filter(function (a) {
-        return a.country === 'CA' && a.region && PROVINCES.indexOf(a.region) === -1;
-    });
-    check('every Canadian region is a province, not a state', caWithState.length === 0,
-          caWithState.map(function (a) { return a.code + ' -> ' + a.region; }).join(', '));
+    check('every US region resolves to a real state', unknown.length === 0, unknown.join(', '));
 })();
 
-console.log('\n-- every US and Canadian airport has one --');
+console.log('\n-- the curated names win --');
 (function () {
-    var missing = AIR.filter(function (a) {
-        return ['US', 'CA', 'PR'].indexOf(a.country) > -1 && !a.region;
-    });
-    /* A gap is not cosmetic: the field reassures, so one airport without it in a
-     * list of near-identical codes is the one somebody picks unsure. */
-    check('no US, Canadian or Puerto Rican airport is missing its region',
-          missing.length === 0, missing.map(function (a) { return a.code + ' ' + a.city; }).join(', '));
+    /* The whole reason the generated table is merged rather than pasted in: a
+     * refresh of 3,642 rows must never rename an airport somebody chose a short
+     * familiar name for. */
+    eq('PHX is Sky Harbor, not Phoenix Sky Harbor Intl', AIRPORTS.get('PHX').name, 'Sky Harbor');
+    eq('ORD is O\u2019Hare', AIRPORTS.get('ORD').name, 'O\u2019Hare');
+    eq('LHR is Heathrow', AIRPORTS.get('LHR').name, 'Heathrow');
+    eq('JFK is John F. Kennedy', AIRPORTS.get('JFK').name, 'John F. Kennedy');
+    check('and the generated rows are still there',
+          AIR.length > 3000, AIR.length + ' airports');
+})();
 
-    /* JFK and LGA are in the city of New York in the state of New York, so the
-     * data repeats itself and is still correct. What must not repeat is what
-     * gets READ: placeOf suppresses it, and this asserts that it does, because
-     * "New York, New York" is a lyric rather than a disambiguation. */
-    var same = AIR.filter(function (a) { return a.region && a.region === a.city; });
-    check('the cities whose state shares their name are known',
-          same.map(function (a) { return a.code; }).sort().join(',') === 'JFK,LGA',
-          same.map(function (a) { return a.code; }).join(', '));
-    check('and placeOf does not read them back twice',
-          same.every(function (a) { return placeOf(a) === a.city; }),
-          same.map(function (a) { return placeOf(a); }).join(' | '));
-    check('while everything else keeps its region',
-          AIR.filter(function (a) { return a.region && a.region !== a.city; })
-             .every(function (a) { return placeOf(a) === a.city + ', ' + a.region; }));
+console.log('\n-- the airport that started this --');
+(function () {
+    /* "im next to CEN airport but that didnt come up". It was not in the table,
+     * and typing CEN returned Istanbul -- matched through "Sabiha Gokcen",
+     * because a three-letter query was being tested against airport NAMES. */
+    var cen = AIRPORTS.get('CEN');
+    check('CEN exists', !!cen);
+    eq('...in Ciudad Obreg\u00f3n', cen && cen.city, 'Ciudad Obreg\u00f3n');
+    eq('...in Mexico', cen && cen.country, 'MX');
+    eq('...and searching for it finds it first',
+       AIRPORTS.search('CEN', 5)[0].code, 'CEN');
+
+    /* The ranking fix, which stands on its own: a three-letter query is a code,
+     * and matching it inside an airport NAME is noise -- "INT" is in every
+     * "Intl", "HAR" is in Hartsfield and O'Hare and Harry Reid. */
+    var nameOnly = [];
+    for (var i = 0; i < 26; i++) {
+        for (var j = 0; j < 26; j++) {
+            for (var k = 0; k < 26; k++) {
+                var q = String.fromCharCode(65 + i, 65 + j, 65 + k);
+                if (AIRPORTS.get(q)) continue;
+                var r = AIRPORTS.search(q, 3);
+                r.forEach(function (x) {
+                    if (x.metro) return;
+                    var city = x.city.toUpperCase();
+                    if (x.code.indexOf(q) === 0 || city.indexOf(q) > -1) return;
+                    nameOnly.push(q + ' -> ' + x.code);
+                });
+            }
+        }
+    }
+    check('no three-letter query is answered by an airport name alone',
+          nameOnly.length === 0, nameOnly.slice(0, 8).join(', '));
+    /* From four characters it is a name again. */
+    eq('Heathrow still finds LHR', AIRPORTS.search('Heathrow', 3)[0].code, 'LHR');
+    eq('Gatwick still finds LGW', AIRPORTS.search('Gatwick', 3)[0].code, 'LGW');
 })();
 
 console.log('\n-- the ambiguous names are the ones that most need it --');
 (function () {
-    /* Any city name this table holds more than once, in more than one country
-     * or in more than one state, is a name that cannot be trusted alone. */
     var byCity = {};
     AIR.forEach(function (a) { (byCity[a.city] = byCity[a.city] || []).push(a); });
     var ambiguous = Object.keys(byCity).filter(function (c) {
@@ -117,17 +169,41 @@ console.log('\n-- the ambiguous names are the ones that most need it --');
     ambiguous.forEach(function (c) {
         byCity[c].forEach(function (a) { if (!a.region) unmarked.push(a.code + ' ' + c); });
     });
-    check('every airport in a city this table knows twice carries a region',
-          unmarked.length === 0, unmarked.join(', '));
-    /* The case the field was added for, asserted by name so a future edit that
-     * drops it fails loudly rather than quietly. */
-    check('SJC and SJO are told apart',
-          AIRPORTS.get('SJC').region === 'California'
-          && AIRPORTS.get('SJO').region === 'Costa Rica');
-    check('ONT is not in Canada', AIRPORTS.get('ONT').region === 'California');
-    check('PDX is not in Maine', AIRPORTS.get('PDX').region === 'Oregon');
-    check('the airport the owner was looking at is in Arizona',
-          AIRPORTS.get('PHX').region === 'Arizona');
+    check('every airport in a city this table knows twice carries a region ('
+          + ambiguous.length + ' such cities)',
+          unmarked.length === 0, unmarked.slice(0, 8).join(', '));
+
+    /* The cases a 309-airport table did not have and a 3,951-airport one does.
+     * Each of these is a city name that lands in two countries at once, which
+     * is the exact mistake the field exists to prevent. */
+    [['LHR', 'London', 'United Kingdom'], ['YXU', 'London', 'Ontario'],
+     ['SYD', 'Sydney', 'Australia'], ['YQY', 'Sydney', 'Nova Scotia'],
+     ['BHX', 'Birmingham', 'United Kingdom'], ['BHM', 'Birmingham', 'Alabama'],
+     ['SJC', 'San Jose', 'California'], ['SJO', 'San Jose', 'Costa Rica'],
+     ['ONT', 'Ontario', 'California'], ['PDX', 'Portland', 'Oregon']
+    ].forEach(function (t) {
+        var a = AIRPORTS.get(t[0]);
+        check('  ' + t[0] + ' is ' + t[1] + ', ' + t[2],
+              !!a && a.city === t[1] && a.region === t[2],
+              a ? a.city + ', ' + a.region : 'missing');
+    });
+})();
+
+console.log('\n-- a region that repeats the city is not read back twice --');
+(function () {
+    var same = AIR.filter(function (a) { return a.region === a.city; });
+    /* Singapore is in Singapore and New York is in New York. The data is right
+     * and still says the word twice, so placeOf suppresses it where it would
+     * be read -- "New York, New York" is a lyric, not a disambiguation. */
+    check('there are city-states and same-named states in the table', same.length > 0,
+          same.length + ': ' + same.slice(0, 6).map(function (a) { return a.code; }).join(','));
+    check('and placeOf prints the city once for all of them',
+          same.every(function (a) { return placeOf(a) === a.city; }),
+          same.filter(function (a) { return placeOf(a) !== a.city; })
+              .slice(0, 4).map(function (a) { return placeOf(a); }).join(' | '));
+    check('while everything else keeps its region',
+          AIR.filter(function (a) { return a.region && a.region !== a.city; })
+             .every(function (a) { return placeOf(a) === a.city + ', ' + a.region; }));
 })();
 
 console.log('\n-- the table itself --');
