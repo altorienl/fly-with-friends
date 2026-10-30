@@ -85,6 +85,21 @@ Three things keep that workable, all in `worker/worker.js`:
 Shared links are how this stays affordable: the search is encoded in the URL hash, so
 passing one around replays it from cache instead of buying it again.
 
+## Live
+
+- App: https://fly-with-friends.altorien.workers.dev
+- API: https://fly-with-friends-api.altorien.workers.dev
+
+Two Workers, deployed separately so searching can be paused or rate-limited without
+taking the app down. Deploy them with an explicit config path — run bare from `worker/`,
+wrangler walks up, finds `wrangler.site.toml` and tries to serve a `public/` directory
+that does not exist:
+
+```
+npx wrangler deploy -c wrangler.site.toml          # the app, from the repo root
+cd worker && npx wrangler deploy -c ./wrangler.toml # the API
+```
+
 ## Setup
 
 1. **Get a SerpApi key** at serpapi.com (free tier is enough).

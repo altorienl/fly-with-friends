@@ -77,7 +77,9 @@ function ipBucket(request) {
  * Sorting origins also fixes a bug aimed at real users: ["SFO","OAK"] and
  * ["OAK","SFO"] are one search that was being paid for twice. */
 function normalize(body) {
-  const clean = a => [...new Set((a || []).map(x => String(x).toUpperCase().slice(0, 3)))].sort().slice(0, 4);
+  /* Five, because London genuinely has five and a traveller picking "London"
+   * should not silently lose two of them. Still one search either way. */
+  const clean = a => [...new Set((a || []).map(x => String(x).toUpperCase().slice(0, 3)))].sort().slice(0, 5);
   body.dest = clean(body.dest);
   for (const t of (body.travelers || [])) {
     if (!t) continue;

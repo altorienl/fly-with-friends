@@ -26,7 +26,8 @@
     ['LGA','New York','LaGuardia','US'],['BWI','Baltimore','Thurgood Marshall','US'],
     ['SLC','Salt Lake City','Salt Lake City Intl','US'],['DCA','Washington','Reagan National','US'],
     ['IAD','Washington','Dulles','US'],['SAN','San Diego','San Diego Intl','US'],
-    ['MDW','Chicago','Midway','US'],['TPA','Tampa','Tampa Intl','US'],
+    ['MDW','Chicago','Midway','US'],['HOU','Houston','William P. Hobby','US'],
+    ['DAL','Dallas','Love Field','US'],['LGB','Long Beach','Long Beach','US'],['TPA','Tampa','Tampa Intl','US'],
     ['PDX','Portland','Portland Intl','US'],['HNL','Honolulu','Daniel K. Inouye','US'],
     ['STL','St Louis','Lambert','US'],['AUS','Austin','Austin-Bergstrom','US'],
     ['OAK','Oakland','Oakland Intl','US'],['MSY','New Orleans','Louis Armstrong','US'],
@@ -193,12 +194,58 @@
     ['ODS','Odesa','Odesa Intl','UA','Ukrainian airspace has been closed to civil aviation since February 2022.','KRK,WAW,KIV']
   ];
 
+  /* Cities with several airports. Typing "new york" and being made to choose
+   * between JFK, LGA and EWR is a question the traveller cannot answer yet --
+   * they want whichever is cheapest at the right time. Several origins for one
+   * person is still ONE search, because the provider takes them comma-separated,
+   * so searching all three costs nothing extra.
+   *
+   * Members are listed busiest-first: the request caps origins, so if a list is
+   * trimmed the majors survive. */
+  var METROS = [
+    /* Fourth field: the aliases people type. NYC and LON are real IATA
+     * metropolitan codes; the rest are just what gets typed. */
+    ['New York', 'US', 'JFK,EWR,LGA', 'NYC,NEW YORK CITY'],
+    ['London', 'GB', 'LHR,LGW,STN,LCY,LTN', 'LON'],
+    ['Chicago', 'US', 'ORD,MDW', 'CHI'],
+    ['Los Angeles', 'US', 'LAX,BUR,SNA,ONT,LGB', 'LA,SOCAL'],
+    ['San Francisco Bay Area', 'US', 'SFO,OAK,SJC', 'SF,BAY AREA,SFO BAY'],
+    ['Washington', 'US', 'DCA,IAD,BWI', 'WAS,DC,WASHINGTON DC'],
+    ['Houston', 'US', 'IAH,HOU'],
+    ['Dallas', 'US', 'DFW,DAL'],
+    ['Miami', 'US', 'MIA,FLL,PBI', 'SOUTH FLORIDA'],
+    ['Paris', 'FR', 'CDG,ORY', 'PAR'],
+    ['Milan', 'IT', 'MXP,LIN', 'MIL'],
+    ['Rome', 'IT', 'FCO'],
+    ['Tokyo', 'JP', 'HND,NRT', 'TYO'],
+    ['Seoul', 'KR', 'ICN,GMP'],
+    ['Beijing', 'CN', 'PEK,PKX'],
+    ['Shanghai', 'CN', 'PVG,SHA'],
+    ['Istanbul', 'TR', 'IST,SAW'],
+    ['Bangkok', 'TH', 'BKK,DMK'],
+    ['Toronto', 'CA', 'YYZ'],
+    ['Berlin', 'DE', 'BER'],
+    ['Stockholm', 'SE', 'ARN'],
+    ['Osaka', 'JP', 'KIX'],
+    ['Buenos Aires', 'AR', 'EZE'],
+    ['Sao Paulo', 'BR', 'GRU'],
+    ['Belfast', 'GB', 'BFS'],
+    ['Glasgow', 'GB', 'GLA']
+  ].filter(function (r) { return r[2].indexOf(',') > -1; });   // only real multi-airport cities
+
   var BY_CODE = {};
   var LIST = A.map(function (r) {
     var o = { code: r[0], city: r[1], name: r[2], country: r[3], closed: false };
     BY_CODE[r[0]] = o;
     return o;
   });
+
+  var METRO_LIST = METROS.map(function (r) {
+    var members = r[2].split(',');
+    return { metro: true, city: r[0], country: r[1], members: members,
+             aliases: (r[3] || '').split(',').filter(Boolean),
+             code: 'ALL', name: 'All airports · ' + members.join(' · ') };
+  }).filter(function (m) { return m.members.every(function (c) { return !!BY_CODE[c]; }); });
 
   CLOSED.forEach(function (r) {
     var o = { code: r[0], city: r[1], name: r[2], country: r[3], closed: true,
@@ -216,6 +263,20 @@
   function search(q, limit) {
     var s = String(q || '').trim().toUpperCase();
     if (!s) return [];
+
+    /* A matching city offers "all airports" first, since that is nearly always
+     * what someone naming a city means. */
+    var metros = METRO_LIST.filter(function (m) {
+        return m.city.toUpperCase().indexOf(s) === 0
+            || m.members.indexOf(s) > -1
+            || m.city.toUpperCase().indexOf(s) > -1
+            || m.aliases.some(function (x) { return x.indexOf(s) === 0; });
+      }).sort(function (a, b) {
+        var ai = a.city.toUpperCase().indexOf(s) === 0 ? 0 : 1;
+        var bi = b.city.toUpperCase().indexOf(s) === 0 ? 0 : 1;
+        return ai - bi;
+      });
+
     var exact = [], codePre = [], cityPre = [], cityIn = [], nameIn = [];
 
     for (var i = 0; i < LIST.length; i++) {
@@ -227,10 +288,12 @@
       else if (city.indexOf(s) > -1) cityIn.push(a);
       else if (name.indexOf(s) > -1) nameIn.push(a);
     }
-    return exact.concat(codePre, cityPre, cityIn, nameIn).slice(0, limit || 8);
+    /* An exact code match still wins -- typing JFK means JFK. */
+    var head = exact.length ? exact.concat(metros) : metros.concat(exact);
+    return head.concat(codePre, cityPre, cityIn, nameIn).slice(0, limit || 8);
   }
 
-  var api = { LIST: LIST, get: get, isKnown: isKnown, search: search };
+  var api = { LIST: LIST, METROS: METRO_LIST, get: get, isKnown: isKnown, search: search };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AIRPORTS = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

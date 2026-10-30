@@ -83,6 +83,15 @@ function blankQuery() {
         dest: '', dep: '', ret: '',
         band: { outbound: { from: '', to: '' }, return: { from: '', to: '' } },
         maxStops: null, maxPremium: null,
+        /* Landing together is the point of this. Leaving together only means
+         * sharing a ride to the airport, and forcing the return into a window
+         * makes the optimiser pick absurd flights home to hit a departure time.
+         * Off by default; the group can turn it on. */
+        clusterReturn: false,
+        /* Relative, because nobody knows the right absolute number. "No more
+         * than three hours longer than the quickest way to do this route" is
+         * always meaningful; "no more than 8 hours" is not. */
+        maxDetour: 180,
         parties: [newParty(0), newParty(1), newParty(2)]
     };
 }
@@ -135,18 +144,41 @@ function compute(leg) {
         priceDisplay: SET.priceDisplay
     });
 
-    var relaxed = [];
+    var relaxed = [], detoured = [];
     var byParty = {};
     ids.forEach(function (id) {
         var all = legData[id] || [];
-        if (maxStops == null) { byParty[id] = all; return; }
-        var strict = all.filter(function (o) { return (o.stops || 0) <= maxStops; });
-        if (!strict.length && all.length) {
-            /* Nothing meets the preference for this person, so they keep their
-             * own options rather than the group losing its plan. */
-            byParty[id] = all;
-            relaxed.push(id);
-        } else byParty[id] = strict;
+        var kept = all;
+
+        if (maxStops != null) {
+            var strict = all.filter(function (o) { return (o.stops || 0) <= maxStops; });
+            if (!strict.length && all.length) { relaxed.push(id); }
+            else kept = strict;
+        }
+
+        /* A 7h18m one-stop beating a 2h43m nonstop because it saved $45 is the
+         * kind of answer that loses a user permanently. Duration only ever broke
+         * exact price ties, which never happens, so it was effectively ignored. */
+        var cap = state.q.maxDetour;
+        if (cap != null && kept.length) {
+            var quickest = null;
+            kept.forEach(function (o) {
+                if (o.duration_minutes != null && (quickest == null || o.duration_minutes < quickest)) {
+                    quickest = o.duration_minutes;
+                }
+            });
+            if (quickest != null) {
+                var sane = kept.filter(function (o) {
+                    return o.duration_minutes == null || o.duration_minutes <= quickest + cap;
+                });
+                if (sane.length) {
+                    if (sane.length < kept.length) detoured.push(id);
+                    kept = sane;
+                }
+            }
+        }
+
+        byParty[id] = kept;
     });
 
     var prep = FWF.prepare(byParty, ids, field, { band: band });
@@ -187,7 +219,8 @@ function compute(leg) {
     });
 
     var out = { leg: leg, travelers: tv, ids: ids, prep: prep, costFn: costFn, band: band,
-                maxStops: maxStops, relaxed: relaxed, cap: cap, solo: solo, soloOpen: soloOpen,
+                maxStops: maxStops, relaxed: relaxed, detoured: detoured,
+                cap: cap, solo: solo, soloOpen: soloOpen,
                 tight: null, ladder: null, target: null, subset: null, anyTime: null };
 
     /* The cost of a filter only means anything against the same search without
@@ -219,6 +252,9 @@ function compute(leg) {
  * airport field. Keyboard nav mirrors intrinsics: arrows move, Enter commits. */
 var acSeq = 0;
 function attachAc(input, drop, onPick, opts) {
+    /* Metro entries are offered for origins only. As a destination they would
+     * let the group land at three different airports, which is the one thing
+     * this app exists to prevent. */
     var matches = [], idx = -1, uid = 'ac' + (++acSeq);
     opts = opts || {};
     if (!drop.id) drop.id = uid + 'list';
@@ -239,11 +275,12 @@ function attachAc(input, drop, onPick, opts) {
         if (!matches.length) { close(); return; }
         drop.innerHTML = matches.map(function (a, i) {
             return '<button type="button" class="ac-item' + (i === idx ? ' active' : '')
-                + (a.closed ? ' closed' : '') + '" data-ac="' + i + '" role="option" tabindex="-1"'
+                + (a.closed ? ' closed' : '') + (a.metro ? ' metro' : '')
+                + '" data-ac="' + i + '" role="option" tabindex="-1"'
                 + ' id="' + uid + '-' + i + '" aria-selected="' + (i === idx) + '">'
-                + '<span class="ac-code">' + esc(a.code) + '</span>'
+                + '<span class="ac-code">' + (a.metro ? String(a.members.length) : esc(a.code)) + '</span>'
                 + '<span class="ac-body"><span class="ac-city">' + esc(a.city)
-                + (a.closed ? ' — no service' : '') + '</span>'
+                + (a.metro ? ' — any airport' : a.closed ? ' — no service' : '') + '</span>'
                 + '<span class="ac-sub">' + esc(a.name) + '</span></span>'
                 + '<span class="ac-flag">' + esc(a.country) + '</span></button>';
         }).join('');
@@ -254,6 +291,7 @@ function attachAc(input, drop, onPick, opts) {
 
     function refresh() {
         matches = AIRPORTS.search(input.value, 7);
+        if (opts.noMetros) matches = matches.filter(function (a) { return !a.metro; });
         idx = matches.length ? 0 : -1;
         paint();
     }
@@ -362,7 +400,10 @@ function renderParties() {
             + ' autocomplete="off" aria-label="Add an airport for ' + esc(partyLabel(p, i)) + '">'
             + '<div class="ac" data-airac></div></div>'
             + closedNote
-            + (p.seats > 1 ? '<div class="party-note">' + p.seats + ' seats booked together from one airport.</div>' : '')
+            + (p.airports.length > 1
+                ? '<div class="party-note">Whichever of these ' + p.airports.length
+                  + ' is best — still one search.</div>' : '')
+            + (p.seats > 1 ? '<div class="party-note">' + p.seats + ' seats booked together.</div>' : '')
             + '</div>';
     }).join('');
 
@@ -372,12 +413,20 @@ function renderParties() {
         var input = card.querySelector('[data-airinput]');
         var drop = card.querySelector('[data-airac]');
         attachAc(input, drop, function (a) {
-            /* Read the typed names back before re-rendering, or picking an
-             * airport silently wipes the name someone just typed -- which is the
-             * obvious order to do it in. */
-            readNames();
+            /* readNames happens inside renderParties now, but the party lookup
+             * below needs current state either way. */
             var p = party(pid);
-            if (p && p.airports.indexOf(a.code) === -1) p.airports.push(a.code);
+            if (p) {
+                /* A city adds all of its airports: for one traveller that is
+                 * still a single search, because the provider accepts them
+                 * comma-separated. Naming a city and being made to choose
+                 * between JFK, LGA and EWR is a question nobody can answer
+                 * before seeing prices. */
+                var add = a.metro ? a.members : [a.code];
+                add.forEach(function (code) {
+                    if (p.airports.indexOf(code) === -1 && p.airports.length < 5) p.airports.push(code);
+                });
+            }
             renderParties();
             var next = document.querySelector('.party[data-pid="' + pid + '"] [data-addair]');
             if (next) next.focus();
@@ -571,6 +620,9 @@ function saveTrip() {
 function legBreakdown(leg) {
     var ctx = compute(leg);
     if (!ctx) return null;
+    /* Unless the group has asked to leave together, the way home is simply each
+     * person's best flight -- they are going to different cities. */
+    if (leg === 'return' && !state.q.clusterReturn) state.th['return'] = FWF.INF;
     var plan = planOf(ctx, state.th[leg] != null ? state.th[leg] : recommendedIn(ctx));
     if (!plan) return null;
 
@@ -1235,6 +1287,15 @@ function chatBlock() {
 
 function windowStrip(leg, b, label) {
     if (!b) return '';
+    if (leg === 'return' && !state.q.clusterReturn) {
+        /* No window on the way home, so there is no window to draw. */
+        return '<div class="win"><div class="win-head"><span class="t">' + label + '</span>'
+            + '<span class="s">best flight home for each</span></div>'
+            + '<div class="win-note">Everyone is going to a different city, so the way home is '
+            + 'each person\u2019s own cheapest sensible flight rather than a shared window. '
+            + '<button class="linkish" data-clusterback="1">Make everyone leave together instead</button>'
+            + '</div></div>';
+    }
     var prevLeg = state.leg, prevC = C;
     state.leg = leg; C = b.ctx;
 
@@ -1369,8 +1430,11 @@ function renderPlanView() {
     /* "Together" is the one word this product exists to say, and it was attached
      * to the wrong fact: it meant "nobody was dropped from the list", so it read
      * "everyone together" above "all within 7h 25m". It now describes the spread. */
-    var worst = Math.max(TRIP.legOut ? TRIP.legOut.spread : 0,
-                         TRIP.legBack ? TRIP.legBack.spread : 0);
+    /* Only count a leg that is actually being clustered. The way home is
+     * deliberately unclustered by default, so including its spread made the
+     * headline read "7h 25m apart" about a 20-minute arrival. */
+    var worst = TRIP.legOut ? TRIP.legOut.spread : 0;
+    if (TRIP.legBack && state.q.clusterReturn) worst = Math.max(worst, TRIP.legBack.spread);
     var verdict = !TRIP.allClustered ? 'not everyone fits'
         : worst <= 90 ? 'everyone together'
         : 'everyone on the same day, but ' + FWF.fmtGap(worst) + ' apart';
@@ -1837,7 +1901,8 @@ document.addEventListener('click', function (ev) {
     }
 
     var t = tgt.closest && tgt.closest('[data-threshold],[data-rec],[data-set],[data-bag],'
-        + '[data-stops],[data-cap],[data-choice],[data-seats],[data-rmparty],[data-addair],[data-rmair]');
+        + '[data-stops],[data-cap],[data-choice],[data-clusterback],[data-seats],'
+        + '[data-rmparty],[data-addair],[data-rmair]');
     if (!t) return;
     var card = t.closest('.party');
     var p = card ? party(card.getAttribute('data-pid')) : null;
@@ -1866,6 +1931,10 @@ document.addEventListener('click', function (ev) {
         state.th.outbound = th; state.th['return'] = th;
         writeHash(); render();
         window.scrollTo(0, 0);
+    } else if (t.hasAttribute('data-clusterback')) {
+        state.q.clusterReturn = !state.q.clusterReturn;
+        state.th['return'] = null;
+        writeHash(); render();
     } else if (t.hasAttribute('data-cap')) {
         var rawCap = t.getAttribute('data-cap');
         state.q.maxPremium = rawCap === '' ? null : +rawCap;
@@ -2180,7 +2249,7 @@ attachAc(el('dest'), el('destAc'), function (a) {
         el('destHint').className = 'hint good';
         el('destHint').textContent = a.city + ' — ' + a.name;
     }
-}, { onEnter: function () { el('to2').click(); } });
+}, { noMetros: true, onEnter: function () { el('to2').click(); } });
 
 el('dest').addEventListener('input', function () {
     if (!AIRPORTS.isKnown(state.q.dest) || el('dest').value.indexOf(state.q.dest) !== 0) state.q.dest = '';
