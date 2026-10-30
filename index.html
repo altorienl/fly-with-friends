@@ -1063,8 +1063,12 @@ a { color: var(--accent); }
    amber-filled primary is the .cal-clear mistake again -- two things under one
    another that both look like the action -- so the pill states itself with its
    border and its target and leaves the fill to say which one is the action. */
-.share-alt { text-align: center; margin-top: var(--s2); }
-.share-alt button { min-height: 44px; padding: var(--s2) var(--s4); border-radius: var(--r-pill);
+/* Revealed under the one Share button where the platform has no share sheet of
+   its own -- on a phone the sheet already holds Mail and Messages, so a second
+   row of buttons would be the same choice twice. */
+.share-alt { display: flex; justify-content: center; gap: var(--s2); margin-top: var(--s2); }
+.share-alt:empty { display: none; }
+.share-alt button { min-height: 44px; padding: var(--s2) var(--s5); border-radius: var(--r-pill);
     border: 1px solid var(--edge-2); background: transparent; color: var(--text);
     font-size: var(--t-2); font-weight: 600; transition: background .15s; }
 .share-alt button:active { background: var(--card); }
@@ -1469,6 +1473,15 @@ footer .sep { color: var(--faint); margin: 0 8px; }
              changes without the reader having touched anything: it fills in
              when the roster comes back, and again when somebody returns to the
              tab and the group has moved while they were away. -->
+        <details class="opts" id="adjust">
+            <summary>Adjust the search</summary>
+            <div class="filters">
+                <div class="pills" id="bandPills"></div>
+                <div class="pills" id="stopPills"></div>
+                <div class="pills airlines" id="airlinePills"></div>
+            </div>
+        </details>
+
         <div class="tstate" id="tripState" role="status" aria-live="polite"></div>
 
         <!-- The matches come first, and the plan is the one that is selected,
@@ -1486,15 +1499,6 @@ footer .sep { color: var(--faint); margin: 0 8px; }
         <div class="choices hidden" id="choices"></div>
 
         <section id="planView" aria-label="The plan"></section>
-
-        <details class="opts" id="adjust">
-            <summary>Adjust the search</summary>
-            <div class="filters">
-                <div class="pills" id="bandPills"></div>
-                <div class="pills" id="stopPills"></div>
-                <div class="pills airlines" id="airlinePills"></div>
-            </div>
-        </details>
 
         <div class="shifts hidden" id="shifts" aria-live="polite"></div>
         <div class="share" id="shareBox"></div>

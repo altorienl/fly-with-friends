@@ -3816,24 +3816,58 @@ function renderShare() {
      * clipboard becomes the fallback rather than the only route. It is still
      * what desktop gets, and still what an iOS share that is refused falls
      * back to, so nothing that worked before stops working. */
+    /* One button. On a phone the native sheet already holds Messages, WhatsApp
+     * and Mail, so a separate email button beside it offered the same choice
+     * twice. Where there is no sheet -- every laptop -- the two routes appear
+     * under the button instead, which is the only place they are needed. */
     var canShare = typeof navigator.share === 'function';
-    host.innerHTML = '<button class="btn primary wide" id="copyBtn">'
-        + (canShare ? 'Send the trip to the group' : 'Copy the whole trip for the group chat')
-        + '</button>'
-        /* Email is its own route, not a row in a share sheet. A trip is
-         * addressed to people -- it is the thing a group comes back to, and an
-         * inbox keeps it where a chat buries it. It is also the only route that
-         * works the same on a laptop, where there is no share sheet at all. */
-        + '<div class="share-alt"><button id="emailBtn">Email it to everyone</button></div>'
+    host.innerHTML = '<button class="btn primary wide" id="shareBtn">Share the trip</button>'
+        + '<div class="share-alt" id="shareAlt"></div>'
         + '<div class="share-note" id="copyNote"></div>';
 
-    el('emailBtn').addEventListener('click', function () {
+    if (!canShare) showShareOptions();
+
+    el('shareBtn').addEventListener('click', function () {
+        /* The two routes are revealed either way. The native sheet is better on
+         * a phone -- Messages and WhatsApp are in it -- but it is also a thing
+         * you can dismiss, and "copy or email" was asked for by name, so it must
+         * not be reachable only by refusing a sheet first. */
+        showShareOptions();
+        if (!canShare) { doCopy(); return; }
         el('copyNote').textContent = 'Getting the link\u2026';
         el('copyNote').className = 'share-note';
-        /* Saved first for the same reason as the share sheet: an unsaved link is
-         * the self-contained form, and opening one runs a fresh paid search on
-         * each recipient's machine. An email goes to the whole group at once, so
-         * this is the route where that matters most. */
+        /* Saved before the sheet opens: an unsaved link is the self-contained
+         * form, and opening one runs a fresh paid search on each recipient's
+         * device. WebKit keeps the user activation alive long enough for one
+         * write to our own worker. */
+        saveTrip().then(function () {
+            navigator.share({ text: chatBlock() }).then(function () {
+                el('copyNote').textContent = '';
+            }).catch(function (err) {
+                /* Dismissing the sheet is a decision, not a failure. */
+                if (err && err.name === 'AbortError') { el('copyNote').textContent = ''; return; }
+                showShareOptions();
+                doCopy();
+            });
+        });
+    });
+
+    function showShareOptions() {
+        var alt = el('shareAlt');
+        if (!alt || alt.innerHTML) return;
+        alt.innerHTML = '<button id="copyBtn">Copy</button>'
+            + '<button id="emailBtn">Email</button>';
+        el('copyBtn').addEventListener('click', doCopy);
+        el('emailBtn').addEventListener('click', emailIt);
+    }
+
+    function emailIt() {
+        el('copyNote').textContent = 'Getting the link\u2026';
+        el('copyNote').className = 'share-note';
+        /* Saved first for the same reason as the sheet: an unsaved link is the
+         * self-contained form, and opening one runs a fresh paid search on each
+         * recipient's machine. An email goes to the whole group at once, so this
+         * is the route where that matters most. */
         saveTrip().then(function () {
             el('copyNote').textContent = '';
             location.href = emailUrl();
@@ -3841,32 +3875,7 @@ function renderShare() {
             el('copyNote').textContent = 'Could not get a link just now. Try again in a moment.';
             el('copyNote').className = 'share-note';
         });
-    });
-
-    el('copyBtn').addEventListener('click', function () {
-        el('copyNote').textContent = 'Getting the link\u2026';
-        el('copyNote').className = 'share-note';
-        /* The save has to happen first and cannot be skipped: a link without a
-         * saved trip is the self-contained #s= form, and opening one of those
-         * runs a FRESH PAID SEARCH on the recipient's phone. Five friends
-         * opening an unsaved link is five more searches off a 250-a-month
-         * allowance. WebKit keeps user activation alive for five seconds, and
-         * the save is a single write to our own worker, so the share sheet
-         * still opens in the normal case; where it does not, the catch below
-         * puts the text on the clipboard instead. */
-        saveTrip().then(function () {
-            if (!canShare) { doCopy(); return; }
-            var text = chatBlock();
-            navigator.share({ text: text }).then(function () {
-                el('copyNote').textContent = '';
-            }).catch(function (err) {
-                /* Dismissing the sheet is a decision, not a failure, and must
-                 * not leave an error sitting under the button. */
-                if (err && err.name === 'AbortError') { el('copyNote').textContent = ''; return; }
-                doCopy();
-            });
-        });
-    });
+    }
 
     function doCopy() {
         var text = chatBlock();
@@ -4343,7 +4352,16 @@ function aboutSheet() {
 document.addEventListener('click', function (ev) {
     var tgt = ev.target;
     if (tgt.closest('#shiftBtn')) { runShiftScan(); return; }
-    if (tgt.closest('#shiftLock')) return;
+    if (tgt.closest('#shiftLock')) {
+        var lk = el('shifts').querySelector('.share-note');
+        if (!lk) {
+            lk = document.createElement('div');
+            lk.className = 'share-note';
+            el('shifts').appendChild(lk);
+        }
+        lk.textContent = 'Coming soon.';
+        return;
+    }
     if (tgt.closest('#gearBtn')) { settingsSheet(); return; }
     /* Both read their party id back out of the markup, so both are validated
      * against the roster rather than trusted -- data-* attributes are the one
