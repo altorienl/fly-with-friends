@@ -83,6 +83,9 @@ var DATA = null, SET = null, BUDGET = null, C = null, TRIP = null;
 var SHIFTS = {}, shiftBusy = false, shiftErr = null;
 /* Short id for the saved trip, once it has been shared. */
 var TRIP_ID = null, savingTrip = false;
+/* Bumped by every search and by starting a new trip, so a response that belongs
+ * to a trip nobody is looking at any more can be identified and dropped. */
+var searchGen = 0;
 var state = {
     step: 1, leg: 'outbound', recommend: 'value',
     /* One chosen row per leg: a round trip is two decisions, and pricing the
@@ -139,6 +142,74 @@ function loadSet() {
     return s;
 }
 function saveSet() { try { localStorage.setItem(LS, JSON.stringify(SET)); } catch (e) {} }
+
+/* ------------------------------------------------------------ the group
+ *
+ * The same friends fly together more than once -- that is the entire premise --
+ * and the app made you retype all of it every single time: four names, four
+ * seat counts and up to twenty airport codes, before you could ask it anything.
+ * Re-entering the group was the largest single piece of work in the product and
+ * it bought nothing, because the answer only changes with the destination and
+ * the dates.
+ *
+ * Stored separately from settings, because it is not a preference: it is the
+ * cast. Only ever written after a search the group actually ran, so a half
+ * typed card and -- more importantly -- the ?demo=1 example never become
+ * somebody's saved friends. */
+var GROUP_LS = 'fwf_group';
+
+function saveGroup() {
+    /* The example's Alex, Sam, Jo and Ray are not your friends. */
+    if (!DATA || DATA.sample) return;
+    try {
+        var roster = state.q.parties
+            .filter(function (p) { return p.airports.length; })
+            .map(function (p) {
+                return { name: String(p.name || '').slice(0, 22),
+                         seats: Math.max(1, p.seats || 1),
+                         airports: p.airports.slice(0, 5) };
+            });
+        if (roster.length < 2) return;
+        localStorage.setItem(GROUP_LS, JSON.stringify(roster));
+    } catch (e) {}
+}
+
+/* Rebuilt through newParty() so a restored card is the same shape as a fresh
+ * one -- including a new id, because ids are what the plan, the totals and
+ * "which one is you" are keyed on and a stale one would point at nobody. */
+function loadGroup() {
+    var roster = null;
+    try { roster = JSON.parse(localStorage.getItem(GROUP_LS) || 'null'); } catch (e) {}
+    if (!Array.isArray(roster) || roster.length < 2) return null;
+    var out = [];
+    for (var i = 0; i < roster.length && i < APP.maxParties; i++) {
+        var r = roster[i] || {};
+        if (!Array.isArray(r.airports) || !r.airports.length) continue;
+        var p = newParty(i);
+        p.name = typeof r.name === 'string' ? r.name : '';
+        p.seats = Math.min(APP.maxSeats, Math.max(1, r.seats || 1));
+        /* Airports are revalidated on the way in: the closed-airspace list
+         * changes between trips, and a code that has since been retired would
+         * otherwise sit in a card looking perfectly normal. */
+        p.airports = r.airports.filter(function (c) { return !!AIRPORTS.get(c); }).slice(0, 5);
+        if (p.airports.length) out.push(p);
+    }
+    return out.length >= 2 ? out : null;
+}
+
+function forgetGroup() { try { localStorage.removeItem(GROUP_LS); } catch (e) {} }
+function hasGroup() { return !!loadGroup(); }
+
+/* Names the group for the Forget control. Naming them is the point -- it is the
+ * only place the saved roster is visible, so it is how somebody finds out it is
+ * being kept at all -- but eight names of up to 22 characters would wrap a pill
+ * onto four lines, and a wrapped pill reads as a broken pill. Three names and a
+ * count stays on one line at 393px and still says whose group it is. */
+function groupNames(roster) {
+    var names = (roster || []).map(function (p, i) { return partyLabel(p, i); });
+    if (names.length <= 4) return names.join(', ');
+    return names.slice(0, 3).join(', ') + ' and ' + (names.length - 3) + ' more';
+}
 
 function applyTheme() {
     var m = SET.theme;
@@ -332,18 +403,28 @@ function rulesSummary(p) {
         : r.maxStops + (r.maxStops === 1 ? ' stop max' : ' stops max');
 }
 
-/* Initials where a name was given, the party number where it was not -- so the
- * avatar is always something, and becomes meaningful the moment you type. */
+/* Initials where a name was given, and nothing at all where one was not.
+ *
+ * It used to fall back to the party number, which made one traveller two
+ * different things: a digit on the "who's coming" step and a letter on the
+ * results screen the moment a name existed -- and "F1" on the results screen
+ * when it did not, because the call sites there pass { name: partyLabel(...) }
+ * and the synthetic "Flight 1" arrived here looking like something typed. The
+ * colour already identifies the party on the timeline and in the plan, so an
+ * unnamed party is its colour, consistently, on every screen, and the glyph
+ * appears the moment the name does. The index argument is kept: callers pass
+ * it, and it costs nothing to accept. */
 function partyInitials(p, i) {
     var n = (p.name || '').trim();
-    if (!n) return String(i + 1);
+    if (/^Flight \d+$/.test(n)) n = '';
+    if (!n) return '';
     /* One booking often covers two people, so names arrive as "Jim / Gary" or
      * "Mum & Dad". Taking the first character of every whitespace-separated
      * token made the separator an initial and drew avatars reading "J/".
      * Splitting on the separators themselves keeps this right for any script,
      * which a letters-only character class would not. */
     var toks = n.split(/[\s/,&+·|\-–—.]+/).filter(function (w) { return w.length; });
-    if (!toks.length) return String(i + 1);
+    if (!toks.length) return '';
     return toks.slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase();
 }
 function partyColor(i) { return COLORS[i % COLORS.length]; }
@@ -712,7 +793,27 @@ function attachAc(input, drop, onPick, opts) {
     }
 
     function paint() {
-        if (!matches.length) { close(); return; }
+        if (!matches.length) {
+            /* An empty field has nothing to say, so it closes. A field with
+             * something typed in it and no matches used to do exactly the same
+             * thing, which is indistinguishable from the suggestions being
+             * broken -- and the suggestions WERE broken for five of the
+             * twenty-six opening letters, so "nothing appeared" was not a
+             * reliable signal that there was nothing to find. Say it instead.
+             * aria-disabled marks it as an option that cannot be chosen, which
+             * keeps the listbox a listbox. */
+            if (!input.value.trim()) { close(); return; }
+            /* The typed string is deliberately NOT quoted back. The destination
+             * field renders uppercase and holds the value as typed, so echoing
+             * it printed "zzzz" under a field showing ZZZZ -- two spellings of
+             * one thing, which is worse than not repeating it. */
+            drop.innerHTML = '<div class="ac-none" role="option" aria-disabled="true">'
+                + 'No airport matches that.</div>';
+            drop.classList.add('open');
+            input.setAttribute('aria-expanded', 'true');
+            input.removeAttribute('aria-activedescendant');
+            return;
+        }
         drop.innerHTML = matches.map(function (a, i) {
             return '<button type="button" class="ac-item' + (i === idx ? ' active' : '')
                 + (a.closed ? ' closed' : '') + (a.metro ? ' metro' : '')
@@ -729,9 +830,20 @@ function attachAc(input, drop, onPick, opts) {
         if (idx >= 0) input.setAttribute('aria-activedescendant', uid + '-' + idx);
     }
 
+    /* search() ranks metro entries first and then applies the limit, so
+     * dropping them afterwards could empty a list that was never short: on the
+     * destination field, which takes no metros, the single letters A, I, N, O
+     * and S each fetched seven metros and then showed NOTHING -- a dead field
+     * on the first keystroke of Austin, Atlanta, Istanbul, New York, Oakland,
+     * Orlando, Seattle, San Diego, San Francisco. Twenty-two of the twenty-six
+     * letters were returning a short list. Over-fetch by the number of metros
+     * that could possibly be removed, filter, then trim to the real limit. */
+    var AC_LIMIT = 7;
     function refresh() {
-        matches = AIRPORTS.search(input.value, 7);
+        matches = AIRPORTS.search(input.value,
+            opts.noMetros ? AC_LIMIT + AIRPORTS.METROS.length : AC_LIMIT);
         if (opts.noMetros) matches = matches.filter(function (a) { return !a.metro; });
+        matches = matches.slice(0, AC_LIMIT);
         idx = matches.length ? 0 : -1;
         paint();
     }
@@ -780,11 +892,16 @@ function showStep(n) {
      * shared link has no previous step and reads as forward. */
     document.documentElement.classList.toggle('stepping-back', n < state.step);
     state.step = n;
-    [1, 2, 3, 4].forEach(function (i) { el('s' + i).classList.toggle('hidden', i !== n); });
+    /* 5 is the searching screen. It is a step rather than an overlay because it
+     * replaces step 3 completely: leaving the half-filled form visible behind a
+     * dimmed button was the thing that made the wait read as nothing happening. */
+    [1, 2, 3, 4, 5].forEach(function (i) { el('s' + i).classList.toggle('hidden', i !== n); });
     el('s' + n).focus({ preventScroll: true });
     var rail = el('rail');
-    rail.classList.toggle('hidden', n === 4);
-    if (n !== 4) {
+    /* The rail counts the three questions. Once they are answered -- searching,
+     * or looking at the answer -- it has nothing left to say. */
+    rail.classList.toggle('hidden', n >= 4);
+    if (n < 4) {
         /* The segments are in the markup and only get their class toggled here.
          * Rewriting the innerHTML made each segment arrive already wearing
          * .done, and a transition cannot run on an element created this frame
@@ -799,7 +916,26 @@ function showStep(n) {
         for (var i = 0; i < segs.length; i++) segs[i].classList.toggle('done', i < n);
         rail.querySelector('.lbl').textContent = STEPS[n - 1];
     }
+    /* The footer depends on which step we are on, and several step changes
+     * (to2, back2, back3) never reach render(), so it is updated from here as
+     * well -- otherwise it shows the previous step's answer. */
+    renderFooter();
     window.scrollTo(0, 0);
+}
+
+/* "New trip" on the first screen of a brand new trip does nothing at all, and a
+ * control that does nothing, on the one screen a first-time user actually
+ * reads, teaches them that taps in this app sometimes do not work. While a
+ * search is running it is worse than inert: it abandons searches that have
+ * already been paid for. So it is shown only when there is a trip to leave. */
+function renderFooter() {
+    var nb = el('newBtn');
+    if (!nb) return;
+    var leavable = !state.busy && (!!DATA || state.step > 1);
+    nb.classList.toggle('hidden', !leavable);
+    /* The interpunct belongs to the pair, so it leaves with the second item. */
+    var sep = nb.previousElementSibling;
+    if (sep && sep.classList.contains('sep')) sep.classList.toggle('hidden', !leavable);
 }
 
 /* ------------------------------------------------------------ parties */
@@ -812,10 +948,31 @@ function renderParties() {
      * exist, so replacing the query wholesale is unaffected. */
     readNames();
 
-    el('parties').innerHTML = state.q.parties.map(function (p, i) {
+    /* The group as a group. The screen that defines the match never said what
+     * had been assembled -- no headcount, no city count -- so this is the one
+     * line that was added rather than removed.
+     *
+     * It counts the same thing validate() counts: a party with no airport, or
+     * with nothing but closed ones, cannot be flown and is not a city yet. A
+     * row holding only KBP would otherwise let this line promise three cities
+     * for a group the search is about to refuse. */
+    var placed = state.q.parties.filter(function (p) {
+        return p.airports.filter(function (c) {
+            var a = AIRPORTS.get(c); return a && !a.closed;
+        }).length;
+    });
+    var heads = placed.reduce(function (n, p) { return n + Math.max(1, p.seats || 1); }, 0);
+    var whoLine = !placed.length ? ''
+        : placed.length < 2
+            ? '<p class="party-who">One city so far. It takes two to land together.</p>'
+            : '<p class="party-who">' + heads + (heads === 1 ? ' person' : ' people')
+                + ' travelling from ' + placed.length + ' cities</p>';
+
+    el('parties').innerHTML = whoLine + state.q.parties.map(function (p, i) {
         var chips = p.airports.map(function (code) {
             var a = AIRPORTS.get(code);
-            return '<span class="chip' + (a && a.closed ? ' closed' : '') + '">' + esc(code)
+            return '<span class="chip' + (a && a.closed ? ' closed' : '') + '">'
+                + '<span class="code">' + esc(code) + '</span>'
                 + '<span class="city">' + esc(a ? a.city : 'unknown') + '</span>'
                 + '<button data-rmair="' + esc(code) + '" aria-label="Remove ' + esc(code) + '">&times;</button></span>';
         }).join('');
@@ -827,10 +984,29 @@ function renderParties() {
                 + esc(closedOriginNote(a)) + '</div>';
         }).join('');
 
+        var label = esc(partyLabel(p, i));
+        var has = p.airports.length;
+        var n = Math.max(1, p.seats || 1);
+
+        /* Seats before an airport mean nothing, so an untouched row does not
+         * carry the control at all. At one seat it is a single word; the minus
+         * only exists once there is a seat to remove, and both buttons announce
+         * the current count because the control is re-rendered on every tap and
+         * the live region would otherwise be a brand-new node each time. */
+        var seats = !has ? '' : '<div class="stepper" role="group" aria-label="Seats for ' + label + '">'
+            + (n > 1
+                ? '<button data-seats="-1" aria-label="Remove a seat. ' + n + ' seats for ' + label + '">&minus;</button>'
+                    + '<output class="n" aria-live="polite">' + n + ' seats</output>'
+                    + '<button data-seats="1" aria-label="Add a seat. ' + n + ' seats for ' + label + '"'
+                    + (n >= APP.maxSeats ? ' disabled' : '') + '>+</button>'
+                : '<button class="seat-add" data-seats="1" aria-label="One seat. Add a seat for '
+                    + label + '">+ seat</button>')
+            + '</div>';
+
         return '<div class="party" data-pid="' + esc(p.id) + '">'
             + '<div class="party-top">'
             + '<div class="ava" aria-hidden="true" style="background:' + partyColor(i) + '">' + esc(partyInitials(p, i)) + '</div>'
-            + '<input class="inp sans" data-f="name" placeholder="Name (optional)" value="' + esc(p.name)
+            + '<input class="party-name" data-f="name" placeholder="Name" value="' + esc(p.name)
             + '" maxlength="22" aria-label="Name for departure city ' + (i + 1) + '">'
             + '<div class="stepper" role="group" aria-label="Seats for ' + esc(partyLabel(p, i)) + '">'
             + '<button data-seats="-1" aria-label="One fewer seat for ' + esc(partyLabel(p, i)) + '"'
@@ -840,27 +1016,47 @@ function renderParties() {
             + (p.seats >= APP.maxSeats ? ' disabled' : '') + '>+</button>'
             + '</div>'
             + (state.q.parties.length > 2
-                ? '<button class="party-x" data-rmparty aria-label="Remove ' + esc(partyLabel(p, i)) + '">&times;</button>' : '')
+                ? '<button class="party-x" data-rmparty aria-label="Remove ' + label + '">&times;</button>' : '')
             + '</div>'
-            + '<span class="k">Flying from</span>'
-            + '<div class="chips" style="margin-top:8px">' + chips
-            + '<button class="add-air" data-addair aria-label="'
-            + (p.airports.length ? 'Add another airport for ' : 'Pick an airport for ') + esc(partyLabel(p, i))
-            + '">' + (p.airports.length ? '+ another airport' : '+ pick airport') + '</button>'
+            + '<div class="party-air">'
+            + '<div class="chips">' + chips
+            + '<button class="add-air' + (has ? ' more' : '') + '" data-addair aria-label="'
+            + (has ? 'Add another airport for ' : 'Pick a departure airport for ') + label
+            + '">' + (has ? '+ airport' : '+ Add departure airport') + '</button>'
             + '</div>'
-            + '<div class="field hidden" data-airfield style="margin:10px 0 0">'
+            + seats
+            + '</div>'
+            + '<div class="field hidden party-airfield" data-airfield>'
             + '<input class="inp" data-airinput placeholder="Airport or city" autocapitalize="characters"'
-            + ' autocomplete="off" aria-label="Add an airport for ' + esc(partyLabel(p, i)) + '">'
+            + ' autocomplete="off" aria-label="Add an airport for ' + label + '">'
             + '<div class="ac" data-airac></div></div>'
             + closedNote
             + '</div>';
     }).join('');
 
     /* Autocomplete is attached per card after each rebuild. */
-    Array.prototype.forEach.call(document.querySelectorAll('.party'), function (card) {
+    Array.prototype.forEach.call(document.querySelectorAll('.party'), function (card, ci) {
         var pid = card.getAttribute('data-pid');
         var input = card.querySelector('[data-airinput]');
         var drop = card.querySelector('[data-airac]');
+
+        /* The avatar used to say the party number, so there was never anything
+         * for it to catch up with. Now that it says the initials and nothing
+         * else, it has to track the field as it is typed: readNames() only runs
+         * on the next render, so without this the disc stayed a blank ring for
+         * the whole session until some unrelated action happened to rebuild the
+         * list. Writing straight to the one node keeps the keyboard up and the
+         * caret where it is, which a re-render would not. */
+        var nameInput = card.querySelector('[data-f="name"]');
+        var ava = card.querySelector('.ava');
+        if (nameInput && ava) {
+            nameInput.addEventListener('input', function () {
+                var p = party(pid);
+                if (!p) return;
+                p.name = nameInput.value;
+                ava.textContent = partyInitials(p, ci);
+            });
+        }
         attachAc(input, drop, function (a) {
             /* readNames happens inside renderParties now, but the party lookup
              * below needs current state either way. */
@@ -943,12 +1139,35 @@ function doSearch() {
     state.q.parties = state.q.parties.filter(function (p) { return p.airports.length; });
     renderParties();
 
+    /* Starting a new trip while a search is in flight used to be a trap: the
+     * request kept running, came back, and dragged you onto the results of the
+     * trip you had just cleared -- computed against a party list that no longer
+     * existed, so every traveller came back "no flights found". The response
+     * cannot be recalled and the search is already paid for, but it can be
+     * ignored, which is what this generation counter is for. */
+    var gen = ++searchGen;
+    var current = function () { return gen === searchGen; };
+
     state.error = null; state.busy = true; render();
     writeHash();
+    /* Hand the wait its own screen. Everything the search is about is already
+     * known here -- the cities, the airports, the destination, the number of
+     * searches -- so there is no reason for the seconds it takes to look like
+     * nothing is happening. */
+    startSearching();
 
     var tv = travelers().filter(function (t) { return t.origins.length; });
+    /* fetch has no timeout of its own, so a connection that opens and then
+     * stalls -- the normal failure on a phone moving between cells -- left the
+     * app waiting for the rest of the morning. 45s is deliberately generous:
+     * sixteen upstream searches for eight people round trip is slow but real,
+     * and cutting a live search short is worse than waiting. */
+    var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    var killer = ctl ? setTimeout(function () { ctl.abort(); }, 45000) : null;
+    var clearKiller = function () { if (killer) { clearTimeout(killer); killer = null; } };
     return fetch(API + '/search', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
+        signal: ctl ? ctl.signal : undefined,
         body: JSON.stringify({
             dest: [state.q.dest], depart: state.q.dep, ret: state.q.ret || null,
             travelers: tv.map(function (t) {
@@ -961,23 +1180,53 @@ function doSearch() {
             })
         })
     }).then(function (r) {
+        clearKiller();
         return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
+        /* The budget figure is true regardless of who is still waiting for it,
+         * so it is taken before the abandonment check -- the allowance was spent
+         * either way and the notices should say so. */
+        if (res.body.budget) {
+            BUDGET = res.body.budget;
+            BUDGET.low = BUDGET.used > BUDGET.limit * 0.8;
+            BUDGET.exhausted = BUDGET.used >= BUDGET.limit;
+        }
+        if (!current()) return;
         state.busy = false;
-        if (res.body.budget) setBudget(res.body.budget);
-        if (!res.ok) { state.error = res.body.error || 'Search failed.'; render(); return; }
+        stopSearching();
+        /* A failure has to put the form back. The error notice lives at the top
+         * of the page, and leaving it on the searching screen would have printed
+         * it above a list of people who are no longer being searched for. */
+        if (!res.ok) {
+            state.error = res.body.error || 'Search failed.';
+            showStep(3); render();
+            el('nErr').scrollIntoView({ block: 'center', behavior: 'smooth' });
+            return;
+        }
         DATA = res.body;
         SHIFTS = {}; shiftErr = null; TRIP_ID = null;
         thReset(); state.leg = 'outbound';
+        /* Remember who went, now that a real search has confirmed they are a
+         * real group. Written after DATA is set so saveGroup can tell the
+         * example apart from a search. */
+        saveGroup();
         showStep(4); render();
     }).catch(function (e) {
+        clearKiller();
+        if (!current()) return;
         state.busy = false;
-        /* The reader is not debugging a fetch. The browser's own wording went
-         * straight to the screen here -- "Failed to fetch" is not a sentence,
-         * and "the search service" is a thing only this codebase knows about. */
-        if (window.console) console.error('search failed', e);
-        state.error = 'Could not search just now. Check your connection and try again.';
-        render();
+        stopSearching();
+        /* An abort is not "the service is down", and more importantly it is not
+         * free: the searches were already sent upstream and counted against the
+         * month, so telling somebody to simply try again would quietly spend the
+         * allowance twice for one trip. Say what happened and let them choose. */
+        state.error = (e && e.name === 'AbortError')
+            ? 'The search took longer than 45 seconds and was given up on. '
+              + 'It may still have counted against this month’s searches, '
+              + 'so check your connection before trying it again.'
+            : 'Could not reach the search service: ' + ((e && e.message) || 'unknown error');
+        showStep(3); render();
+        el('nErr').scrollIntoView({ block: 'center', behavior: 'smooth' });
     });
 }
 
@@ -1008,6 +1257,91 @@ function loadDemo() {
             state.error = 'Could not load the example. Try reloading the page.';
             render();
         });
+}
+
+/* --------------------------------------------------------- searching */
+
+/* The wait is the one moment this app is doing something Google Flights cannot,
+ * and it was the one moment the app said nothing: the button dimmed and the
+ * half-filled form stayed on screen. Everything below exists to make those
+ * seconds read as the group converging, and to do it without claiming a single
+ * thing that is not measured. */
+var sxTimer = null, sxStart = 0;
+
+/* A search is billed per party per leg -- four cities round trip is eight, and
+ * eight people round trip is sixteen. That is the honest shape of the wait and
+ * the reason it is not instant, so it is the number to put on the screen. */
+function searchCount() {
+    var n = travelers().filter(function (t) { return t.origins.length; }).length;
+    return n * (hasReturn() ? 2 : 1);
+}
+
+function sxTick() {
+    var foot = el('sxFoot');
+    if (!foot || state.step !== 5) return;
+    var secs = Math.max(0, Math.round((Date.now() - sxStart) / 1000));
+    var n = searchCount();
+    /* The clock is aria-hidden and the two spans are separated by real
+     * whitespace. Without the first, a polite live region re-announces the
+     * whole foot once a second, which is not reassurance, it is a barrier.
+     * Without the second, the computed text ran together as "6 flight
+     * searches0s". What a screen reader should hear is the count once, and
+     * then the slow note if and when it appears. */
+    foot.innerHTML = '<span>' + n + (n === 1 ? ' flight search' : ' flight searches')
+        + '</span> <span class="sx-el" aria-hidden="true">' + secs + 's</span>'
+        + (secs >= 12
+            ? '<div class="sx-slow">Still going. Every city is searched for both legs, '
+              + 'and a slow connection makes that take a while.</div>'
+            : '');
+}
+
+function renderSearching() {
+    var a = AIRPORTS.get(state.q.dest);
+    el('sxDest').textContent = a ? a.city : (state.q.dest || '');
+    el('sxCode').textContent = a ? a.code : '';
+    el('sxWhen').textContent = state.q.dep
+        ? prettyRange(state.q.dep, state.q.ret) + (hasReturn() ? '' : ' · one way')
+        : '';
+
+    var ids = state.q.parties.map(function (p) { return p.id; });
+    el('sxRows').innerHTML = travelers()
+        .filter(function (t) { return t.origins.length; })
+        .map(function (t, i) {
+            var k = ids.indexOf(t.id), p = state.q.parties[k] || {};
+            /* Names are optional and most people never type one, so the common
+             * case must read well without them. partyLabel() would say
+             * "Flight 1", which on a screen about cities converging is worse
+             * than the city sitting right underneath it -- so an unnamed row is
+             * headed by where it is leaving from, which is also how step 3 now
+             * reads it back ("SFO  San Francisco"). */
+            var first = AIRPORTS.get(t.origins[0]);
+            var heading = (p.name || '').trim()
+                || (first ? first.city : t.origins[0]);
+            return '<div class="sx-row">'
+                + '<div class="ava" aria-hidden="true" style="background:' + partyColor(k) + '">'
+                + esc(partyInitials(p, k)) + '</div>'
+                + '<div class="sx-main"><div class="sx-name">' + esc(heading) + '</div>'
+                + '<div class="sx-from">' + esc(t.origins.join(' · '))
+                + (t.seats > 1 ? ' · ' + t.seats + ' seats' : '') + '</div></div>'
+                /* Staggered so the marks read as a sequence of searches rather
+                 * than one synchronised blink, which looks like a progress bar
+                 * and would be promising progress we cannot see. */
+                + '<div class="sx-wait" style="animation-delay:'
+                + (i * 0.13).toFixed(2) + 's"></div></div>';
+        }).join('');
+    sxTick();
+}
+
+function startSearching() {
+    sxStart = Date.now();
+    showStep(5);
+    renderSearching();
+    if (sxTimer) clearInterval(sxTimer);
+    sxTimer = setInterval(sxTick, 1000);
+}
+
+function stopSearching() {
+    if (sxTimer) { clearInterval(sxTimer); sxTimer = null; }
 }
 
 /* ---------------------------------------------------------------- hash */
@@ -1645,6 +1979,7 @@ function render() {
     el('go').setAttribute('aria-disabled', state.busy ? 'true' : 'false');
     el('go').setAttribute('aria-busy', state.busy ? 'true' : 'false');
     el('go').classList.toggle('busy', state.busy);
+    renderFooter();
     if (state.step !== 4) return;
     if (!C) { showStep(3); return; }
     /* The selected match is what the plan is printed from, so its quoted total
@@ -2988,13 +3323,40 @@ function renderShifts() {
 function renderShare() {
     var host = el('shareBox');
     if (!TRIP) { host.innerHTML = ''; return; }
-    host.innerHTML = '<button class="btn primary wide" id="copyBtn">Copy the whole trip for the group chat</button>'
-        + '<div class="share-note" id="copyNote"></div>';
+    /* The trip is going to a group chat, and on a phone the native sheet puts
+     * Messages, WhatsApp and Mail one tap away. Copying to the clipboard and
+     * then switching apps to paste is three steps to do the same thing, so the
+     * clipboard becomes the fallback rather than the only route. It is still
+     * what desktop gets, and still what an iOS share that is refused falls
+     * back to, so nothing that worked before stops working. */
+    var canShare = typeof navigator.share === 'function';
+    host.innerHTML = '<button class="btn primary wide" id="copyBtn">'
+        + (canShare ? 'Send the trip to the group' : 'Copy the whole trip for the group chat')
+        + '</button><div class="share-note" id="copyNote"></div>';
 
     el('copyBtn').addEventListener('click', function () {
-        /* What it was doing, not why. The reader did not ask about read costs. */
         el('copyNote').textContent = 'Getting the link\u2026';
-        saveTrip().then(function () { doCopy(); });
+        el('copyNote').className = 'share-note';
+        /* The save has to happen first and cannot be skipped: a link without a
+         * saved trip is the self-contained #s= form, and opening one of those
+         * runs a FRESH PAID SEARCH on the recipient's phone. Five friends
+         * opening an unsaved link is five more searches off a 250-a-month
+         * allowance. WebKit keeps user activation alive for five seconds, and
+         * the save is a single write to our own worker, so the share sheet
+         * still opens in the normal case; where it does not, the catch below
+         * puts the text on the clipboard instead. */
+        saveTrip().then(function () {
+            if (!canShare) { doCopy(); return; }
+            var text = chatBlock();
+            navigator.share({ text: text }).then(function () {
+                el('copyNote').textContent = '';
+            }).catch(function (err) {
+                /* Dismissing the sheet is a decision, not a failure, and must
+                 * not leave an error sitting under the button. */
+                if (err && err.name === 'AbortError') { el('copyNote').textContent = ''; return; }
+                doCopy();
+            });
+        });
     });
 
     function doCopy() {
@@ -3304,6 +3666,18 @@ function settingsSheet() {
         + pill(SET.priceDisplay === 'fare', 'priceDisplay', 'fare', 'Fares only')
         + '</div></div>'
 
+        /* Only shown when there is something to forget, so a first run is not
+         * offered a button that would do nothing. Naming the people is the
+         * point: this is the one place the saved group is visible as a list,
+         * which is how somebody discovers it is being kept at all. */
+        + (hasGroup()
+            ? '<div class="grp"><span class="k">Your group</span><div class="pills">'
+              + '<button class="pill" data-forgetgroup="1">Forget '
+              + esc(groupNames(loadGroup())) + '</button></div>'
+              + '<div class="tip">Kept so a new trip starts with the same people. '
+              + 'Forgetting them empties the cards; nothing else changes.</div></div>'
+            : '')
+
         + '<div class="grp"><span class="k">Time</span><div class="pills">'
         + pill(!SET.time24, 'time24', '12', '1:40pm') + pill(SET.time24, 'time24', '24', '13:40')
         + '</div></div>'
@@ -3358,6 +3732,17 @@ document.addEventListener('click', function (ev) {
     if (tgt.closest('#gearBtn')) { settingsSheet(); return; }
     if (tgt.closest('#aboutBtn')) { aboutSheet(); return; }
     if (tgt.id === 'sheetClose' || tgt.id === 'scrim') { closeSheet(); return; }
+    if (tgt.closest && tgt.closest('[data-forgetgroup]')) {
+        forgetGroup();
+        /* Clearing the saved roster has to clear the cards too, or Settings
+         * would say the group is forgotten while the group is still on screen
+         * and about to be saved again by the next search. */
+        state.q.parties = blankQuery().parties;
+        if (SET.meId) { SET.meId = null; saveSet(); }
+        renderParties(); renderGear();
+        settingsSheet();
+        return;
+    }
     /* #installX and #installAdd are handled by installPrompt(), which owns the
      * card's dismissal animation and its snooze window. */
 
@@ -3497,68 +3882,155 @@ function weekdayShort(isoStr) {
 
 /* ------------------------------------------------------ range picker */
 
-var calOpen = false, calCursor = null, calPick = null;
+var calOpen = false, calCursor = null, calView = 'days';
 
 function calMonths() {
     return window.matchMedia && window.matchMedia('(min-width: 620px)').matches ? 2 : 1;
 }
 
-function monthGrid(y, m) {
-    var first = new Date(Date.UTC(y, m, 1));
-    var lead = first.getUTCDay();
+/* Where the calendar opens. The month holding the departure if there is one,
+ * otherwise this month -- unless this month has less than a week of bookable
+ * days left, in which case the next one is the honest answer. Opened on the
+ * 30th, "October" is two days and "November" is a month, and nobody planning a
+ * trip with three friends is flying tomorrow. The tail of this month is one
+ * tap back, because the chevron that used to be a dead grey ghost is live. */
+function calHome() {
+    var p = ymd(state.q.dep);
+    if (p) return { y: p.y, m: p.m, d: 1 };
+    var t = ymd(todayISO());
+    var left = new Date(Date.UTC(t.y, t.m + 1, 0)).getUTCDate() - t.d + 1;
+    if (left >= 7) return { y: t.y, m: t.m, d: 1 };
+    var m = t.m + 1;
+    return { y: t.y + Math.floor(m / 12), m: m % 12, d: 1 };
+}
+
+/* `withLabel` is false when the header already names the month, which on a
+ * phone is always. It printed "Oct 2026" here AND in .cal-title, 88px apart. */
+function monthGrid(y, m, withLabel) {
+    var lead = new Date(Date.UTC(y, m, 1)).getUTCDay();
     var days = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
-    var today = todayISO();
+    var today = todayISO(), td = ymd(today);
     var dep = state.q.dep, ret = state.q.ret;
+    /* A band needs two ends. With only a departure picked, `start` on its own
+     * painted a half-band running out of the side of a lone circle, which read
+     * as a clipping fault rather than a range. */
+    var band = !!(dep && ret);
+    var firstISO = iso(y, m, 1), lastISO = iso(y, m, days);
+    var runsIn = band && dep < firstISO && ret >= firstISO;
+    var runsOut = band && ret > lastISO && dep <= lastISO;
+
+    /* Weeks wholly behind us are not drawn at all. On the 30th the old grid
+     * spent five rows on 29 unbookable numbers in order to offer two live
+     * days; it now opens on the week we are actually in. The empty cells
+     * inside that week stay, because they are what keeps the 30th under F. */
+    var from = 0;
+    if (td.y === y && td.m === m) from = Math.floor((lead + td.d - 1) / 7) * 7;
+    var total = Math.ceil((lead + days) / 7) * 7;
 
     var cells = '';
-    for (var i = 0; i < lead; i++) cells += '<span class="cal-cell"></span>';
-    for (var d = 1; d <= days; d++) {
+    for (var i = from; i < total; i++) {
+        var d = i - lead + 1;
+        if (d < 1 || d > days) {
+            /* Padding outside the month carries the band, so a range that
+             * continues past the month edge runs off the edge of the grid
+             * instead of stopping square in the middle of a row. */
+            cells += '<span class="cal-cell' + ((d < 1 ? runsIn : runsOut) ? ' mid' : '') + '"></span>';
+            continue;
+        }
         var v = iso(y, m, d);
-        var isDep = v === dep, isRet = !!ret && v === ret;
-        var inRange = !!(dep && ret && v > dep && v < ret);
-        var cls = (isDep ? ' start' : '') + (isRet ? ' end' : '') + (inRange ? ' mid' : '');
-        var past = v < today;
-        cells += '<span class="cal-cell' + cls + '">'
+        /* A past day is drawn as nothing, not as a greyed-out number. 29
+         * tombstones made the month read "mostly broken"; nothing makes it
+         * read "starts here". */
+        if (v < today) { cells += '<span class="cal-cell"></span>'; continue; }
+        var isDep = v === dep, isRet = band && v === ret;
+        var inRange = band && v > dep && v < ret;
+        cells += '<span class="cal-cell' + (band && isDep ? ' start' : '') + (isRet ? ' end' : '') + (inRange ? ' mid' : '') + '">'
             + '<button class="cal-d' + (isDep || isRet ? ' on' : '') + (v === today ? ' today' : '')
-            + '" data-day="' + v + '"' + (past ? ' disabled' : '')
-            + ' aria-label="' + weekdayShort(v) + ' ' + prettyDate(v, true) + '">' + d + '</button></span>';
+            + '" data-day="' + v + '"' + (v === today ? ' aria-current="date"' : '')
+            + ' aria-label="' + weekdayShort(v) + ' ' + prettyDate(v, true)
+            + (isDep ? ', flying out' : isRet ? ', coming back' : inRange ? ', in your trip' : '')
+            + '">' + d + '</button></span>';
     }
-    return '<div><div class="cal-mon">' + MON[m] + ' ' + y + '</div>'
-        + '<div class="cal-dow">' + DOW.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>'
+    /* The column letters are hidden from assistive tech: "S M T W T F S" is
+     * noise when every day already announces its own weekday. */
+    return '<div>' + (withLabel ? '<div class="cal-mon">' + MON[m] + ' ' + y + '</div>' : '')
+        + '<div class="cal-dow" aria-hidden="true">' + DOW.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>'
         + '<div class="cal-grid">' + cells + '</div></div>';
 }
 
 function renderCal() {
     var host = el('cal');
     if (!calOpen) { host.className = 'cal hidden'; el('dateBtn').setAttribute('aria-expanded', 'false'); return; }
+    var t = ymd(todayISO());
     /* The calendar can be opened from more than one place, so the cursor is
-     * established here rather than relying on whoever opened it. */
-    if (!calCursor) calCursor = ymd(state.q.dep) || ymd(todayISO());
+     * established here rather than relying on whoever opened it. A shared link
+     * can carry dates that have since passed, so it is also clamped forward:
+     * there is nothing bookable behind today, and a month drawn entirely of
+     * empty cells would look like a fault. */
+    if (!calCursor) calCursor = calHome();
+    if (calCursor.y < t.y || (calCursor.y === t.y && calCursor.m < t.m)) calCursor = { y: t.y, m: t.m, d: 1 };
     host.className = 'cal';
     el('dateBtn').setAttribute('aria-expanded', 'true');
 
-    var n = calMonths();
-    var base = calCursor || ymd(state.q.dep) || ymd(todayISO());
-    var months = '';
-    for (var i = 0; i < n; i++) {
-        var mm = base.m + i, yy = base.y + Math.floor(mm / 12);
-        months += monthGrid(yy, ((mm % 12) + 12) % 12);
+    var n = calMonths(), base = calCursor, body, title, step, backOff;
+
+    if (calView === 'months') {
+        /* The chevrons step a year here. +-12 on the month index is the same
+         * arithmetic the day view already does, so the handler is unchanged. */
+        step = 12; title = String(base.y); backOff = base.y === t.y;
+        var dp = ymd(state.q.dep), mos = '';
+        for (var k = 0; k < 12; k++) {
+            var sel = !!dp && dp.y === base.y && dp.m === k;
+            mos += '<button class="cal-mo' + (sel ? ' sel' : k === base.m ? ' on' : '') + '" data-mo="' + k + '"'
+                + (base.y === t.y && k < t.m ? ' disabled' : '')
+                + ' aria-label="' + MON[k] + ' ' + base.y + '">' + MON[k] + '</button>';
+        }
+        body = '<div class="cal-mgrid">' + mos + '</div>';
+    } else {
+        step = 1; title = n === 2 ? String(base.y) : MON[base.m] + ' ' + base.y;
+        backOff = base.y === t.y && base.m === t.m;
+        var months = '';
+        for (var i = 0; i < n; i++) {
+            var mm = base.m + i;
+            months += monthGrid(base.y + Math.floor(mm / 12), ((mm % 12) + 12) % 12, n === 2);
+        }
+        body = '<div class="cal-months' + (n === 2 ? ' two' : '') + '">' + months + '</div>';
     }
 
-    var tISO = ymd(todayISO());
-    var atStart = base.y === tISO.y && base.m === tISO.m;
-    var hint = !state.q.dep ? 'Pick the day you fly out'
-        : !state.q.ret ? 'Now pick the day you come back, or leave it for a one-way'
-        : prettyRange(state.q.dep, state.q.ret);
+    /* Two states, not three. The third used to repeat the range that the
+     * trigger button directly above already shows, and the second repeated the
+     * one-way advice that #s2sub already gives -- at 393px that spilled onto
+     * three lines and pushed the footer taller than the row of actions. */
+    var hint = calView === 'months' ? ''
+        : !state.q.dep ? 'Pick the day you fly out'
+        : !state.q.ret ? 'Now pick the return' : '';
 
     host.innerHTML = '<div class="cal-head">'
-        + '<button class="cal-nav" data-cal="-1" aria-label="Previous month"' + (atStart ? ' disabled' : '') + '>&#8249;</button>'
-        + '<span class="cal-title">' + (n === 2 ? 'Choose your dates' : MON[base.m] + ' ' + base.y) + '</span>'
-        + '<button class="cal-nav" data-cal="1" aria-label="Next month">&#8250;</button></div>'
-        + '<div class="cal-months' + (n === 2 ? ' two' : '') + '">' + months + '</div>'
-        + '<div class="cal-foot"><span class="cal-hint">' + esc(hint) + '</span>'
-        + '<span class="cal-acts"><button class="cal-clear" data-cal="clear">Clear</button>'
+        + '<button class="cal-nav" data-cal="' + (-step) + '" aria-label="Previous ' + (step === 12 ? 'year' : 'month') + '"'
+        + (backOff ? ' disabled' : '') + '>&#8249;</button>'
+        + '<button class="cal-title" data-cal="view" aria-expanded="' + (calView === 'months') + '" aria-label="'
+        + esc(calView === 'months' ? base.y + ', back to the days' : MON[base.m] + ' ' + base.y + ', jump to another month') + '">'
+        + esc(title) + '<span class="caret" aria-hidden="true">' + (calView === 'months' ? '&#9652;' : '&#9662;') + '</span></button>'
+        + '<button class="cal-nav" data-cal="' + step + '" aria-label="Next ' + (step === 12 ? 'year' : 'month') + '">&#8250;</button></div>'
+        + body
+        + '<div class="cal-foot">' + (hint ? '<span class="cal-hint">' + esc(hint) + '</span>' : '')
+        + '<span class="cal-acts">' + (state.q.dep ? '<button class="cal-clear" data-cal="clear">Clear</button>' : '')
         + '<button class="btn primary" data-cal="done">Done</button></span></div>';
+}
+
+/* Arrow-key navigation has to be able to cross a month edge, which means
+ * moving the cursor and re-rendering, so focus is restored by date rather
+ * than held on an element that no longer exists. */
+function calFocusDay(from, delta) {
+    var p = ymd(from);
+    if (!p) return;
+    var dt = new Date(Date.UTC(p.y, p.m, p.d + delta));
+    var want = iso(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate());
+    if (want < todayISO()) want = todayISO();
+    var q = ymd(want);
+    if (q.y !== calCursor.y || q.m !== calCursor.m) { calCursor = { y: q.y, m: q.m, d: 1 }; renderCal(); }
+    var b = el('cal').querySelector('[data-day="' + want + '"]');
+    if (b) b.focus();
 }
 
 function setDateLabel() {
@@ -3580,7 +4052,14 @@ function pickDay(v) {
     }
     el('dep').value = state.q.dep; el('ret').value = state.q.ret;
     thReset();
+    /* renderCal() destroys the button that was just activated, so a keyboard
+     * user was dropped back to <body> after every pick. Put focus on the same
+     * date again. A pointer tap shows no ring, because the rule is
+     * :focus-visible. */
+    var hadFocus = !!(document.activeElement && document.activeElement.hasAttribute
+        && document.activeElement.hasAttribute('data-day'));
     setDateLabel(); renderCal();
+    calRefocus('[data-day="' + v + '"]', hadFocus);
 }
 
 /* A date input with no value opens at `min`, so pointing the return's min at
@@ -3657,10 +4136,20 @@ if (/[?&]unlock=dates\b/.test(location.search)) {
 /* The mark doubles as the home button. Same action as "New trip", which was
  * only reachable by scrolling to the footer. */
 if (el('homeBtn')) el('homeBtn').addEventListener('click', function () { newTrip(); });
+/* A new trip is a new destination and new dates, not new friends. Keeping the
+ * group is the whole reason the roster is saved -- clearing it here would mean
+ * the app remembered your people right up until you asked it for another trip.
+ * Forgetting them is a separate, deliberate act, in Settings. */
 function newTrip() {
-    state.q = blankQuery(); DATA = null; state.error = null; thReset();
-    /* The match key outlives a filter change on purpose, but not a new trip. */
-    state.match = null;
+    /* Orphans any search still in flight so it cannot come back and take over
+     * the screen, and stops the clock on the searching view. */
+    searchGen++;
+    state.busy = false;
+    stopSearching();
+    var keep = loadGroup();
+    state.q = blankQuery();
+    if (keep) state.q.parties = keep;
+    DATA = null; state.error = null; thReset();
     history.replaceState(null, '', location.pathname);
     fillForm(); renderParties(); showStep(1); render();
 }
@@ -3675,28 +4164,70 @@ el('addParty').addEventListener('click', function () {
 });
 el('dateBtn').addEventListener('click', function () {
     calOpen = !calOpen;
-    calCursor = ymd(state.q.dep) || ymd(todayISO());
+    calView = 'days';
+    calCursor = calHome();
     renderCal();
 });
+
+/* Every control in here is thrown away and rebuilt by renderCal(), so a
+ * keyboard user ends up on <body> after each press unless focus is put back by
+ * selector. It is only put back when the control actually held focus, which a
+ * pointer tap on iOS does not do -- so a tap never gets a ring it did not ask
+ * for, and Tab/Enter never loses its place. */
+function calRefocus(sel, had) {
+    if (!had) return;
+    var b = el('cal').querySelector(sel);
+    if (b && !b.disabled) b.focus();
+}
 
 el('cal').addEventListener('click', function (ev) {
     var day = ev.target.closest('[data-day]');
     if (day && !day.disabled) { pickDay(day.getAttribute('data-day')); return; }
+    /* The month jump: twelve months in place of the day grid. */
+    var mo = ev.target.closest('[data-mo]');
+    if (mo && !mo.disabled) {
+        var hadMo = document.activeElement === mo;
+        calCursor = { y: calCursor.y, m: +mo.getAttribute('data-mo'), d: 1 };
+        calView = 'days'; renderCal();
+        calRefocus('.cal-title', hadMo);
+        return;
+    }
     var act = ev.target.closest('[data-cal]');
     if (!act) return;
-    var v = act.getAttribute('data-cal');
-    if (v === 'done') { calOpen = false; renderCal(); el('dateBtn').focus(); }
-    else if (v === 'clear') { state.q.dep = ''; state.q.ret = ''; thReset(); syncDateBounds(); renderCal(); }
-    else {
-        var step = +v;
-        var m = calCursor.m + step, y = calCursor.y + Math.floor(m / 12);
+    var v = act.getAttribute('data-cal'), had = document.activeElement === act;
+    if (v === 'done') { calOpen = false; calView = 'days'; renderCal(); el('dateBtn').focus(); }
+    else if (v === 'clear') {
+        state.q.dep = ''; state.q.ret = ''; thReset(); syncDateBounds(); renderCal();
+        /* Clear is gone from the footer the moment it works, so focus has
+         * nowhere to go back to. Done is the neighbour it leaves behind. */
+        calRefocus('[data-cal="done"]', had);
+    }
+    else if (v === 'view') {
+        calView = calView === 'days' ? 'months' : 'days';
+        renderCal();
+        calRefocus('.cal-title', had);
+    } else {
+        /* +-1 in the day view, +-12 in the month view. The month index carries
+         * the overflow either way, so there is one branch for both. */
+        var m = calCursor.m + (+v), y = calCursor.y + Math.floor(m / 12);
         calCursor = { y: y, m: ((m % 12) + 12) % 12, d: 1 };
         renderCal();
+        calRefocus('[data-cal="' + v + '"]', had);
     }
 });
 
+var CAL_KEYS = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7, PageUp: -28, PageDown: 28 };
+
 document.addEventListener('keydown', function (ev) {
-    if (ev.key === 'Escape' && calOpen) { calOpen = false; renderCal(); el('dateBtn').focus(); }
+    if (!calOpen) return;
+    if (ev.key === 'Escape') { calOpen = false; calView = 'days'; renderCal(); el('dateBtn').focus(); return; }
+    if (calView !== 'days') return;
+    var cur = document.activeElement;
+    if (!cur || !cur.hasAttribute || !cur.hasAttribute('data-day')) return;
+    var delta = CAL_KEYS[ev.key];
+    if (!delta) return;
+    ev.preventDefault();
+    calFocusDay(cur.getAttribute('data-day'), delta);
 });
 
 /* The landing window is set on the results screen now, where the plan it
@@ -3731,8 +4262,14 @@ applyTheme();
 
 var sharedId = tripIdFromHash();
 var shared = readHash();
-/* `shared` comes out of the URL, so it is somebody else's document. */
-state.q = migrateQuery(sanitizeQuery((shared && shared.q && shared.q.parties) ? shared.q : blankQuery()));
+/* A shared link carries its own cast and always wins -- opening somebody else's
+ * trip must show their group, not yours. Failing that, the group from last time
+ * if there is one, and only then three empty cards. */
+state.q = migrateQuery((shared && shared.q && shared.q.parties) ? shared.q : blankQuery());
+if (!(shared && shared.q && shared.q.parties)) {
+    var savedGroup = loadGroup();
+    if (savedGroup) state.q.parties = savedGroup;
+}
 if (shared && shared.v) {
     /* Adopt the sender's reading of the trip so both people see one number. */
     var v = shared.v;

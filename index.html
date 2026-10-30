@@ -442,7 +442,14 @@ a { color: var(--accent); }
 .ac.open { opacity: 1; visibility: visible; transform: none; }
 .ac-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; border-bottom: 1px solid var(--edge); text-align: left; width: 100%; transition: background .12s ease; }
 .ac-item:last-child { border-bottom: none; }
-.ac-item.active { background: var(--card-2); }
+/* The row Enter will pick. The background step alone was 1.135:1 in dark and
+ * 1.127:1 in light -- measured, not guessed -- and it was the ENTIRE cue: the
+ * combobox keeps DOM focus on the input, so :focus-visible never fires on the
+ * row and aria-selected has no visual counterpart. A 1px inset mark is the
+ * house idiom for "this is the live row" (.brow.on, .shift.here) and takes the
+ * same cue to 8.07:1 dark / 3.49:1 light. The surface step stays underneath it;
+ * it just is not load-bearing any more. */
+.ac-item.active { background: var(--card-2); box-shadow: inset 3px 0 0 var(--brand-line); }
 .ac-code { font-size: var(--t-2); font-weight: 600; width: 44px; flex-shrink: 0; color: var(--accent); letter-spacing: .02em; }
 .ac-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .ac-city { display: block; font-size: var(--t-3); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -451,6 +458,10 @@ a { color: var(--accent); }
 .ac-item.closed .ac-code { color: var(--bad); }
 .ac-item.metro .ac-code { font-size: var(--t-1); color: var(--brand-ink); background: var(--brand); border-radius: var(--r-pill); width: 22px; height: 22px; display: grid; place-items: center; margin-left: 11px; }
 .ac-item.closed .ac-city { color: var(--muted); }
+/* Not a row you can pick, so it is not shaped like one: no code column, no
+ * press state, no 44px target. It exists so that "no matches" and "the
+ * suggestions are broken" stop looking identical. */
+.ac-none { padding: var(--s3) var(--s4); font-size: var(--t-3); color: var(--muted); }
 
 /* ---------------- date picker ---------------- */
 .datefield {
@@ -471,18 +482,29 @@ a { color: var(--accent); }
     border-radius: var(--r-lg); box-shadow: var(--pop); padding: 16px; overflow: hidden;
 }
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.cal-nav { width: 40px; height: 40px; border-radius: var(--r-pill); display: grid; place-items: center; font-size: var(--t-4); color: var(--muted); }
-.cal-nav:disabled { opacity: .25; cursor: default; }
-.cal-title { font-size: var(--t-4); font-weight: 600; }
+.cal-nav { width: 44px; height: 44px; border-radius: var(--r-pill); display: grid; place-items: center; font-size: var(--t-4); color: var(--muted); }
+/* A chevron that cannot go anywhere was a dead 40px target sitting at .25
+ * opacity, which reads as a broken control rather than an absent one. It keeps
+ * its slot so the month name stays centred, but it is gone. */
+.cal-nav:disabled { visibility: hidden; }
+/* The month name is the fast way to a distant month: tapping it swaps the day
+ * grid for twelve months, so any month is two taps instead of one tap each. */
+.cal-title { font-size: var(--t-4); font-weight: 600; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 var(--s3); border-radius: var(--r-sm); }
+.cal-title .caret { font-size: var(--t-1); color: var(--faint); }
 .cal-months { display: grid; gap: 28px; }
 @media (min-width: 620px) { .cal-months.two { grid-template-columns: 1fr 1fr; } }
 .cal-mon { font-size: var(--t-3); font-weight: 600; text-align: center; margin-bottom: 10px; }
 .cal-dow, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 .cal-dow span { font-size: var(--t-1); font-weight: 500; color: var(--faint); text-align: center; padding-bottom: 6px; }
-.cal-cell { position: relative; display: grid; place-items: center; height: 42px; }
-/* the band sits behind the day, with rounded caps at each end of the range */
+/* 44px, so the hit boxes below tile exactly instead of overlapping into the
+ * row beneath and stealing its taps. */
+.cal-cell { position: relative; display: grid; place-items: center; height: 44px; }
+/* The band sits behind the day with rounded caps at each end of the range. Its
+ * height is the circle's diameter exactly -- at 34px against a 38px circle the
+ * caps missed the circle top and bottom and the range read as a stripe behind
+ * the days rather than through them. */
 .cal-cell.mid::before, .cal-cell.start::before, .cal-cell.end::before {
-    content: ''; position: absolute; inset: 4px 0; background: var(--accent-dim);
+    content: ''; position: absolute; inset: 3px 0; background: var(--accent-dim);
 }
 .cal-cell.start::before { left: 50%; border-radius: var(--r-pill) 0 0 var(--r-pill); }
 .cal-cell.end::before { right: 50%; border-radius: 0 var(--r-pill) var(--r-pill) 0; }
@@ -492,35 +514,161 @@ a { color: var(--accent); }
     display: grid; place-items: center;
     font-size: var(--t-3); font-variant-numeric: tabular-nums; color: var(--text);
 }
-.cal-d:disabled { color: var(--faint); opacity: .45; cursor: default; }
+/* The circle stays 38px because 44px circles on a 47px column touch. The hit
+ * box grows past it instead -- the same trick as .gear and .chip button. */
+.cal-d::after { content: ''; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
 .cal-d.on { background: var(--brand); color: var(--brand-ink); font-weight: 600; }
 .cal-d.today:not(.on) { box-shadow: inset 0 0 0 1px var(--edge-2); }
 .cal-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--edge); }
 .cal-hint { font-size: var(--t-2); color: var(--muted); }
-.cal-acts { display: flex; align-items: center; gap: 8px; }
-.cal-clear { font-size: var(--t-3); font-weight: 600; color: var(--accent); padding: 12px 10px; }
+/* The hint is not rendered once both dates are in, so the actions hold the
+ * right edge themselves rather than relying on an empty span to push them. */
+.cal-acts { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+/* Amber at 600 next to the amber-filled Done gave the popover two things that
+ * both looked like the action. Clear is an escape hatch, so it is set like one:
+ * plain muted text, and it is not rendered at all until there is something to
+ * clear. */
+.cal-clear { font-size: var(--t-3); font-weight: 500; color: var(--muted); padding: 12px 10px; min-height: 44px; }
 
-/* ---------------- party cards ---------------- */
-.party { background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-md); padding: 12px 16px 16px; margin-bottom: 12px; box-shadow: var(--lift); }
-.party-top { display: grid; grid-template-columns: 32px minmax(0,1fr) auto auto; gap: 10px; align-items: center; margin-bottom: 12px; }
+/* The month jump. It replaces the day grid rather than sitting beside it, so
+ * the popover never carries both at once. */
+.cal-mgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
+.cal-mo {
+    min-height: 52px; border-radius: var(--r-sm);
+    display: grid; place-items: center;
+    font-size: var(--t-3); font-weight: 500; color: var(--text);
+}
+/* No opacity on top of --faint: at .45 the nine months you cannot fly in came
+ * out around 1.9:1, and --faint against --text is already the secondary/primary
+ * relationship the rest of the app uses. */
+.cal-mo:disabled { color: var(--faint); cursor: default; }
+/* The same pair as the day grid: a ring is where you are, a fill is what you
+ * chose. A fill for "where you are" put a second amber block in a popover that
+ * already has one, and Done has to be the only thing that looks like the action. */
+.cal-mo.on { box-shadow: inset 0 0 0 1px var(--edge-2); }
+.cal-mo.sel { background: var(--brand); color: var(--brand-ink); font-weight: 600; box-shadow: none; }
+.cal-title:focus-visible, .cal-nav:focus-visible, .cal-d:focus-visible, .cal-mo:focus-visible, .cal-clear:focus-visible {
+    outline: 2px solid var(--brand-line); outline-offset: 2px;
+}
+
+/* ---------------- party rows ----------------
+ * This was the most boxed screen in an app with no boxes left anywhere else: a
+ * bordered, shadowed card per party, and inside each one the name input, the
+ * stepper, every airport chip and a dashed add button, all bordered too. Five
+ * frames per party, fifteen on a three-party screen, for three facts. It is
+ * now built the way .trav is built on the results screen -- a hairline, one
+ * left edge and type weight -- so the two screens that describe the same
+ * people describe them the same way. */
+
+/* The one addition. This is the "who's coming" step of a group-matching app and
+ * it never stated the group: no headcount, no city count, nothing to tell you
+ * whether what you have assembled can even be matched. One line of text, above
+ * the list it counts, rendered from the same data the rows are rendered from. */
+.party-who { font-size: var(--t-3); color: var(--muted); padding-bottom: var(--s3); line-height: var(--lh-snug); }
+
+.party { border-top: 1px solid var(--edge); padding: var(--s3) 0 var(--s4); }
+.party-top { display: grid; grid-template-columns: 32px minmax(0,1fr) auto; gap: var(--s3); align-items: center; }
 .ava { width: 32px; height: 32px; border-radius: var(--r-pill); flex-shrink: 0; display: grid; place-items: center; font-size: var(--t-2); font-weight: 600; color: var(--on-party); }
-.party-top .inp { min-height: 44px; padding: 8px 12px; font-size: var(--t-4); box-shadow: none; }
-.stepper { display: flex; align-items: center; flex-shrink: 0; border: 1px solid var(--edge); border-radius: var(--r-sm); }
-.stepper button:focus-visible { outline-offset: -3px; }
-.stepper button { width: 44px; height: 44px; font-size: var(--t-4); font-weight: 500; color: var(--muted); transition: background .12s, color .12s; }
-.stepper button:disabled { opacity: .3; cursor: default; }
-.stepper .n { min-width: 24px; text-align: center; font-size: var(--t-3); font-weight: 600; font-variant-numeric: tabular-nums; }
-.party-x { width: 44px; height: 44px; font-size: var(--t-5); color: var(--muted); flex-shrink: 0; transition: color .12s; }
+/* An avatar with no initial in it is a slot, not a person: three filled discs
+ * with nothing written in them read as three things still loading. A ring says
+ * exactly what the colour says without claiming there is somebody in there
+ * yet, and it fills in the moment a name is typed. :empty is the hook because
+ * the colour arrives as an inline background from partyColor() at five
+ * separate call sites, and this way every one of them gets it -- which is the
+ * whole point, since the complaint was that one traveller looked like two
+ * different things on two screens.
+ *
+ * A mask rather than a --bg disc on top: .pax and .sx-row are not on the page
+ * background, so a punched-out circle in the page colour would be a visible
+ * hole there, and those surfaces are being worked on by someone else right
+ * now. Masking the middle away shows whatever is actually behind, on any
+ * surface, and where mask-image is not understood it degrades to the filled
+ * disc that was there before. The #000 is a mask alpha, not a paint colour --
+ * nothing on the screen is ever that value, so it is not a palette entry. */
+.ava:empty {
+    -webkit-mask-image: radial-gradient(closest-side, transparent 0 86%, #000 88%);
+            mask-image: radial-gradient(closest-side, transparent 0 86%, #000 88%);
+}
 
-.chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.chip { display: inline-flex; align-items: center; gap: 8px; background: var(--card-2); border: 1px solid var(--edge); border-radius: var(--r-sm); padding: 4px 4px 4px 12px; font-size: var(--t-2); font-weight: 600; letter-spacing: .02em; }
-.chip .city { font-weight: 400; font-size: var(--t-2); color: var(--muted); letter-spacing: 0; }
-.chip button { position: relative; width: 36px; height: 36px; color: var(--muted); font-size: var(--t-4); line-height: 1; border-radius: var(--r-sm); transition: color .12s; }
+/* The name is the row's heading, so it is set as one and carries no frame.
+ * Four controls sharing a 329px row left it 89px wide and clipped its own
+ * placeholder to "Name (opti" -- the most important input on the screen could
+ * not show its own label. Seats moved to the line below, the frame is gone,
+ * and the word "optional" is said once in the step hint instead of three times
+ * inside three placeholders, so what is left fits with room to spare. */
+.party-name {
+    width: 100%; min-height: 44px; padding: 0;
+    background: none; border: 0; box-shadow: none;
+    -webkit-appearance: none; appearance: none;
+    font: inherit; font-size: var(--t-4); font-weight: 600; color: var(--text);
+    font-variant-numeric: normal;
+}
+.party-name::placeholder { color: var(--faint); font-weight: 400; }
+/* No frame to light up, so focus is a rule under the field in the caret colour. */
+.party-name:focus { outline: none; box-shadow: 0 1px 0 0 var(--brand-line); }
+/* Was 22px, the largest glyph in the row. Removing a traveller is not the row's
+ * headline; the 44px box is what matters and it is unchanged. */
+.party-x { width: 44px; height: 44px; font-size: var(--t-4); color: var(--muted); flex-shrink: 0; transition: color .12s; }
+/* The shared focus-ring rule lists every other button on this screen and has
+ * always missed this one, so the only control that deletes a traveller was the
+ * only one with no keyboard ring. Same two values, declared where this class
+ * lives rather than by editing a selector list someone else is working in. */
+.party-x:focus-visible { outline: 2px solid var(--brand-line); outline-offset: 2px; }
+
+/* Airports left, seats right, on the line under the name and indented to the
+ * name's left edge: 32px avatar + 12px gap. That indent is what holds a row
+ * together now that there is no card around it. */
+.party-air { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: var(--s3); align-items: start; margin: var(--s1) 0 0 44px; }
+/* Column gap is wide and the chip is 36px tall on purpose: each remove button
+ * carries a 44px hit box, so chips need 44px between centres in both axes or
+ * the invisible targets overlap and removing SFO removes LAX. */
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s5); }
+/* An airport is a fact about the party, not a tag; a border and a fill around
+ * three facts made them read as three widgets. The remove button stays: at the
+ * two-city minimum the party X is not rendered, so this is the only way to
+ * correct an airport typed wrong. */
+.chip { display: inline-flex; align-items: center; gap: var(--s2); min-height: 36px; font-size: var(--t-3); font-weight: 600; letter-spacing: .02em; }
+.chip .city { font-weight: 400; color: var(--muted); letter-spacing: 0; }
+.chip button { position: relative; width: 20px; height: 20px; color: var(--muted); font-size: var(--t-3); line-height: 1; transition: color .12s; }
 .chip button::after { content: ''; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
-.chip.closed { border-color: var(--bad); }
-.chip.closed .city { color: var(--bad); }
-.add-air { min-height: 44px; border: 1px dashed var(--edge-2); border-radius: var(--r-sm); padding: 8px 12px; font-size: var(--t-2); font-weight: 500; color: var(--muted); transition: border-color .15s, color .15s; }
-.party-note { font-size: var(--t-2); color: var(--muted); margin-top: 12px; line-height: var(--lh-text); }
+/* Colour alone would not carry this, which is why closedNote spells it out in
+ * words directly underneath. */
+.chip.closed .code, .chip.closed .city { color: var(--bad); }
+
+/* Ghost text, not a dashed box. Three dashed rectangles reading "+ another
+ * airport" were six pieces of chrome for three facts. */
+.add-air { position: relative; min-height: 44px; padding: 0; text-align: left; font-size: var(--t-3); font-weight: 500; color: var(--accent); transition: color .15s; }
+/* A second airport for one city is a refinement, not the job, so it steps back
+ * and leaves the empty row's prompt as the only amber on the line. */
+.add-air.more { font-size: var(--t-2); color: var(--muted); }
+
+/* Seats are at their default on nearly every row. A bordered three-cell
+ * control reading a bare "1" -- which never said what it was counting -- is
+ * not what that deserves, but 8 people return is 16 billed searches so the
+ * capability stays. At 1 it costs one quiet word; the minus appears only once
+ * there is something to take away, and the noun is always spelled out. */
+.stepper { display: inline-flex; align-items: center; gap: var(--s1); min-height: 44px; }
+.stepper button { position: relative; width: 24px; height: 24px; font-size: var(--t-4); font-weight: 500; color: var(--muted); border-radius: var(--r-sm); transition: color .12s; }
+.stepper button::after { content: ''; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
+.stepper button:disabled { opacity: .3; cursor: default; }
+.stepper .n { font-size: var(--t-2); font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stepper .seat-add { width: auto; min-width: 48px; height: 44px; font-size: var(--t-2); font-weight: 500; white-space: nowrap; }
+.stepper .seat-add::after { display: none; }
+
+.party-airfield { margin: var(--s3) 0 0; }
+.party-note { font-size: var(--t-2); color: var(--muted); margin: var(--s2) 0 0 44px; line-height: var(--lh-text); }
+
+/* The list continues into its own last row rather than standing a second
+ * full-width button next to "Land them together": same hairline, same left
+ * edge, text weight. It borrows .add-air so it inherits the shared focus ring
+ * and press feedback.
+ *
+ * Muted, not amber, and that is the point: on an untouched screen the three
+ * row prompts and this one were four identical amber lines, of which only
+ * three were the job. A fourth city is wanted by some groups and nobody else,
+ * so once the rows are filled the only amber left on the screen is the button
+ * that runs the search. */
+.add-party { display: block; width: 100%; border-top: 1px solid var(--edge); min-height: 48px; padding: var(--s3) 0; color: var(--muted); }
 
 /* ---------------- buttons ---------------- */
 .btn {
@@ -885,6 +1033,51 @@ a { color: var(--accent); }
 .share-note { font-size: var(--t-2); color: var(--muted); margin-top: 8px; line-height: var(--lh-text); text-align: center; }
 .share-note.ok { color: var(--good); }
 
+/* ---------------- searching ----------------
+ * Three to ten seconds of every single use, and the only thing that used to
+ * happen was the button going to 60% opacity on an unchanged form. This is
+ * deliberately the SAME OBJECT as the plan it is about to become: identical
+ * hairline rows, the same avatars, the same type ramp, the figure held in the
+ * same place on the right. The answer fills in rather than replacing a
+ * different-looking page, which is the whole reason it reads as a system
+ * working rather than a page loading.
+ * Nothing here is a card and nothing here fakes progress -- the request is one
+ * POST and the browser cannot see inside it, so the pulse is uniform and the
+ * only moving figures, the search count and the clock, are both measured. */
+.sx-head { margin-bottom: var(--s5); }
+.sx-dest { font-size: var(--t-6); font-weight: 600; letter-spacing: var(--tr-6);
+    line-height: var(--lh-tight); margin-top: var(--s1); }
+/* The code is the same size as the city and separated by colour, not by
+ * shrinking it: it is the thing being searched, not a footnote to it. */
+.sx-dest .sx-code { color: var(--faint); font-weight: 500; letter-spacing: .02em; }
+.sx-when { font-size: var(--t-2); color: var(--muted); margin-top: var(--s2); }
+
+/* Same grid as .trav-top on the results screen, on purpose. */
+.sx-row { display: grid; grid-template-columns: 34px 1fr auto; gap: var(--s3);
+    align-items: center; border-top: 1px solid var(--edge); padding: var(--s4) 0; }
+.sx-row:last-child { border-bottom: 1px solid var(--edge); }
+.sx-main { min-width: 0; }
+.sx-name { font-size: var(--t-4); font-weight: 600; }
+/* The origins are the hidden work. One person with SFO, OAK and SJC is three
+ * different ways to make the window, and all three are being tried. */
+.sx-from { font-size: var(--t-2); color: var(--muted); margin-top: 3px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A 1px mark, which is one of the four sanctioned emphasis tools -- not a grey
+ * skeleton block, which is the generic "this app was generated" tell. It sits
+ * exactly where the price lands and is exactly as wide, so nothing moves when
+ * the figure arrives. */
+.sx-wait { width: 56px; height: 2px; border-radius: 1px; background: var(--edge-2);
+    animation: sxPulse 1.4s var(--ease) infinite; }
+@keyframes sxPulse { 0%, 100% { opacity: .28; } 50% { opacity: 1; } }
+.sx-foot { display: flex; align-items: baseline; justify-content: space-between;
+    gap: var(--s3); flex-wrap: wrap; margin-top: var(--s4);
+    font-size: var(--t-2); color: var(--muted); }
+.sx-foot .sx-el { font-variant-numeric: tabular-nums; }
+/* Said once, at the point it stops looking normal, rather than sitting there
+ * from the first second promising that this might be slow. */
+.sx-slow { flex: 1 0 100%; margin-top: var(--s2); font-size: var(--t-2);
+    color: var(--muted); line-height: var(--lh-text); }
+
 /* ---------------- sheet ----------------
  * The scrim used to appear at full opacity on the same frame the sheet started
  * sliding, so the room went dark before the panel had moved. It fades with the
@@ -951,7 +1144,9 @@ a { color: var(--accent); }
 
 footer { margin-top: var(--s7); padding-top: var(--s5); border-top: 1px solid var(--edge); text-align: center; font-size: var(--t-2); color: var(--faint); line-height: 2; }
 footer button { font-family: inherit; font-size: var(--t-2); color: var(--muted); border-bottom: 1px solid var(--edge-2); padding: 14px 10px; display: inline-block; }
-footer .sep { color: var(--edge-2); margin: 0 8px; }
+/* --edge-2 is a border token; used as a text glyph it measured 4.05:1 dark and
+ * 3.21:1 light. --faint is the token for quiet text and clears 4.5 in both. */
+footer .sep { color: var(--faint); margin: 0 8px; }
 
 .banner { margin: var(--s3) 20px 0; padding: 2px 44px 2px var(--s3); border-left: 2px solid var(--brand);
     font-size: var(--t-2); line-height: var(--lh-text); position: relative; max-width: 640px; }
@@ -985,9 +1180,12 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
 }
 .install .mk { width: 40px; height: 40px; border-radius: 10px; display: block; }
 .install .t { font-size: var(--t-3); font-weight: 600; letter-spacing: var(--tr-4); }
+/* The two step numbers. On --edge-2 these were 3.49:1 dark and 3.91:1 light at
+ * 10px -- real body text, failing 4.5:1 in both themes, on the one card that
+ * exists to be followed as instructions. --muted takes them to 7.14 / 8.48. */
 .install .s b { display: inline-grid; place-items: center; width: 16px; height: 16px;
-    border-radius: 50%; background: var(--edge-2); color: var(--card);
-    font-size: var(--t-1); font-weight: 600; font-variant-numeric: normal; }
+    border-radius: 50%; background: var(--muted); color: var(--card);
+    font-size: 10px; font-weight: 700; font-variant-numeric: normal; }
 .install .s { font-size: var(--t-2); color: var(--muted); line-height: var(--lh-text); margin-top: 3px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 /* The real glyph, not the word "Share" -- it is the thing being looked for. */
 .install .s svg { width: 13px; height: 15px; flex: none; color: var(--accent); transform: translateY(-1px); }
@@ -1187,10 +1385,13 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
     <section id="s3" class="hidden" tabindex="-1" aria-labelledby="h-s3">
         <div class="step-head">
             <h2 id="h-s3">Who’s coming?</h2>
-            <p>People leaving from the same airport share a card.</p>
+            <!-- "Optional" is said here, once, instead of three times inside three
+                 name placeholders -- which is what was clipping the most
+                 important input on the screen to "Name (opti". -->
+            <p>One row per departure city. Names are optional. Two people leaving together share a row.</p>
         </div>
         <div id="parties"></div>
-        <button class="btn ghost wide" id="addParty">+ Add another departure city</button>
+        <button class="add-air add-party" id="addParty">+ Add another departure city</button>
         <div class="nav">
             <button class="icon-btn" id="back3" aria-label="Back">&larr;</button>
             <button class="btn primary" id="go">Land them together</button>
@@ -1240,6 +1441,22 @@ footer .sep { color: var(--edge-2); margin: 0 8px; }
 
         <div class="shifts hidden" id="shifts" aria-live="polite"></div>
         <div class="share" id="shareBox"></div>
+    </section>
+
+    <!-- step 5: searching.
+         Not a spinner and not a modal. It is the plan with the figures missing,
+         so arriving at the result is the numbers landing in rows that are
+         already on screen rather than a different page replacing this one.
+         aria-busy tells a screen reader the region is still filling; the
+         polite live region announces the elapsed clock without interrupting. -->
+    <section id="s5" class="hidden" tabindex="-1" aria-label="Searching" aria-busy="true">
+        <div class="sx-head">
+            <span class="k">Landing everyone in</span>
+            <h2 class="sx-dest"><span id="sxDest"></span> <span class="sx-code" id="sxCode"></span></h2>
+            <div class="sx-when" id="sxWhen"></div>
+        </div>
+        <div id="sxRows"></div>
+        <div class="sx-foot" id="sxFoot" role="status" aria-live="polite"></div>
     </section>
 
     <footer>
