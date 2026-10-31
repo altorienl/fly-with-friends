@@ -3591,13 +3591,13 @@ function tripBookLinks(origin, dest, dep, ret, seats, options, name) {
         var one = deepLink(opts, seats);
         if (one) return [{ label: 'Book ' + name + '\u2019s trip', url: one }];
     }
-    /* Different airlines out and back. Two pinned one-ways both land on a real
-     * booking screen, where one pinned round trip lands on nothing -- and two
-     * buttons is the truth: it is two tickets. */
-    if (opts.length === 2 && deepLink([opts[0]], seats) && deepLink([opts[1]], seats)) {
-        return [{ label: 'Book the way out', url: deepLink([opts[0]], seats) },
-                { label: 'Book the way home', url: deepLink([opts[1]], seats) }];
-    }
+    /* Different airlines out and back. Two pinned one-ways would each land on
+     * a real booking screen and were tried -- "please remove book the way out
+     * and the book the way home it needs to be one link to to the flight make
+     * it super easy for one". So it is one link, and the only ONE link that
+     * cannot dead-end here is the search: a round trip pinned across two
+     * carriers is exactly the thing Google refuses. It opens on the route and
+     * the dates with both flights in the list. */
     return [{ label: 'Find ' + name + '\u2019s trip',
               url: tripSearchUrl(origin, dest, dep, ret, seats) }];
 }
@@ -4308,37 +4308,37 @@ function renderShifts() {
     var priced = rows.filter(function (r) { return r.total != null; });
     var best = priced.length ? priced[0] : null;
 
+    /* Only the days that save money, cheapest first, and the dates on the row
+     * rather than in a sentence underneath it.
+     *
+     * It was five rows plus a closing line: every alternative whether it saved
+     * anything or not, two of them at an identical price, "Your dates" again
+     * at the bottom, and then a sentence repeating whichever row was best. Six
+     * things to read to answer one question -- "is there a cheaper day" --
+     * which is a yes or a no and a number.
+     *
+     * A day that costs MORE is not an option anybody wants; it is the answer
+     * to a question nobody asked, and it was taking a row each. The baseline
+     * goes too: the trip's own total is the big number further up this screen.
+     * What is left is the days worth moving to, and if there are none the
+     * section says so in four words. */
+    var saving = rows.filter(function (r) {
+        return !r.here && r.total != null && r.total < TRIP.total;
+    });
+    if (!saving.length) {
+        host.innerHTML = '<span class="k">Other dates</span>'
+            + '<div class="share-note">Your dates are the cheapest.</div>';
+        return;
+    }
     host.innerHTML = '<span class="k">Other dates</span>'
-        + rows.map(function (r) {
-            /* The label is what the row MEANS. It used to be the date range --
-             * "Dec 4 - Dec 8" -- which makes the reader do the subtraction to
-             * work out that it is the whole trip moved a day, and cannot
-             * express "leave a day later" at all, because that has the same
-             * return date as the trip they are looking at. The dates are on
-             * the line below the best one, where somebody is about to act. */
-            if (r.total == null) {
-                return '<div class="shift"><span class="s-d">' + esc(r.label)
-                    + '</span><span class="s-n">nothing covers everyone</span></div>';
-            }
-            var diff = r.total - TRIP.total;
-            return '<div class="shift' + (r.here ? ' here' : '')
-                + (r === best && !r.here ? ' best' : '') + '">'
-                + '<span class="s-d">' + esc(r.label) + '</span>'
+        + saving.map(function (r) {
+            return '<div class="shift' + (r === saving[0] ? ' best' : '') + '">'
+                + '<span class="s-d">' + esc(r.label)
+                + '<em>' + esc(r.range) + '</em></span>'
                 + '<span class="s-p mono">' + money(r.total)
-                + (r.here ? '' : '<em>' + (diff < 0 ? '\u2212' + money(-diff)
-                    : diff > 0 ? '+' + money(diff) : 'same') + '</em>')
+                + '<em>\u2212' + money(TRIP.total - r.total) + '</em>'
                 + '</span></div>';
-        }).join('')
-        /* One line, and it carries the dates -- the rows say which trade, this
-         * says which days, which is what somebody needs to go and change them.
-         * The second sentence used to point at "the previous screen", which is
-         * the Who step; the dates are two screens back. A wrong direction is
-         * worse than none. */
-        + (best && !best.here
-            ? '<div class="share-note" style="color:var(--good)">' + esc(best.label)
-              + ' \u2014 ' + esc(best.range) + ' \u2014 saves <b>'
-              + money(TRIP.total - best.total) + '</b>.</div>'
-            : '<div class="share-note">Your dates are the cheapest.</div>');
+        }).join('');
 }
 
 function renderShare() {

@@ -117,22 +117,18 @@ console.log('\n-- a trip on two airlines is two tickets --');
     };
     var pinned = function (l) { return l.url.indexOf('tfs=') > -1; };
 
+    /* It briefly gave two pinned one-ways here, which both resolved -- and the
+     * owner asked for one link: "it needs to be one link to to the flight make
+     * it super easy". The only ONE link that cannot dead-end on a mixed-carrier
+     * trip is the search, because the pinned round trip is precisely what
+     * Google refuses. One button, always, and never a dead end. */
     var mixed = links([wnOut, dlBack]);
-    check('the shape that dead-ended gives two links, not one', mixed.length === 2,
+    check('a mixed-carrier trip gives exactly one link', mixed.length === 1,
           mixed.map(function (l) { return l.label; }).join(' | '));
-    check('...and both are pinned, so both land on a booking screen',
-          mixed.every(pinned));
-    check('...labelled as the two tickets they are',
-          mixed[0].label === 'Book the way out' && mixed[1].label === 'Book the way home',
-          mixed.map(function (l) { return l.label; }).join(' | '));
-    /* Each half must be a ONE-WAY request. Field 19 is 2 for one-way and 1 for
-     * round trip; pinning half a trip as a round trip is the same bug again. */
-    check('...and each is a one-way request, not half a round trip',
-          mixed.every(function (l) {
-              var tfs = /tfs=([^&]+)/.exec(l.url)[1].replace(/-/g, '+').replace(/_/g, '/');
-              var raw = Buffer.from(tfs + '==='.slice((tfs.length + 3) % 4), 'base64');
-              return raw[raw.length - 1] === 2;
-          }));
+    check('...and it is the search, which resolves, not a pinned round trip',
+          !pinned(mixed[0]), mixed[0].url.slice(0, 60));
+    check('...named so the reader knows it is a list, not a booking screen',
+          mixed[0].label.indexOf('Find') === 0, mixed[0].label);
 
     /* Southwest, exonerated. */
     var wnBoth = links([wnOut, wnBack]);

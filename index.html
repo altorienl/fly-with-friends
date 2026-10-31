@@ -809,7 +809,10 @@ a { color: var(--accent); }
 
 .shifts { margin-top: var(--s5); border-top: 1px solid var(--edge); padding-top: var(--s4); }
 .shifts > .k { display: block; margin-bottom: 10px; }
+/* The date range rides under the label, the way the per-person figure rides
+   under a match total: same relationship, same treatment. */
 .shift { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); padding: var(--s3) 0; }
+.shift .s-d em { display: block; font-style: normal; font-size: var(--t-1); color: var(--muted); margin-top: 3px; }
 .shift.here { background: var(--sel); box-shadow: inset 3px 0 0 var(--brand-line); }
 .shift.best { border-color: var(--good); }
 .s-d { font-size: var(--t-3); font-weight: 500; }
