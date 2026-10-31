@@ -1008,7 +1008,8 @@ function showStep(n) {
      * (to2, back2, back3) never reach render(), so it is updated from here as
      * well -- otherwise it shows the previous step's answer. */
     renderFooter();
-    window.scrollTo(0, 0);
+    var sc = document.querySelector('.container');
+    if (sc) sc.scrollTop = 0; else window.scrollTo(0, 0);
 }
 
 /* "New trip" on the first screen of a brand new trip does nothing at all, and a
@@ -3154,32 +3155,23 @@ function tripTotal() {
     };
 }
 
-/* --brand-h, measured rather than guessed.
+/* Flags the results header as stuck, so its underline appears only once it
+ * has actually left its place in the flow.
  *
- * The results header sticks UNDER the masthead, and the masthead's height
- * depends on env(safe-area-inset-top) -- 59px on a Dynamic Island phone, 47
- * on a notch, 0 in a browser tab. A hardcoded offset leaves a gap on one
- * device and an overlap on another.
- *
- * Also flags the header as stuck, so its underline only appears once it has
- * actually left its place in the flow. */
+ * It used to also measure the masthead and publish --brand-h, because the
+ * header stuck UNDER a sticky masthead whose height depends on
+ * env(safe-area-inset-top). Moving the scroll inside .container made the
+ * masthead a plain flex row outside the scroller, so the header sticks to
+ * the top of its own container and the measurement has nothing left to
+ * answer. */
 function trackStick() {
-    var brand = document.querySelector('.brand');
-    if (!brand) return;
-    var set = function () {
-        var h = Math.round(brand.getBoundingClientRect().height);
-        document.documentElement.style.setProperty('--brand-h', h + 'px');
-    };
-    set();
-    if (typeof ResizeObserver === 'function') new ResizeObserver(set).observe(brand);
-    window.addEventListener('orientationchange', function () { setTimeout(set, 250); });
-
     var head = document.querySelector('.res-head');
-    if (!head) return;
-    window.addEventListener('scroll', function () {
-        var top = head.getBoundingClientRect().top;
-        var at = Math.round(brand.getBoundingClientRect().height);
-        head.classList.toggle('stuck', top <= at + 1);
+    var sc = document.querySelector('.container');
+    if (!head || !sc) return;
+    /* The scroll listener goes on the CONTAINER, not the window: the document
+     * no longer scrolls, so a window listener would never fire. */
+    sc.addEventListener('scroll', function () {
+        head.classList.toggle('stuck', sc.scrollTop > 1);
     }, { passive: true });
 }
 
