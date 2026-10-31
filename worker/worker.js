@@ -670,7 +670,19 @@ async function handleSearch(request, env) {
   const acct = (toSpend > 0 && provider === 'serpapi')
     ? await fetchAccount(env).catch(() => null) : null;
 
-  const caps = planCaps(acct);
+  /* A fully-cached request asks the provider nothing, so `acct` is null and
+   * planCaps would fall back to the free-tier floor -- reporting a 950-search
+   * plan as 230. Harmless while the counter is small, and not harmless at all
+   * past 230, where a cached response would start telling the app the month
+   * was spent and grey out the search button with two thirds of the plan
+   * unused. The snapshot the spending path already writes is the right answer
+   * here; only the gate below needs a figure fresh enough to refuse on, and
+   * the gate only runs when toSpend > 0, which is when `acct` is real. */
+  const known = acct
+    || (provider === 'serpapi'
+        ? await env.FWF.get(PROVIDER_SNAPSHOT, { type: 'json', cacheTtl: 60 }).catch(() => null)
+        : null);
+  const caps = planCaps(known);
   const budget = {
     /* usedToday is reported, not enforced: it is the number that tells you
      * whether something is running away, and nothing refuses on it. */
@@ -696,7 +708,10 @@ async function handleSearch(request, env) {
       budget, exhausted: 'hour' }, 429);
   }
 
-  if (toSpend > 0 && used + toSpend > caps.monthly) {
+  /* planCaps(acct), not caps: refusing on a snapshot that could be a month old
+   * is the one direction that costs a group their trip. When the account call
+   * failed this is the free-tier floor again, deliberately. */
+  if (toSpend > 0 && used + toSpend > planCaps(acct).monthly) {
     return json({ error: 'Fly with Friends has used this month\'s flight-data allowance. '
       + 'Shared links and recent searches still work, and it resets on ' + budget.resetsAt + '.',
       budget, exhausted: 'month' }, 429);

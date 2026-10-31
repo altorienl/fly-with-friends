@@ -121,7 +121,6 @@ function thReset() { state.th.outbound = null; state.th.return = null; }
 function setBudget(b) {
     if (!b) return;
     BUDGET = b;
-    BUDGET.low = BUDGET.used > BUDGET.limit * 0.8;
     BUDGET.exhausted = BUDGET.used >= BUDGET.limit;
 }
 
@@ -1262,7 +1261,6 @@ function doSearch() {
          * either way and the notices should say so. */
         if (res.body.budget) {
             BUDGET = res.body.budget;
-            BUDGET.low = BUDGET.used > BUDGET.limit * 0.8;
             BUDGET.exhausted = BUDGET.used >= BUDGET.limit;
         }
         if (!current()) return;
@@ -2995,9 +2993,12 @@ function renderNotices() {
     if (state.error && !dupQuota) { e.className = 'notice bad'; e.innerHTML = esc(state.error); }
     else e.className = 'notice bad hidden';
 
-    /* Nobody is rationed per person, so the only thing worth saying is when the
-     * shared allowance is nearly gone -- which is the signal to upgrade rather
-     * than to start turning people away. */
+    /* A running count of searches left was on screen until the owner cut it:
+     * "remove anything about how many searches are left". It asked the reader
+     * to ration something they are not billed for and cannot top up, and the
+     * provider's own dashboard already says the number. What survives is the
+     * one case the reader has to act on -- the allowance is gone and their
+     * search will not run -- because without it the app just fails quietly. */
     var q = el('nQuota');
     if (BUDGET && BUDGET.exhausted) {
         /* The date arrived as 2026-11-01 and went to the screen that way. ISO
@@ -3005,11 +3006,6 @@ function renderNotices() {
         q.className = 'notice bad';
         q.innerHTML = '<b>Out of searches until ' + esc(prettyDate(BUDGET.resetsAt) || 'next month')
             + '.</b> Shared links still open, and so does anything already searched.';
-    } else if (BUDGET && BUDGET.low) {
-        var left = Math.max(BUDGET.limit - BUDGET.used, 0);
-        q.className = 'notice warn';
-        q.innerHTML = '<b>' + left + (left === 1 ? ' search' : ' searches') + ' left this month.</b> '
-            + 'Opening a shared link does not use one.';
     } else q.className = 'notice warn hidden';
 
     var sh = el('nShort');
@@ -4418,8 +4414,7 @@ function renderShifts() {
          * this is the same rule for the other thing that spends. */
         var left = BUDGET ? Math.max(0, BUDGET.limit - BUDGET.used) : null;
         if (left != null && left < n) {
-            host.innerHTML = '<div class="share-note">Checking other dates needs <b>'
-                + n + '</b> searches and <b>' + left + '</b> are left this month.</div>';
+            host.innerHTML = '<div class="share-note">Out of searches for this month.</div>';
             return;
         }
         /* "of your remaining searches" was wrong twice over: the allowance is
@@ -4428,15 +4423,14 @@ function renderShifts() {
          * button. The number is the only part that changes a decision. */
         host.innerHTML = '<button class="btn wide" id="shiftBtn"' + (shiftBusy ? ' disabled' : '') + '>'
             + (shiftBusy ? 'Checking…' : 'Is another day cheaper?') + '</button>'
-            /* The number and nothing else. "Checks the day before and the day
-             * after" was already describing the old two-date scan, and a
-             * sentence listing four variants would be longer than the rows
-             * that come back and say them. The cost is the only part of this
-             * that changes a decision. */
-            + '<div class="share-note">Uses up to <b>'
-            + n + '</b> of this month\u2019s searches.'
-            + (shiftErr ? '<br><span style="color:var(--bad)">' + esc(shiftErr) + '</span>' : '')
-            + '</div>';
+            /* This quoted its own cost -- "uses up to 8 of this month's
+             * searches" -- until the owner cut the allowance from the screen
+             * entirely. Asking somebody to weigh a number they are not billed
+             * for, against a button whose whole promise is a cheaper trip, only
+             * ever talked them out of tapping it. The guard above still refuses
+             * when the month really is gone; the reader does not do that sum. */
+            + (shiftErr ? '<div class="share-note"><span style="color:var(--bad)">'
+                + esc(shiftErr) + '</span></div>' : '');
         return;
     }
 
