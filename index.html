@@ -205,22 +205,8 @@ body {
     font-family: var(--sans);
     font-size: var(--t-3); line-height: var(--lh-snug);
     background: var(--bg); color: var(--text);
-    /* Fixed height, and the SCROLL MOVES INSIDE .container below.
-     *
-     * This is the only arrangement that gives an elastic overscroll in Safari
-     * as well as in the installed app. Pull-to-refresh is a property of the
-     * DOCUMENT scroller, so when the document does not scroll there is no
-     * gesture to trigger and no refresh control to spin -- and an inner
-     * scroller bounces on its own. Two previous attempts tuned
-     * overscroll-behavior on the document and could only pick one of the two:
-     * `contain` bounced but reloaded in Safari, `none` was stiff everywhere.
-     *
-     * svh, not vh: the small viewport, so nothing is cut off while Safari's
-     * address bar is showing. */
-    height: 100svh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+    min-height: 100vh;
+    min-height: 100svh;
     /* No inset padding on body any more: the masthead takes the top inset
        itself so it can bleed under the status bar, and .container takes the
        rest. Everything else under body is position:fixed and calls env()
@@ -379,9 +365,7 @@ a { color: var(--accent); }
  * it). And never a padding shorthand anywhere else -- the top inset is what
  * holds the content clear of the clock. */
 .brand {
-    /* Outside the scroller now, so it is a flex row rather than a sticky
-     * element -- it stays put because nothing scrolls past it. */
-    flex-shrink: 0; z-index: 50;
+    position: sticky; top: 0; z-index: 50;
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     max-width: none; margin: 0;
     background: var(--bg);
@@ -465,16 +449,9 @@ a { color: var(--accent); }
 
 /* Takes the side and bottom insets body gave up. */
 .container {
-    max-width: 640px; margin: 0 auto; width: 100%;
+    max-width: 640px; margin: 0 auto;
     padding: 8px max(20px, env(safe-area-inset-right))
              calc(56px + env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
-    /* The scroller. contain stops the gesture chaining out to the document,
-     * which is what keeps pull-to-refresh away; the bounce inside is the
-     * default and is the whole point. */
-    flex: 1 1 auto;
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
-    -webkit-overflow-scrolling: touch;
 }
 
 /* ---------------- step rail ---------------- */
@@ -816,18 +793,17 @@ a { color: var(--accent); }
  * which nights -- and once scrolled past, a column of prices and times has
  * nothing to anchor it.
  *
- * Sticks to the top of .container, which is the scroller. The masthead sits
- * outside it as a plain flex row, so there is nothing to measure and nothing
- * to overlap -- an earlier version pinned this under a sticky masthead and
- * had to publish its height as --brand-h, because that height depends on
- * env(safe-area-inset-top) and differs per device.
+ * Sticks under the masthead rather than at the top of the viewport, so the
+ * two do not overlap. --brand-h is measured at runtime because the masthead's
+ * height depends on env(safe-area-inset-top), which differs per device and
+ * cannot be hardcoded.
  *
  * The background is opaque and the bleed is negative-margin padding, so the
  * content scrolling underneath does not show through at the edges of a page
  * that is itself inset. */
 .res-head {
     display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s5);
-    position: sticky; top: 0; z-index: 40;
+    position: sticky; top: var(--brand-h, 56px); z-index: 40;
     background: var(--bg);
     padding: var(--s2) 0;
     margin-left: calc(max(20px, env(safe-area-inset-left)) * -1);
