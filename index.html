@@ -750,8 +750,21 @@ a { color: var(--accent); }
     transition: transform .12s var(--ease), border-color .15s, box-shadow .15s;
 }
 .btn:active { transform: scale(.97); box-shadow: none; }
-.btn.primary { background: linear-gradient(180deg, var(--brand-top), var(--brand-bot));
-    color: var(--brand-ink); border-color: var(--brand-line); }
+/* Flat, not glossy. Reported as "makes it look childish and not
+ * professional", and seen on a phone it is obvious why: a saturated
+ * top-to-bottom gradient with a bevel and a drop shadow, sitting on a page
+ * made entirely of flat cream and hairlines. The gradient was the only
+ * dimensional object on the screen, so it did not read as the primary action
+ * -- it read as being from a different app.
+ *
+ * It stays the one amber element, which is the rule for this screen. Solid
+ * --brand, a slightly darker hairline to hold its edge against cream, and no
+ * lift. Everything else about it is unchanged. */
+.btn.primary {
+    background: var(--brand); color: var(--brand-ink);
+    border-color: var(--brand-line); box-shadow: none;
+}
+.btn.primary:hover { background: var(--brand-top); }
 .btn.primary:disabled { opacity: .45; cursor: default; }
 .btn.ghost { background: transparent; box-shadow: none; border-color: transparent; color: var(--muted); }
 .btn.wide { width: 100%; }
@@ -957,6 +970,9 @@ a { color: var(--accent); }
 .lvl.high { color: var(--warn); }
 .hop-right { text-align: right; white-space: nowrap; }
 .hop-time { font-size: var(--t-3); font-weight: 600; }
+/* The other end of the flight. Same column as the clustered time, a step
+ * quieter, so the pair reads as one block rather than two facts. */
+.hop-other { font-size: var(--t-1); color: var(--muted); margin-top: 2px; }
 .hop-cost { font-size: var(--t-2); color: var(--muted); margin-top: 3px; }
 /* This had no rule at all, so it inherited 16px from the body and nowrap from
    .hop-right and ran straight out of the card. */

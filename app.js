@@ -325,10 +325,20 @@ function titleCase(str) {
         return pre + ch.toUpperCase();
     });
 }
+/* "Friend 1", not "Flight 1". Reported after a real session: filling this
+ * page is most of the work in the app, and typing three names before you can
+ * see a single fare is the part people give up on. A name nobody entered
+ * should still read as a person, so the placeholder and the fallback are the
+ * same string -- leave it blank and the results say "Friend 2 lands 7:40pm",
+ * which is a sentence, where "Flight 2 lands 7:40pm" is a row in a table.
+ *
+ * It stays a PLACEHOLDER rather than a prefilled value, which is what makes
+ * it disappear on the first keystroke with nothing to backspace through. */
 function partyLabel(p, i) {
     var n = (p.name || '').trim();
-    return n ? titleCase(n) : ('Flight ' + (i + 1));
+    return n ? titleCase(n) : defaultPartyName(i);
 }
+function defaultPartyName(i) { return 'Friend ' + (i + 1); }
 
 /* Close enough to call it one departure: you can share a ride, or at least wait
  * for each other. The same line the plan heading uses to decide whether to raise
@@ -1084,15 +1094,16 @@ function renderParties() {
         return '<div class="party" data-pid="' + esc(p.id) + '">'
             + '<div class="party-top">'
             + '<div class="ava" aria-hidden="true" style="background:' + partyColor(i) + '">' + esc(partyInitials(p, i)) + '</div>'
-            + '<input class="party-name" data-f="name" placeholder="Name" value="' + esc(p.name)
+            + '<input class="party-name" data-f="name" placeholder="'
+            + esc(defaultPartyName(i)) + '" value="' + esc(p.name)
             + '" maxlength="22" aria-label="Name for departure city ' + (i + 1) + '">'
-            + '<div class="stepper" role="group" aria-label="Seats for ' + esc(partyLabel(p, i)) + '">'
-            + '<button data-seats="-1" aria-label="One fewer seat for ' + esc(partyLabel(p, i)) + '"'
-            + (p.seats <= 1 ? ' disabled' : '') + '>&minus;</button>'
-            + '<output class="n" aria-live="polite">' + esc(p.seats) + '</output>'
-            + '<button data-seats="1" aria-label="One more seat for ' + esc(partyLabel(p, i)) + '"'
-            + (p.seats >= APP.maxSeats ? ' disabled' : '') + '>+</button>'
-            + '</div>'
+            /* The seat stepper used to be here AS WELL as below the airports,
+             * two controls doing one job -- reported as "the + seat and the
+             * - 1 + both do the same and waste space". The one that survives
+             * is the conditional one: it stays out of the way until the row
+             * has an airport, because seats before a departure city mean
+             * nothing, and it reads "+ seat" rather than "- 1 +" until there
+             * is a second seat to remove. */
             + (state.q.parties.length > 2
                 ? '<button class="party-x" data-rmparty aria-label="Remove ' + label + '">&times;</button>' : '')
             + '</div>'
@@ -4372,7 +4383,22 @@ function hopRow(dir, r, leg, id, seats) {
         ? '<img class="pax-logo" src="' + esc(o.airline_logo) + '" alt="" '
           + 'onerror="this.outerHTML=\'<div class=&quot;pax-fb&quot;>' + esc(fb) + '</div>\'">'
         : '<div class="pax-fb">' + esc(fb) + '</div>';
+    /* Both ends of the flight, not just the clustered one.
+     *
+     * Reported after real use: "when I look at lands it leaves me confused
+     * because what time am I taking off". The app clusters on ARRIVAL for the
+     * outbound and on DEPARTURE for the way home, so it printed only the end
+     * it was optimising -- which is the end the app cares about, not the end
+     * you set an alarm for. The other one was never on screen anywhere.
+     *
+     * The clustered time keeps the emphasis, because it is the thing the whole
+     * page is arguing about; the other sits under it in the muted sub-line.
+     * It also makes an overnight legible for the first time: "leaves 8:10pm /
+     * lands 12:50am" reads as a red-eye, where "lands 12:50am" alone does not
+     * say which night. */
     var showMin = leg === 'outbound' ? o.arriveMin : o.departMin;
+    var otherMin = leg === 'outbound' ? o.departMin : o.arriveMin;
+    var otherWord = leg === 'outbound' ? 'leaves ' : 'lands ';
     return '<div class="hop"><span class="hop-dir">' + dir + '</span>' + logo
         + '<div class="hop-main"><div class="hop-route">' + esc(o.from) + ' &rarr; ' + esc(o.to)
         + '</div><div class="hop-meta">' + esc((o.airlines || []).join(', ')) + ' · '
@@ -4381,6 +4407,8 @@ function hopRow(dir, r, leg, id, seats) {
         + priceLevel(leg, id) + '</div>'
         + '<div class="hop-right"><div class="hop-time mono">'
         + (leg === 'outbound' ? 'lands ' : 'leaves ') + clock(showMin) + '</div>'
+        + (otherMin != null
+            ? '<div class="hop-other mono">' + otherWord + clock(otherMin) + '</div>' : '')
         + '<div class="hop-cost mono">' + money(r.cost)
         + (seats > 1 ? ' <span class="for-seats">for ' + seats + '</span>' : '')
         + '</div></div>'
