@@ -228,6 +228,52 @@ console.log('\n-- the table itself --');
           }));
 })();
 
+console.log('\n-- somebody who already lives at the destination --');
+(function () {
+    /* The owner put Matt in Denver and flew the group to Denver. He was
+     * rendered as a traveller with no flights: a red dashed card, "not with
+     * the group", and $0 all in, beside a Book button for a trip that does not
+     * exist. That is the failure state, and already being at the meeting point
+     * is the opposite of a failure -- it is usually WHY that city was picked. */
+    var vm = require('vm'), fs2 = require('fs');
+    var src2 = fs2.readFileSync(__dirname + '/app.js', 'utf8');
+    var a = src2.indexOf('function isLocal(t)'), b = src2.indexOf('function hasReturn()');
+    var box = { state: { q: { dest: 'DEN', parties: [] } }, SET: { bags: {} },
+                partyLabel: function (p, i) { return 'P' + i; },
+                partyColor: function () { return '#000'; } };
+    vm.createContext(box);
+    vm.runInContext(src2.slice(a, b), box);
+    var set = function (dest, parties) {
+        box.state.q.dest = dest;
+        box.state.q.parties = parties.map(function (ap, i) {
+            return { id: 'p' + i, airports: ap, seats: 1 };
+        });
+    };
+
+    set('DEN', [['LGA'], ['DEN'], ['MSP']]);
+    eq('the one who lives there is not asked to fly', box.travelers().length, 2);
+    eq('...and is still on the trip', box.locals().length, 1);
+    eq('...and the group is still three people', box.allParties().length, 3);
+
+    /* Somebody who offered the destination AND another airport has a real
+     * choice, so they still fly -- the optimiser can use the other one. */
+    set('DEN', [['LGA'], ['DEN', 'COS']]);
+    eq('two airports, one of them the destination, still flies', box.travelers().length, 2);
+
+    /* Case is not a reason to treat the same airport as two. */
+    set('DEN', [['LGA'], ['den']]);
+    eq('lower case is the same airport', box.locals().length, 1);
+
+    /* Before a destination is chosen nobody can be local, or step 1 would
+     * start deleting people. */
+    set('', [['LGA'], ['DEN']]);
+    eq('no destination means nobody is local', box.locals().length, 0);
+
+    /* A party with no airport at all is not local, it is unfinished. */
+    set('DEN', [['LGA'], []]);
+    eq('an empty party is not local', box.locals().length, 0);
+}());
+
 console.log('\n' + (fail ? 'FAILED ' + fail + ' of ' + (pass + fail)
                          : 'ALL ' + pass + ' CHECKS PASSED'));
 process.exitCode = fail ? 1 : 0;

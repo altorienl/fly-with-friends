@@ -902,6 +902,10 @@ a { color: var(--accent); }
 
 .trav { border-top: 1px solid var(--edge); padding: var(--s4) 0 var(--s2); }
 .trav.apart { border-color: var(--bad); border-style: dashed; }
+/* Already at the destination: a name and a fact, with none of the furniture a
+   flight needs. */
+.trav.local .trav-top { align-items: center; }
+.trav-local { font-size: var(--t-2); color: var(--muted); margin-top: 2px; }
 .trav-top { display: grid; grid-template-columns: 34px 1fr auto; gap: var(--s3); align-items: center; }
 .trav-name { font-size: var(--t-4); font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .trav-tot { font-size: var(--t-5); font-weight: 600; letter-spacing: var(--tr-5); text-align: right; }

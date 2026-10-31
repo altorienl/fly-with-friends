@@ -446,11 +446,41 @@ function partyInitials(p, i) {
 }
 function partyColor(i) { return COLORS[i % COLORS.length]; }
 
-function travelers() {
+/* Somebody whose only airport IS the destination already lives there.
+ *
+ * The app treated them as a traveller with no flights: a red dashed card, "not
+ * with the group", and $0 all in, next to a Book button for a trip that does
+ * not exist. That is the failure state, and being at the meeting point already
+ * is the opposite of a failure. It is also not rare -- the friend who lives in
+ * the city is exactly why that city got picked.
+ *
+ * They stay in the trip and in the head count. They are just not flying, so
+ * nothing searches for them, nothing prices them, and no window has to cover
+ * them. */
+function isLocal(t) {
+    var dest = (state.q && state.q.dest) ? [String(state.q.dest).toUpperCase()] : [];
+    if (!dest.length || !t.origins || !t.origins.length) return false;
+    return t.origins.every(function (a) {
+        return dest.indexOf(String(a).toUpperCase()) > -1;
+    });
+}
+
+function allParties() {
     return state.q.parties.map(function (p, i) {
         return { id: p.id, name: partyLabel(p, i), origins: p.airports.slice(),
                  seats: Math.max(1, p.seats || 1), color: partyColor(i), bags: SET.bags };
     });
+}
+
+/* Everyone the optimiser has to find a flight for -- which is everyone who is
+ * not already there. Every window, every total and every search is built from
+ * this list; locals come back in at render time. */
+function travelers() {
+    return allParties().filter(function (t) { return !isLocal(t); });
+}
+
+function locals() {
+    return allParties().filter(isLocal);
 }
 function hasReturn() { return !!(state.q && state.q.ret); }
 function bandFor(leg) { return (state.q.band || {})[leg] || { from: '', to: '' }; }
@@ -1182,9 +1212,25 @@ function doSearch() {
      * known here -- the cities, the airports, the destination, the number of
      * searches -- so there is no reason for the seconds it takes to look like
      * nothing is happening. */
+    var tv = travelers().filter(function (t) { return t.origins.length; });
+    /* Fewer than two people actually flying is not a question this app
+     * answers, and the worker refuses it with "Add at least two people" --
+     * which reads as nonsense to somebody who added four, two of whom live at
+     * the destination. Said here, in their terms, before a search is spent. */
+    if (tv.length < 2) {
+        var here = locals();
+        state.error = here.length
+            ? nameList(here.map(function (t) { return t.id; }))
+              + (here.length === 1 ? ' is' : ' are') + ' already in '
+              + ((AIRPORTS.get(state.q.dest) || {}).city || state.q.dest)
+              + ', so there is nobody to land together. Add someone who is flying in.'
+            : 'Add at least two people who are flying.';
+        state.busy = false; render();
+        return Promise.resolve();
+    }
+
     startSearching();
 
-    var tv = travelers().filter(function (t) { return t.origins.length; });
     /* fetch has no timeout of its own, so a connection that opens and then
      * stalls -- the normal failure on a phone moving between cells -- left the
      * app waiting for the rest of the morning. 45s is deliberately generous:
@@ -3011,6 +3057,12 @@ function renderNotices() {
 
 function name(id) {
     var t = (C && C.travelers || []).filter(function (x) { return x.id === id; })[0];
+    /* C.travelers is only the people who are flying, so somebody who already
+     * lives at the destination is not in it -- and printing their party id in
+     * a sentence is worse than the sentence not existing. */
+    if (!t && state.q) {
+        t = allParties().filter(function (x) { return x.id === id; })[0];
+    }
     return t ? t.name : id;
 }
 function legVerb() { return state.leg === 'outbound' ? 'land' : 'leave'; }
@@ -3041,7 +3093,9 @@ function renderResHead() {
      * one that cannot do anything. */
     if (destEditing && BUDGET && BUDGET.exhausted) destEditClose(false);
     var q = state.q, a = AIRPORTS.get(q.dest);
-    var seats = travelers().reduce(function (n, t) { return n + t.seats; }, 0);
+    /* allParties, not travelers: the person who already lives there is on the
+     * trip. The title counts the group, not the flights. */
+    var seats = allParties().reduce(function (n, t) { return n + t.seats; }, 0);
     var city = a ? a.city : q.dest;
     /* The city is the control, not a label. It drops back to plain text when a
      * new search could not run anyway -- one is already in flight, or the
@@ -4124,6 +4178,25 @@ function travellerCard(id, i) {
         + '</div></div></div>';
 }
 
+/* Somebody who already lives at the destination. One line, no price, no
+ * flights, no Book button -- there is nothing to book. They were rendered as a
+ * traveller with no options, which is the error state: a red dashed border,
+ * "not with the group", and $0 all in. Being at the meeting point already is
+ * the opposite of not making it. */
+function localCard(t) {
+    var a = AIRPORTS.get(state.q.dest);
+    var i = state.q.parties.map(function (p) { return p.id; }).indexOf(t.id);
+    return '<div class="trav local">'
+        + '<div class="trav-top">'
+        + '<div class="ava" aria-hidden="true" style="background:' + partyColor(i < 0 ? 0 : i) + '">'
+        + esc(partyInitials(state.q.parties[i] || { name: t.name }, i < 0 ? 0 : i)) + '</div>'
+        + '<div><div class="trav-name">' + esc(t.name)
+        + (t.seats > 1 ? ' <span class="badge seats">' + t.seats + ' seats</span>' : '')
+        + '</div>'
+        + '<div class="trav-local">Already in ' + esc(a ? a.city : state.q.dest) + '</div>'
+        + '</div></div></div>';
+}
+
 function renderPlanView() {
     var host = el('planView');
     if (!TRIP || !C) { host.innerHTML = ''; return; }
@@ -4159,6 +4232,9 @@ function renderPlanView() {
     }
 
     html += C.ids.map(travellerCard).join('');
+    /* And the people who are already there, after the ones who are flying,
+     * because that is the order the group thinks in. */
+    html += locals().map(localCard).join('');
 
     host.innerHTML = html;
 }
