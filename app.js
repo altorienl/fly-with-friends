@@ -1720,6 +1720,58 @@ function returnChoice(ctx) {
 }
 function returnThOf(ctx) { return returnChoice(ctx).th; }
 
+/* The two legs are searched separately, so nothing was holding a person's
+ * trip together.
+ *
+ * Measured on a real four-person search: Carbone went out LGA to DEN on
+ * Southwest and came back DEN to JFK on JetBlue, $159 + $159 = $318, while
+ * Google had the Southwest LGA-DEN ROUND TRIP at $317. A dollar less, one
+ * airline, and the same airport at both ends. The split bought nothing and
+ * cost two things -- his car was at LGA, and a round trip pinned across two
+ * carriers is the one shape Google refuses to open as a booking.
+ *
+ * Both fall out of the same gap: the return is the cheapest return, chosen
+ * with no knowledge of the outbound. So it is now chosen WITH it, under a
+ * shadow cost -- the same device the match profiles use. The option set, the
+ * window and the arrival times are untouched; only the argmin moves, and the
+ * winner is re-priced in real money before anything downstream reads it.
+ *
+ * Deliberately small. These break near-ties and nothing else: at a dollar
+ * apart Carbone's pairing flips, at forty dollars apart it does not, because
+ * a person who would rather land at the other airport and save forty dollars
+ * is right and the app should not overrule them. */
+var HOME_AIRPORT_SHADOW = 25;   /* per seat, for landing where you left from */
+var ONE_AIRLINE_SHADOW = 12;    /* per seat, for one ticket instead of two */
+
+var OUT_PICKS = null;
+
+function firstCarrier(o) {
+    if (o && o.segs && o.segs.length && o.segs[0].carrier) return o.segs[0].carrier;
+    var a = (o && o.airlines) || [];
+    return a.length ? normAirline(a[0]) : null;
+}
+
+/* Prefers the return that closes the person's own loop, when closing it is
+ * nearly free. Returns null when there is no outbound to be coherent with. */
+function coherentReturn(ctx, th) {
+    if (!OUT_PICKS) return null;
+    var shadow = function (o, id) {
+        var money = ctx.costFn(o, id);
+        var out = OUT_PICKS[id] && OUT_PICKS[id].option;
+        if (!out) return money;
+        var seats = seatsFor(ctx, id), pen = 0;
+        /* Landing at the airport you left from. Only meaningful for somebody
+         * who gave more than one -- for everybody else these are equal and
+         * the penalty never fires. */
+        if (o.to && out.from && o.to !== out.from) pen += HOME_AIRPORT_SHADOW * seats;
+        var a = firstCarrier(o), b = firstCarrier(out);
+        if (a && b && a !== b) pen += ONE_AIRLINE_SHADOW * seats;
+        return money + pen;
+    };
+    var r = solveAt(ctx, th, shadow);
+    return r ? repriceMoney(ctx, r) : null;
+}
+
 function legBreakdown(leg) {
     var ctx = compute(leg);
     if (!ctx) return null;
@@ -1734,9 +1786,14 @@ function legBreakdown(leg) {
      * apart is which option each person was given inside it. Re-deriving from
      * state.th here threw that away -- every profile collapsed back onto the
      * money argmin, which is why the four names kept resolving to one plan. */
+    var th = state.th[leg] != null ? state.th[leg] : recommendedIn(ctx);
     var plan = (leg === 'outbound' && PICKED_PLAN)
-        || planOf(ctx, state.th[leg] != null ? state.th[leg] : recommendedIn(ctx));
+        || (leg === 'return' && coherentReturn(ctx, th))
+        || planOf(ctx, th);
     if (!plan) return null;
+    /* Stashed for the return's shadow above. Cleared with the other per-pass
+     * memos in render(), so a stale outbound can never steer a return. */
+    if (leg === 'outbound') OUT_PICKS = plan.picks;
 
     var rows = {};
     plan.included.forEach(function (id) {
@@ -1815,6 +1872,10 @@ function tripLadder() {
     FWF.DEFAULT_THRESHOLDS.forEach(function (T) {
         var total = 0, worst = 0, ok = true, per = {};
         var reg = { stops: 0, mins: 0, who: null }, conn = {}, mins = 0;
+        /* The outbound of this row, so the return can be chosen against it.
+         * ctxs is outbound-then-return, so it is always set by the time the
+         * return is reached. */
+        var rowOut = null;
         ctxs.forEach(function (c) {
             /* These rows are the OUTBOUND ladder. The return settles its own
              * window once, by its own rule, and is identical in every row -- so
@@ -1828,7 +1889,22 @@ function tripLadder() {
              * gap ran to $600 on the groups in test-return.js. The two must
              * come from one function or they drift again. */
             var ownWindow = c.leg === 'return';
-            var r = FWF.minCostAtWindow(c.prep, ownWindow ? returnThOf(c) : T, c.costFn);
+            var r;
+            if (ownWindow) {
+                /* Through the SAME function the cards use, keyed on this row's
+                 * own outbound -- see coherentReturn. Pricing the return here
+                 * with the plain money cost while the cards price it with the
+                 * coherence shadow is the drift this comment warns about,
+                 * arriving by a new door. */
+                var keep = OUT_PICKS;
+                OUT_PICKS = rowOut ? rowOut.picks : null;
+                r = coherentReturn(c, returnThOf(c))
+                    || FWF.minCostAtWindow(c.prep, returnThOf(c), c.costFn);
+                OUT_PICKS = keep;
+            } else {
+                r = FWF.minCostAtWindow(c.prep, T, c.costFn);
+                rowOut = r;
+            }
             if (!r) { ok = false; return; }
             total += r.cost;
             if (!ownWindow) worst = Math.max(worst, r.spread);
@@ -2764,6 +2840,7 @@ function render() {
      * sets it summarises change whenever a filter does. */
     returnTh = {};
     PICKED_PLAN = null;
+    OUT_PICKS = null;
     /* Cleared with the rest of the per-pass memos. It was not, so the matches
      * were computed once on load and never again: "Fly home separately, save
      * $20" moved the plan and the itineraries underneath it, and the three
