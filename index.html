@@ -366,7 +366,16 @@ a { color: var(--accent); }
 .home-btn:active { background: var(--card-2); }
 .home-btn:focus-visible { outline: 2px solid var(--brand-line); outline-offset: 2px; }
 .brand-mark { width: 34px; height: 34px; border-radius: var(--r-sm); flex-shrink: 0; display: block; }
-.brand-name { font-size: var(--t-4); font-weight: 600; letter-spacing: var(--tr-4); white-space: nowrap; }
+/* The explicit line-height is not cosmetic. Left to the inherited one, this
+ * box came out 22.9375px tall, and flex-centring that against the 34px mark
+ * put the text's top edge at y=18.53125 -- a little over half a pixel off the
+ * grid, which at 3x is 55.6 device pixels. iOS rasterises the glyphs at that
+ * offset and the name reads soft next to the headline below it, which lands
+ * on a whole pixel and does not. 24px is even, so (34 - 24) / 2 is 5 and the
+ * whole line sits on an integer. Keep it even if the mark or the type scale
+ * changes. */
+.brand-name { font-size: var(--t-4); font-weight: 600; letter-spacing: var(--tr-4);
+    line-height: 24px; white-space: nowrap; }
 /* The macOS title bar, taken over.
  *
  * Installed on a desktop, the window drew "Fly with Friends" in the system
