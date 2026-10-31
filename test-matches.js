@@ -668,7 +668,17 @@ console.log('\n-- the choice strip renders the profiles --');
     var html = HOST.innerHTML;
     var ms = ctx.tripMatches();
     var sel = ctx.matchOf(ms);
-    check('strip is visible', HOST.className === 'choices');
+    /* Not an exact className: the container gained a `boxed` modifier when
+     * the chooser was framed, and pinning the whole string made a visual
+     * change look like the strip had disappeared. What this ever meant is
+     * that it is not hidden. */
+    check('strip is visible', /\bchoices\b/.test(HOST.className)
+          && !/\bhidden\b/.test(HOST.className), HOST.className);
+    /* And the frame itself: four rows with no edge, running straight into the
+     * plan, did not read as four things you pick between. */
+    check('a real choice is framed and labelled',
+          /\bboxed\b/.test(HOST.className) && html.indexOf('choices-head') > -1,
+          HOST.className);
     check('one row per distinct match',
           (html.match(/class="mrow/g) || []).length === ms.length,
           (html.match(/class="mrow/g) || []).length + ' rows, ' + ms.length + ' matches');
@@ -738,6 +748,12 @@ console.log('\n-- the choice strip renders the profiles --');
           one.length === 1 && HOST.innerHTML.indexOf('One plan covers it') === -1
           && HOST.innerHTML.indexOf('m-s') === -1,
           HOST.innerHTML.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
+    /* And it is not framed. A lone row inside a card headed "Pick one" is a
+     * worse lie than no card: it invites a tap that cannot do anything, which
+     * is the same reason the row is a div here and not a button. */
+    check('...and is not dressed up as a choice',
+          !/\bboxed\b/.test(HOST.className)
+          && HOST.innerHTML.indexOf('choices-head') === -1, HOST.className);
 
     /* ...but a single row that leaves somebody behind still has to say so. */
     var g5 = JSON.parse(JSON.stringify(F.groups[0]));

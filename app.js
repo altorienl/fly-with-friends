@@ -3069,8 +3069,20 @@ function renderChoices() {
         return many ? matchWhy(m, ms) : shortfallOf(m);
     };
 
-    host.className = 'choices';
-    host.innerHTML = '<div class="match"'
+    /* Boxed only when there is something to choose between. The four rows
+     * read as four facts about the trip rather than four buttons -- reported
+     * from a phone: "if I'm a first time user I might not even capture that I
+     * click cheapest balanced closest landing". Each row did say "Choose" on
+     * the right, which is apparently not enough when the group has no edge
+     * and runs straight into the plan below it.
+     *
+     * One container, not one per row. The boxes were stripped off this screen
+     * once already and the note on .mrow explains why a 2x2 grid of cards was
+     * the wrong answer; this is the opposite move, a single frame that says
+     * "these four belong together and you pick one". */
+    host.className = 'choices' + (many ? ' boxed' : '');
+    host.innerHTML = (many ? '<div class="choices-head">Pick one</div>' : '')
+        + '<div class="match"'
         + (many ? ' role="radiogroup" aria-label="Matches"' : '') + '>'
         + ms.map(function (m) {
             var on = m.key === sel.key;

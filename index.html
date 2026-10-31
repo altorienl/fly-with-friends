@@ -892,6 +892,31 @@ a { color: var(--accent); }
  * than the old --t-7 because it now shares a row with its own name. */
 .mrow.on .m-v { font-size: var(--t-6); letter-spacing: var(--tr-6); line-height: var(--lh-tight); }
 
+/* The chooser, framed.
+ *
+ * Unstyled until now: four rows of hairlines that ran straight into the plan
+ * underneath, so nothing said they were a group or that one of them was a
+ * question. A single card does both, and the gap below separates the choice
+ * from its consequence -- "Landing together" is the ANSWER to whichever row
+ * is selected, and the two were touching.
+ *
+ * Only applied with .boxed, which renderChoices sets when there is more than
+ * one match. A lone row in a frame labelled "Pick one" is a worse lie than no
+ * frame at all. */
+.choices.boxed {
+    background: var(--card); border: 1px solid var(--edge);
+    border-radius: var(--r-lg); padding: var(--s4) var(--s4) var(--s2);
+    margin-bottom: var(--s6);
+}
+.choices-head {
+    font-size: var(--t-1); font-weight: 500; text-transform: uppercase;
+    letter-spacing: .1em; color: var(--muted); margin-bottom: var(--s2);
+}
+/* Inside the card the first row needs no rule above it -- the card edge is
+ * already the line -- and the last needs none below for the same reason. */
+.choices.boxed .mrow:first-child { border-top: 0; }
+.choices.boxed .match .mrow:last-child { border-bottom: 0; }
+
 .leg { display: block; margin-top: 28px; }
 
 /* one person, both legs, one action */
