@@ -772,7 +772,34 @@ a { color: var(--accent); }
 .nav .btn.primary { flex: 1 1 auto; }
 
 /* ---------------- results ---------------- */
-.res-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s5); }
+/* Follows you down the page. Reported after real use: "it would be nice if
+ * the airport, people and dates followed down with you as you reviewed".
+ * They are the premise of everything below -- which city, how many of you,
+ * which nights -- and once scrolled past, a column of prices and times has
+ * nothing to anchor it.
+ *
+ * Sticks under the masthead rather than at the top of the viewport, so the
+ * two do not overlap. --brand-h is measured at runtime because the masthead's
+ * height depends on env(safe-area-inset-top), which differs per device and
+ * cannot be hardcoded.
+ *
+ * The background is opaque and the bleed is negative-margin padding, so the
+ * content scrolling underneath does not show through at the edges of a page
+ * that is itself inset. */
+.res-head {
+    display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s5);
+    position: sticky; top: var(--brand-h, 56px); z-index: 40;
+    background: var(--bg);
+    padding: var(--s2) 0;
+    margin-left: calc(max(20px, env(safe-area-inset-left)) * -1);
+    margin-right: calc(max(20px, env(safe-area-inset-right)) * -1);
+    padding-left: max(20px, env(safe-area-inset-left));
+    padding-right: max(20px, env(safe-area-inset-right));
+    border-bottom: 1px solid transparent;
+}
+/* The rule only appears once it is actually stuck, so the header has no line
+ * under it while it sits in its natural place at the top of the results. */
+.res-head.stuck { border-bottom-color: var(--edge); }
 .icon-btn { width: 44px; height: 44px; margin-left: -11px; flex-shrink: 0; border-radius: var(--r-pill);
     display: grid; place-items: center; font-size: var(--t-4); transition: transform .12s var(--ease); }
 .icon-btn:active { transform: scale(.97); }

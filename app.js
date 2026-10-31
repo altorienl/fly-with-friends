@@ -3154,6 +3154,35 @@ function tripTotal() {
     };
 }
 
+/* --brand-h, measured rather than guessed.
+ *
+ * The results header sticks UNDER the masthead, and the masthead's height
+ * depends on env(safe-area-inset-top) -- 59px on a Dynamic Island phone, 47
+ * on a notch, 0 in a browser tab. A hardcoded offset leaves a gap on one
+ * device and an overlap on another.
+ *
+ * Also flags the header as stuck, so its underline only appears once it has
+ * actually left its place in the flow. */
+function trackStick() {
+    var brand = document.querySelector('.brand');
+    if (!brand) return;
+    var set = function () {
+        var h = Math.round(brand.getBoundingClientRect().height);
+        document.documentElement.style.setProperty('--brand-h', h + 'px');
+    };
+    set();
+    if (typeof ResizeObserver === 'function') new ResizeObserver(set).observe(brand);
+    window.addEventListener('orientationchange', function () { setTimeout(set, 250); });
+
+    var head = document.querySelector('.res-head');
+    if (!head) return;
+    window.addEventListener('scroll', function () {
+        var top = head.getBoundingClientRect().top;
+        var at = Math.round(brand.getBoundingClientRect().height);
+        head.classList.toggle('stuck', top <= at + 1);
+    }, { passive: true });
+}
+
 function render() {
     /* Cleared every pass: the memo is keyed by leg and party, but the option
      * sets it summarises change whenever a filter does. */
@@ -5881,6 +5910,7 @@ fillForm();
 renderParties();
 showStep(1);
 render();
+trackStick();
 
 /* The app is built to live on a home screen -- that is where the launch screen,
  * the status bar handling and the full-height layout come from -- so someone who
