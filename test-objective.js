@@ -131,10 +131,18 @@ setup(['a', 'b', 'e', 'g'].map(function (id) {
     return LIVE.parties.filter(function (p) { return p.id === id; })[0];
 }));
 var l4 = T.tripLadder(), tb4 = T.tripBest(l4);
-check('the $699 plan is still on the ladder', !!l4.filter(function (r) {
-    return r.total === 699; }).length, l4.map(function (r) { return '$' + r.total; }).join(' '));
-check('and it is the one recommended', tb4.total === 699,
+/* $654 at 15 minutes, not the $699 at 51 this file first pinned. The pruning
+ * fix that followed -- a connection cheaper than the best nonstop is no
+ * longer cut for being slower -- put flights back in the option set that
+ * this group's plan was built from, and the answer improved on both axes at
+ * once. The old number is kept in the comment because a REGRESSION here
+ * would most likely show up as a return to it. */
+check('the cheap tight plan is on the ladder', !!l4.filter(function (r) {
+    return r.total === 654; }).length, l4.map(function (r) { return '$' + r.total; }).join(' '));
+check('and it is the one recommended', tb4.total === 654 && tb4.worst <= 15,
       'recommended $' + tb4.total + ' at ' + tb4.worst + 'm apart');
+check('...which beats what the vetoing rule used to give', tb4.total < 699,
+      '$' + tb4.total + ' vs $699');
 check('nobody is sent into the night to achieve it', (tb4.late || 0) === 0,
       'late shadow $' + Math.round(tb4.late || 0));
 
@@ -233,6 +241,59 @@ check('...while the incoherent option really was there at the same price',
 check('the group still leaves within the slack',
       backD.spread == null || backD.spread <= 75 + 15,
       'home spread ' + FWF.fmtGap(backD.spread || 0));
+
+
+console.log('\n-- a smaller option set cannot hold a better answer --');
+/* The property that caught the pruning bug, kept as a gate.
+ *
+ * Removing an airline can only remove that airline's flights, so the
+ * recommended trip can never get BOTH cheaper and tighter. When it did, a
+ * per-party prune was deleting other carriers' flights: allowing a carrier
+ * added a cheap nonstop, that lowered the bar every connection had to clear,
+ * and the connections it then cut were the ones the group plan needed. One
+ * party was left holding two $225 United nonstops while four $180
+ * connections -- the ones that landed the group 15 minutes apart instead of
+ * 51 -- were cut for being slower.
+ *
+ * Measured at 10% of carrier/group pairs before the fix. */
+var carriers = {};
+Object.keys(LIVE.trips.query.outbound).forEach(function (id) {
+    (LIVE.trips.query.outbound[id] || []).forEach(function (o) {
+        (o.airlines || []).forEach(function (a) { carriers[a] = 1; });
+    });
+});
+carriers = Object.keys(carriers);
+
+function recommend(parties, avoid) {
+    setup(parties);
+    T.state.q.avoid = avoid;
+    T.clearMemo();
+    var l = T.tripLadder();
+    if (!l || !l.length) return null;
+    var b = T.tripBest(l);
+    return { total: b.total, worst: b.worst };
+}
+
+var inversions = [], pairs = 0;
+SUBSETS.forEach(function (ps) {
+    var base = recommend(ps, []);
+    if (!base) return;
+    carriers.forEach(function (c) {
+        var cut = recommend(ps, [c.toLowerCase()]);
+        if (!cut) return;
+        pairs++;
+        if (cut.total < base.total - 1 && cut.worst <= base.worst) {
+            inversions.push(ps.map(function (p) { return p.id; }).join('')
+                + ' avoid ' + c + ': $' + base.total + '/' + base.worst
+                + 'm -> $' + cut.total + '/' + cut.worst + 'm');
+        }
+    });
+});
+check('removing a carrier never makes the trip cheaper AND tighter',
+      inversions.length === 0,
+      inversions.length + ' of ' + pairs + ' pairs\n          '
+      + inversions.slice(0, 3).join('\n          '));
+check('...and the sweep actually compared something', pairs > 300, pairs + ' pairs');
 
 console.log('\n' + (fail ? 'FAILED ' + fail + ' of ' + (pass + fail)
                          : 'ALL ' + pass + ' CHECKS PASSED'));

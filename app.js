@@ -672,6 +672,27 @@ function compute(leg) {
                  * blaming the band for a flight a different rule removed. */
                 kept = pruneSoftly(kept, function (o) {
                     if ((o.stops || 0) === 0) return true;
+                    /* Never drop a connection that is simply CHEAPER than the
+                     * best nonstop. The margin below asks a connection to be
+                     * worth its hassle, and that judgement now exists with
+                     * units on it in tripScore -- EASE_PER_STOP and
+                     * EASE_PER_MIN -- where it can be weighed against what the
+                     * group gains. Here it is applied per party, before the
+                     * optimiser sees any of it, so it was deleting flights the
+                     * group plan needed.
+                     *
+                     * Measured on the live BZN fixture: removing a carrier
+                     * made the recommended trip strictly cheaper AND tighter
+                     * in 10% of carrier/group pairs, which is impossible from
+                     * a smaller option set and so could only be this prune.
+                     * One party kept exactly two $225+ United nonstops while
+                     * four $180 connections were cut for being slower -- and
+                     * those four were what landed the group 15 minutes apart
+                     * instead of 51, for $45 less. Deleting the rule outright
+                     * fixes the inversion and breaks six tests; this keeps it
+                     * for the absurd flights it was written for, which are the
+                     * ones that are slower AND no cheaper. */
+                    if (leg === 'outbound' && costFn(o, id) < bestDirect) return true;
                     var extra = (o.duration_minutes != null && directMins != null)
                         ? Math.max(0, (o.duration_minutes - directMins) / 60) : 0;
                     return costFn(o, id) <= bestDirect - seatsHere * (40 + 25 * extra);
