@@ -287,8 +287,7 @@ a { color: var(--accent); }
 .btn:focus-visible, .pill:focus-visible, .icon-btn:focus-visible,
 .gear:focus-visible, .ac-item:focus-visible, .chip button:focus-visible,
 .stepper button:focus-visible, .add-air:focus-visible, footer button:focus-visible,
-.win-alt button:focus-visible, .share-alt button:focus-visible, .mrow:focus-visible,
-.mark-btn:focus-visible {
+.win-alt button:focus-visible, .share-alt button:focus-visible, .mrow:focus-visible {
     outline: 2px solid var(--brand-line); outline-offset: 2px;
 }
 
@@ -964,22 +963,9 @@ a { color: var(--accent); }
 .trav-book .btn:active { background: var(--card); }
 .trav-book .fine { font-size: var(--t-2); color: var(--muted); margin-top: 8px; line-height: var(--lh-text); text-align: center; }
 .trav-book .fine.bad { color: var(--bad); }
-/* The other half of the Book button, and deliberately the quieter half: Book is
-   the thing the app is for, and this is a note somebody makes afterwards. Text,
-   not a box, so it does not read as a second decision to make -- but 44px tall
-   and centred under the button, because it is still a thumb target. */
-.mark-btn { display: block; width: 100%; min-height: 44px; margin-top: var(--s1);
-    background: transparent; border: 0; color: var(--muted);
-    font-size: var(--t-2); font-weight: 500; text-decoration: underline;
-    text-underline-offset: 3px; text-decoration-color: var(--edge-2); }
-.mark-btn.on { color: var(--faint); }
-.mark-btn:active { color: var(--text); }
-.mark-btn[disabled] { opacity: .6; text-decoration: none; }
-.mark-btn:focus-visible { outline: 2px solid var(--brand-line); outline-offset: 2px; border-radius: var(--r-sm); }
 /* Once somebody has booked, their row is settled: the hairline that separates
    it says so, and nothing else about the row changes. A tint or a fill here
    would make five booked people into five panels. */
-.trav.booked { border-color: var(--good); }
 
 /* ---------------- the trip's own state ----------------
    Two short lines of plain text under the title: who has booked, and whether
@@ -1114,7 +1100,6 @@ a { color: var(--accent); }
 /* The one piece of good news on the screen, and the only thing on it that is a
    fact about a person rather than a fact about a fare. Green because it is the
    same green the app already uses for "this is settled". */
-.badge.ok { border-color: var(--good); color: var(--good); }
 .book { display: inline-block; margin-top: 4px; padding: 10px 0; font-size: var(--t-2); font-weight: 600; color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--edge-2); }
 .links { display: flex; gap: 14px; flex-wrap: wrap; align-items: baseline; }
 .links .book { margin-top: 6px; padding: 6px 0; }

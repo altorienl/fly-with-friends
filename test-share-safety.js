@@ -47,36 +47,15 @@ ck('plural still correct', ctx.stopsText(2) === '2 stops' && ctx.stopsText(1) ==
 console.log('\n-- esc covers the remaining interpolations --');
 ck('esc neutralises angle brackets', ctx.esc(PAYLOAD).indexOf('<') === -1);
 
-/* The roster is the newest thing to arrive from a stored trip, and it reaches
- * innerHTML by way of a badge, a sentence that names people and a data-mark
- * attribute. It is driven by the party ids the app already holds rather than by
- * the keys of the response, which is what makes the attack surface a single
- * enum value rather than an arbitrary object. */
-console.log('\n-- sanitizeMarks only lets through people on the trip --');
-var sm = src.indexOf('function sanitizeMarks');
-vm.runInContext(src.slice(sm, src.indexOf('\n}', sm) + 2), ctx);
+/* sanitizeMarks was asserted here, hard: the roster was the newest thing
+ * arriving from a stored trip and it reached innerHTML through a badge, a
+ * sentence naming people and a data-mark attribute. All three are gone with
+ * the "I'm booked" control, and so is the function -- the client never reads
+ * /marks now. The worker still has the endpoint and worker/test-worker.js
+ * still covers its own sanitising, which is the copy that matters while it
+ * exists. Nothing in the browser parses a roster any more, so there is no
+ * client-side surface left to test. */
 
-var ids = ['alex', 'ray'];
-var marks = ctx.sanitizeMarks({
-    alex: { s: 'booked' },
-    ray: { s: PAYLOAD },
-    mallory: { s: 'booked' },
-    __proto__: { s: 'booked' },
-    constructor: { s: 'booked' }
-}, ids);
-ck('a real mark survives', marks.alex === 'booked');
-ck('an unknown state is dropped', marks.ray === undefined);
-ck('somebody not on the trip is dropped', marks.mallory === undefined);
-ck('nothing but the two ids is present', JSON.stringify(Object.keys(marks)) === '["alex"]');
-ck('the prototype is untouched', ({}).s === undefined);
-ck('a non-object roster is an empty roster',
-   JSON.stringify(ctx.sanitizeMarks(PAYLOAD, ids)) === '{}'
-   && JSON.stringify(ctx.sanitizeMarks(null, ids)) === '{}'
-   && JSON.stringify(ctx.sanitizeMarks([1, 2, 3], ids)) === '{}');
-ck('the bare-string form is accepted too, and only for booked',
-   ctx.sanitizeMarks({ alex: 'booked', ray: 'looking' }, ids).alex === 'booked'
-   && ctx.sanitizeMarks({ alex: 'booked', ray: 'looking' }, ids).ray === undefined);
-ck('no ids means no marks', JSON.stringify(ctx.sanitizeMarks({ alex: 'booked' }, [])) === '{}');
 
 /* The trip id read off the URL is concatenated straight into a fetch path, so
  * the regex that extracts it is load-bearing: anything it lets through becomes
