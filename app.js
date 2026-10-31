@@ -4750,7 +4750,7 @@ function renderShifts() {
          * is the app explaining its own billing to somebody about to tap a
          * button. The number is the only part that changes a decision. */
         host.innerHTML = '<button class="btn wide" id="shiftBtn"' + (shiftBusy ? ' disabled' : '') + '>'
-            + (shiftBusy ? 'Checking…' : 'Is another day cheaper?') + '</button>'
+            + (shiftBusy ? 'Checking…' : 'Flexible dates') + '</button>'
             /* This quoted its own cost -- "uses up to 8 of this month's
              * searches" -- until the owner cut the allowance from the screen
              * entirely. Asking somebody to weigh a number they are not billed
@@ -4830,19 +4830,20 @@ function renderShare() {
      * twice. Where there is no sheet -- every laptop -- the two routes appear
      * under the button instead, which is the only place they are needed. */
     var canShare = typeof navigator.share === 'function';
-    host.innerHTML = '<button class="btn primary wide" id="shareBtn">Share the trip</button>'
+    host.innerHTML = '<button class="btn primary wide" id="shareBtn">Share</button>'
         + '<div class="share-alt" id="shareAlt"></div>'
         + '<div class="share-note" id="copyNote"></div>';
 
     if (!canShare) showShareOptions();
 
     el('shareBtn').addEventListener('click', function () {
-        /* The two routes are revealed either way. The native sheet is better on
-         * a phone -- Messages and WhatsApp are in it -- but it is also a thing
-         * you can dismiss, and "copy or email" was asked for by name, so it must
-         * not be reachable only by refusing a sheet first. */
-        showShareOptions();
-        if (!canShare) { doCopy(); return; }
+        /* NOT revealed up front any more. Where there is a native sheet it
+         * opens over the page with Messages, Mail and WhatsApp already in it,
+         * so a Copy and an Email button underneath are two dead controls
+         * behind a modal -- reported exactly that way. They still appear if
+         * the sheet is refused or fails, which is the case they exist for,
+         * and they are shown from the start on anything without a sheet. */
+        if (!canShare) { showShareOptions(); doCopy(); return; }
         el('copyNote').textContent = 'Getting the link\u2026';
         el('copyNote').className = 'share-note';
         /* Saved before the sheet opens: an unsaved link is the self-contained
