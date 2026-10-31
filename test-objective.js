@@ -17,14 +17,20 @@
  */
 var fs = require('fs'), vm = require('vm'), path = require('path');
 var ROOT = __dirname;
-var LIVE = JSON.parse(fs.readFileSync(path.join(ROOT, 'fixtures-live.json'), 'utf8'));
+var FIX = JSON.parse(fs.readFileSync(path.join(ROOT, 'fixtures-live.json'), 'utf8'));
+var LIVE = FIX.scenarios.bzn, DEN = FIX.scenarios.den;
 
 var harness = fs.readFileSync(path.join(ROOT, 'test-return.js'), 'utf8');
 var cut = harness.indexOf('function text(html)');
 if (cut < 0) throw new Error('test-return.js no longer exposes the harness this reuses');
 var head = harness.slice(0, cut)
     .replace("'recommendedIn', 'blankQuery', 'migrateQuery'];",
-             "'recommendedIn', 'blankQuery', 'migrateQuery', 'tripScore', 'latenessOf'];");
+             "'recommendedIn', 'blankQuery', 'migrateQuery', 'tripScore', 'latenessOf',\n"
+             + "               'matchOf', 'tripMatches', 'coherentReturn', 'returnThOf'];")
+    .replace("+ ',clearMemo:function(){returnTh={};}'",
+             "+ ',clearMemo:function(){returnTh={};MATCHES=null;PICKED_PLAN=null;OUT_PICKS=null;}'"
+             + "+ ',set C(v){C=v;},get C(){return C;}'"
+             + "+ ',set PICKED_PLAN(v){PICKED_PLAN=v;},get PICKED_PLAN(){return PICKED_PLAN;}'");
 var ctxBox = {};
 (new Function('module', 'exports', 'require', '__dirname', '__filename',
               head + '\nmodule.exports = { FWF: FWF, T: T };'))
@@ -37,14 +43,15 @@ function check(n, c, extra) {
     else { fail++; console.log('  FAIL  ' + n + (extra ? '\n          ' + extra : '')); }
 }
 
-function setup(parties) {
+function setup(parties, sc) {
+    sc = sc || LIVE;
     var q = T.blankQuery();
-    q.dest = LIVE.dest; q.dep = LIVE.dep; q.ret = LIVE.ret; q.parties = parties;
+    q.dest = sc.dest; q.dep = sc.dep; q.ret = sc.ret; q.parties = parties;
     T.state.step = 4; T.state.leg = 'outbound'; T.state.recommend = 'value';
     T.state.th = { outbound: null, 'return': null };
     T.state.q = q; T.state.busy = false; T.state.error = null;
-    T.DATA = { generated_at: LIVE.generated_at, currency: 'USD',
-               trips: { query: LIVE.trips.query }, errors: [] };
+    T.DATA = { generated_at: sc.generated_at, currency: 'USD',
+               trips: { query: sc.trips.query }, errors: [] };
     T.clearMemo();
 }
 
@@ -186,6 +193,46 @@ check('it counts seats', T.latenessOf(mid, at([23, 0]), 'outbound')
 check('the way home is cheaper than the way out',
       T.latenessOf(mid, at([23, 0]), 'return') < elevenPm,
       'home $' + T.latenessOf(mid, at([23, 0]), 'return').toFixed(2));
+
+console.log('\n-- the way home closes the loop when closing it is free --');
+/* The owner's complaint, in his words: "matching is what we are selling, why
+ * can't it find the matching leg to that round trip flight". He was right, and
+ * the one-way-vs-round-trip answer I gave first was wrong -- both legs of the
+ * Southwest round trip Google quoted at $317 were already in this response, at
+ * $159 each. The app passed over the matching leg for a reason that had
+ * nothing to do with how it searches.
+ *
+ * Carbone offers LGA, JFK and EWR. The app sent him out of LaGuardia and home
+ * into JFK -- a different airport, a different airline, the same $159 -- while
+ * a Delta DEN->LGA sat in the same option set. The window the return is solved
+ * at comes from returnWays, built on a ladder that drops rows which are not
+ * strictly cheaper, so when money is flat every wider rung is deleted before
+ * coherence gets a vote. */
+setup(DEN.parties, DEN);
+T.C = T.compute();
+var selD = T.matchOf(T.tripMatches());
+T.PICKED_PLAN = selD ? selD.plan : null;
+var outD = T.legBreakdown('outbound'), backD = T.legBreakdown('return');
+var cOut = outD.rows.carbone.option, cBack = backD.rows.carbone.option;
+
+check('he flies home to the airport he left from',
+      cBack.to === cOut.from, cOut.from + ' out, home into ' + cBack.to);
+check('...on the airline he flew out on',
+      String(cBack.airlines) === String(cOut.airlines),
+      cOut.airlines + ' out, ' + cBack.airlines + ' home');
+check('...and it costs him nothing', cBack.price <= 159,
+      '$' + cBack.price + ' home');
+/* Vacuous unless the wrong answer was genuinely cheaper-or-equal and available:
+ * the rule is only allowed to buy coherence that is free. */
+var alt = (DEN.trips.query['return'].carbone || []).filter(function (o) {
+    return o.to !== cOut.from && o.price <= cBack.price; });
+check('...while the incoherent option really was there at the same price',
+      alt.length > 0, alt.length + ' cheaper-or-equal options into another airport');
+
+/* And the group still leaves together: the slack is a ceiling, not a licence. */
+check('the group still leaves within the slack',
+      backD.spread == null || backD.spread <= 75 + 15,
+      'home spread ' + FWF.fmtGap(backD.spread || 0));
 
 console.log('\n' + (fail ? 'FAILED ' + fail + ' of ' + (pass + fail)
                          : 'ALL ' + pass + ' CHECKS PASSED'));

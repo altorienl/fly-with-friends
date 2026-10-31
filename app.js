@@ -1786,6 +1786,15 @@ function returnThOf(ctx) { return returnChoice(ctx).th; }
  * is right and the app should not overrule them. */
 var HOME_AIRPORT_SHADOW = 25;   /* per seat, for landing where you left from */
 var ONE_AIRLINE_SHADOW = 12;    /* per seat, for one ticket instead of two */
+/* How much wider the way home may be solved to close somebody's loop for free.
+ * A ceiling, not a dial: the coherence actually purchasable on real data costs
+ * 10, 14, 19 or 51 minutes of extra spread and then nothing at all until past
+ * three hours, so every value between 51 and 90 gives the same answers. 75
+ * sits above the observed 51 and below the point where leaving together stops
+ * meaning a shared ride. */
+var COHERENCE_SLACK = 75;
+var COHERENCE_WIDTHS = [10, 15, 20, 30, 45, 60, 75];
+var RETURN_DRIFT_PER_MIN = 0.05;
 
 var OUT_PICKS = null;
 
@@ -1797,8 +1806,26 @@ function firstCarrier(o) {
 
 /* Prefers the return that closes the person's own loop, when closing it is
  * nearly free. Returns null when there is no outbound to be coherent with. */
+/* tripLadder asks for the way home once per rung, and the widening below can
+ * run eight solves before it answers. Keyed on the window and on the outbound
+ * it is being made coherent WITH, because those are the only two things it
+ * reads -- cleared in render() with the other per-pass memos, since a filter
+ * change rebuilds the option sets underneath it. */
+var COHERENT_MEMO = {};
+
 function coherentReturn(ctx, th) {
     if (!OUT_PICKS) return null;
+    var key = ctx.leg + '|' + th + '|' + ctx.ids.map(function (id) {
+        var o = OUT_PICKS[id] && OUT_PICKS[id].option;
+        return o ? o.from + '@' + o.depart : '-';
+    }).join(',');
+    if (Object.prototype.hasOwnProperty.call(COHERENT_MEMO, key)) return COHERENT_MEMO[key];
+    var out = coherentReturnUncached(ctx, th);
+    COHERENT_MEMO[key] = out;
+    return out;
+}
+
+function coherentReturnUncached(ctx, th) {
     var shadow = function (o, id) {
         var money = ctx.costFn(o, id);
         var out = OUT_PICKS[id] && OUT_PICKS[id].option;
@@ -1812,8 +1839,70 @@ function coherentReturn(ctx, th) {
         if (a && b && a !== b) pen += ONE_AIRLINE_SHADOW * seats;
         return money + pen;
     };
-    var r = solveAt(ctx, th, shadow);
-    return r ? repriceMoney(ctx, r) : null;
+    var base = solveAt(ctx, th, shadow);
+    if (!base) return null;
+
+    /* The shadow above could never win an argument it was not allowed to have.
+     * `th` arrives from returnThOf -> returnWays, which reads ctx.ladder, and
+     * ladder() keeps only rows strictly cheaper than the next tighter one. So
+     * when money is flat across widths -- which on real data it very often is
+     * -- every wider rung is dropped as dominated before coherence is ever
+     * consulted, and the shadow is handed a one-element choice set. Measured
+     * across 36 multi-airport party-trips: every single airport break had NO
+     * same-airport option inside the chosen window at any price. Raising
+     * HOME_AIRPORT_SHADOW to 50, or to 500, changes nothing.
+     *
+     * So the width itself has to be negotiable. Widen, but only buy what is
+     * free: a candidate is taken only if it costs no more money, drops nobody,
+     * and asks nobody onto a connection. 11% of multi-airport travellers were
+     * being sent home to the wrong airport when the right one was available at
+     * the same price, and one group in four contained such a traveller. */
+    var fixable = ctx.ids.some(function (id) {
+        var out = OUT_PICKS[id] && OUT_PICKS[id].option;
+        var got = base.picks[id] && base.picks[id].option;
+        if (!out || !got || !got.to || !out.from || got.to === out.from) return false;
+        return (ctx.prep.options[id] || []).some(function (o) { return o.to === out.from; });
+    });
+    if (!fixable) return repriceMoney(ctx, base);
+
+    /* Pennies a minute, and load-bearing. minCostAtWindow breaks ties on the
+     * earliest window start, so widening alone "fixed" the New York case by
+     * moving the whole group's flight home from half twelve to 06:46 -- it had
+     * no reason not to. This gives it one. At $3 an hour it is outvoted by the
+     * airport shadow after eight hours, so it can only order plans that
+     * already cost the same. */
+    var drifted = function (o, id) {
+        var b = base.picks[id] && base.picks[id].option;
+        var d = b ? Math.abs(o.clusterMin - b.clusterMin) : 0;
+        return shadow(o, id) + RETURN_DRIFT_PER_MIN * d;
+    };
+    var breaksIn = function (r) {
+        var n = 0;
+        ctx.ids.forEach(function (id) {
+            var out = OUT_PICKS[id] && OUT_PICKS[id].option;
+            var got = r.picks[id] && r.picks[id].option;
+            if (out && got && got.to && out.from && got.to !== out.from) n++;
+        });
+        return n;
+    };
+    var baseBreaks = breaksIn(base), best = base, bestBreaks = baseBreaks;
+    var seen = {};
+    for (var w = 0; w < COHERENCE_WIDTHS.length; w++) {
+        var wide = th + COHERENCE_WIDTHS[w];
+        if (wide > th + COHERENCE_SLACK || seen[wide]) continue;
+        seen[wide] = 1;
+        var cand = solveAt(ctx, wide, drifted);
+        if (!cand) continue;
+        /* Free, in every currency the reader can check. */
+        if (cand.cost > base.cost) continue;
+        if (cand.spread > base.spread + COHERENCE_SLACK) continue;
+        if ((cand.included || ctx.ids).length < (base.included || ctx.ids).length) continue;
+        if (!worthItHome(regretOf(ctx, cand.picks))) continue;
+        var nb = breaksIn(cand);
+        if (nb < bestBreaks) { best = cand; bestBreaks = nb; }
+        if (!bestBreaks) break;
+    }
+    return repriceMoney(ctx, best);
 }
 
 function legBreakdown(leg) {
@@ -3027,6 +3116,7 @@ function render() {
     returnTh = {};
     PICKED_PLAN = null;
     OUT_PICKS = null;
+    COHERENT_MEMO = {};
     /* Cleared with the rest of the per-pass memos. It was not, so the matches
      * were computed once on load and never again: "Fly home separately, save
      * $20" moved the plan and the itineraries underneath it, and the three

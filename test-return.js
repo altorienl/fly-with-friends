@@ -106,7 +106,7 @@ function load() {
         + EXPORTS.map(function (f) { return f + ':' + f; }).join(',')
         + ',get state(){return state;},get SET(){return SET;},set SET(v){SET=v;}'
         + ',get DATA(){return DATA;},set DATA(v){DATA=v;}'
-        + ',clearMemo:function(){returnTh={};}'
+        + ',clearMemo:function(){returnTh={};COHERENT_MEMO={};}'
         + ',PER_SEAT:RETURN_BUDGET_PER_SEAT,PCT:RETURN_BUDGET_PCT};\n';
     vm.runInContext(src.slice(0, src.length - tail.length) + block + tail, ctx, { filename: 'app.js' });
     return ctx;
@@ -545,6 +545,120 @@ console.log('\n-- an unfair window is offered with its price, not hidden --');
           (tight.picks.n.option.stops || 0) > 0,
           'clustering puts a connection on n');
 }
+
+/* ============================================ coming home to your own airport
+ *
+ * Everything above builds every party with ONE airport (airports: [route.code]),
+ * so none of those 52 checks can see return-airport coherence -- for a party
+ * with a single field, leaving from it and landing at it are the same thing and
+ * the penalty never fires. The cluster-vs-separate measurement they settled was
+ * sound for what it measured; it simply never looked at this axis.
+ *
+ * The generator above is left alone, because changing its option sets would
+ * move every economic bound it has already settled. This is a second sweep
+ * where some parties have a metro pair, which is the only shape in which the
+ * question exists.
+ *
+ * The property: the way home may land you at the other airport, but only when
+ * coming home to your own costs real money. "a person who would rather land at
+ * the other airport and save forty dollars is right and the app should not
+ * overrule them" -- so this asserts free coherence is taken, not that coherence
+ * always wins. */
+
+var TWINS = { ORD: 'MDW', SFO: 'OAK', BOS: 'PVD', LAX: 'BUR' };
+
+function twinGroup(seed, nParties) {
+    var ts = seed;
+    var r = rng(seed), pool = ROUTES.slice(), parties = [], outD = {}, retD = {};
+    /* conv and trap are not optional: options() multiplies by k.conv, so a
+     * knob set missing it prices every flight NaN, every comparison below
+     * reads false, and the sweep passes by testing nothing. It did exactly
+     * that until the numbers were looked at. */
+    var k = { banks: 4, jitter: 60, conv: 0.35, trap: (seed % 2 === 0) };
+    var banks = [];
+    for (var b = 0; b < k.banks; b++) banks.push(Math.round(420 + b * (780 / 3)));
+    for (var i = 0; i < nParties; i++) {
+        var route = pool.splice(Math.floor(r() * pool.length), 1)[0];
+        var id = 'p' + i, twin = TWINS[route.code];
+        var codes = twin ? [route.code, twin] : [route.code];
+        parties.push({ id: id, name: 'P' + i, seats: 1 + (i % 2), airports: codes });
+        outD[id] = options(r, route, route.code, 'PIT', '2027-02-12', banks, k);
+        retD[id] = options(r, route, 'PIT', route.code, '2027-02-15', banks, k);
+        if (twin) {
+            /* The twin is a real alternative, not a decoy: same schedule shape,
+             * a few dollars either way, so some groups get free coherence and
+             * some have to pay for it. Both cases must be exercised or the
+             * property is vacuous. */
+            /* Independent either way, and wide enough to straddle
+             * HOME_AIRPORT_SHADOW in both directions: some groups get
+             * coherence for nothing, some would have to pay $90 a seat for it
+             * and should not. If every twin were within the shadow the third
+             * check below would pass by having nothing to check. */
+            var bOut = Math.round((r() * 2 - 1) * 90);
+            /* A third of them priced identically, because that is the shape
+             * the live defect had: a Delta DEN->LGA at the same $159 as the
+             * Delta DEN->JFK the app chose, sitting outside the window the
+             * return was solved at. With every twin a few dollars off, the
+             * check below can only ever catch a PRICE mistake, and the bug was
+             * never about price. Verified: with widening disabled this sweep
+             * reports 93 breaks and, without these ties, zero violations. */
+            var bRet = (ts % 3 === 0) ? 0 : Math.round((r() * 2 - 1) * 90);
+            outD[id] = outD[id].concat(options(r, route, twin, 'PIT', '2027-02-12', banks, k)
+                .map(function (o) { return Object.assign({}, o, { price: o.price + bOut }); }));
+            retD[id] = retD[id].concat(options(r, route, 'PIT', twin, '2027-02-15', banks, k)
+                .map(function (o) { return Object.assign({}, o, { price: o.price + bRet }); }));
+        }
+    }
+    seat(parties, { outbound: outD, 'return': retD }, undefined);
+    return parties;
+}
+
+console.log('\n-- the way home, for people with two airports --');
+var seenBreak = 0, seenFree = 0, groups = 0, multi = 0, violations = [];
+var badPrice = 0;
+for (var ts = 1; ts <= 120; ts++) {
+    var np = 3 + (ts % 4);
+    var parties = twinGroup(ts, np);
+    var ob = T.legBreakdown('outbound'), rb = T.legBreakdown('return');
+    if (!ob || !rb || !ob.rows || !rb.rows) continue;
+    groups++;
+    var rctx = T.compute('return');
+    parties.forEach(function (p) {
+        if (p.airports.length < 2) return;
+        multi++;
+        var out = ob.rows[p.id] && ob.rows[p.id].option;
+        var back = rb.rows[p.id] && rb.rows[p.id].option;
+        if (!out || !back) return;
+        if (!isFinite(out.price) || !isFinite(back.price)) { badPrice++; return; }
+        if (back.to === out.from) return;
+        seenBreak++;
+        /* It landed them somewhere else. That is allowed only if coming home
+         * to their own airport would have cost more. */
+        var cheaper = (rctx.prep.options[p.id] || []).filter(function (o) {
+            return o.to === out.from && o.price <= back.price;
+        });
+        if (cheaper.length) {
+            seenFree++;
+            violations.push('seed ' + ts + ' ' + p.id + ': out of ' + out.from
+                + ', home into ' + back.to + ' $' + back.price
+                + ' with ' + cheaper.length + ' same-airport at $'
+                + Math.min.apply(null, cheaper.map(function (o) { return o.price; })));
+        }
+    });
+}
+
+check('the sweep actually produces two-airport travellers', multi > 50,
+      multi + ' across ' + groups + ' groups');
+check('...priced in real numbers, not NaN', badPrice === 0,
+      badPrice + ' non-finite prices seen');
+check('...and they do sometimes get sent to the other airport', seenBreak > 0,
+      seenBreak + ' of ' + multi + ' land at the other airport');
+check('never sent to the other airport when their own was no dearer',
+      violations.length === 0,
+      violations.slice(0, 4).join('\n          '));
+
+console.log('     ' + seenBreak + ' airport breaks across ' + multi
+    + ' two-airport travellers, ' + seenFree + ' of them avoidable for free');
 
 console.log('\n' + (fail ? 'FAILED ' + fail + ' of ' + (pass + fail) : 'ALL ' + pass + ' CHECKS PASSED'));
 process.exitCode = fail ? 1 : 0;
