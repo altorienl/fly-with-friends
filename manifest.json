@@ -11,7 +11,7 @@
     "standalone"
   ],
   "background_color": "#ece8e1",
-  "theme_color": "#17150f",
+  "theme_color": "#ece8e1",
   "icons": [
     {
       "src": "icon-192.png",

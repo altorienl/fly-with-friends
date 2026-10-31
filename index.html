@@ -20,7 +20,7 @@
 <!-- The masthead continues into the Android status bar and the desktop title
      bar, so this is the masthead's ink, not the page's cream. On iOS it is
      inert -- Safari 26 stopped reading it for the bar. -->
-<meta name="theme-color" content="#17150f">
+<meta name="theme-color" content="#ece8e1">
 <link rel="icon" type="image/png" href="favicon.png" sizes="64x64">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -131,12 +131,6 @@
     --pop: 0 16px 40px rgba(27,24,19,0.16);
     --sunk: inset 0 1px 2px rgba(27,24,19,0.05);
     --warn-dim: rgba(138, 85, 22, 0.15);
-    /* The masthead, and the only dark surface in the product. iOS forces the
-       clock white over a page that owns the top edge, so something there has to
-       be dark -- and the one treatment that does not read as a bar bolted on is
-       the header the app already had, taken to the edge. */
-    --top: #17150f;
-    --on-top: #f5f1e9;
 }
 
 :root {
@@ -335,31 +329,31 @@ a { color: var(--accent); }
 }
 
 /* ---------------- brand ---------------- */
-/* The masthead, and the thing the clock sits on.
+/* The header, and the strip iOS reads the status bar colour from.
  *
- * The page owns the top edge, and iOS forces the clock and battery white over
- * it. An opaque band was tried -- "its like its in a box" -- and a gradient
- * scrim after it, which composites to a mid-grey wash 59px tall over cream and
- * was almost certainly the strip still being reported. Both failed for the
- * same reason: a dark thing whose only job is to be dark reads as something
- * bolted on.
+ * There is no apple-mobile-web-app-status-bar-style on this page, which is
+ * Apple's own instruction -- black-translucent is deprecated and forces the
+ * clock white, which over cream needs something dark behind it. An opaque
+ * band, a gradient scrim and a full ink masthead were each tried and each
+ * read as something bolted onto the top of the app rather than part of it.
  *
- * This is the header the app already had, taken to the edge. The clock lives
- * in its top padding. It is correct under either of the two things iOS might
- * be doing -- if the page paints the strip, ink is what the white glyphs need;
- * if iOS samples the page for the bar colour, this is the fixed element at the
- * top edge it samples. It costs about six pixels over the header plus inset it
- * replaces.
+ * Without that meta, iOS decides the bar colour by sampling the page: it
+ * hit-tests a few pixels inside the top edge, walks up to the first fixed or
+ * sticky ancestor and takes its plain background-color, falling back to body
+ * and then html -- all three of which are cream here, so there is no way to
+ * get a dark bar by accident. It then picks the glyph colour by luma, and
+ * cream reads as light, so the clock comes out dark and legible with nothing
+ * behind it.
  *
- * The side padding caps content at 640 without another wrapper: a percentage
- * resolves against the containing block, and on a phone the calc goes negative
- * so the 20px floor wins. Never give this a padding shorthand anywhere else --
- * it would wipe the top inset and drop the clock onto the mark. */
+ * Two things this rule must keep: position sticky (so there is a fixed
+ * ancestor to sample) and a flat background-color (a gradient disqualifies
+ * it). And never a padding shorthand anywhere else -- the top inset is what
+ * holds the content clear of the clock. */
 .brand {
     position: sticky; top: 0; z-index: 50;
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     max-width: none; margin: 0;
-    background: var(--top); color: var(--on-top);
+    background: var(--bg);
     padding:
         calc(env(safe-area-inset-top) + 8px)
         max(20px, env(safe-area-inset-right), calc((100% - 640px) / 2))
@@ -369,14 +363,7 @@ a { color: var(--accent); }
 .brand-left { position: relative; display: flex; align-items: center; gap: 12px; min-width: 0; }
 .home-btn { position: absolute; inset: -10px -12px; background: none; border: 0; border-radius: var(--r-md);
     z-index: 1; -webkit-tap-highlight-color: transparent; }
-/* The mark is knocked out of the ink rather than plated in amber. On a dark
-   bar at the top of every screen an amber square is the loudest thing on the
-   page and it is not the action -- "one amber thing" is law, and the amber
-   belongs to the button that leaves the screen. */
-.brand-mark > rect { fill: none; }
-.brand-mark g { fill: var(--on-top); }
-.brand-mark g [stroke] { stroke: var(--on-top); }
-.home-btn:active { background: rgba(245, 241, 233, .10); }
+.home-btn:active { background: var(--card-2); }
 .home-btn:focus-visible { outline: 2px solid var(--brand-line); outline-offset: 2px; }
 .brand-mark { width: 34px; height: 34px; border-radius: var(--r-sm); flex-shrink: 0; display: block; }
 .brand-name { font-size: var(--t-4); font-weight: 600; letter-spacing: var(--tr-4); white-space: nowrap; }
@@ -409,7 +396,7 @@ a { color: var(--accent); }
         height: env(titlebar-area-height, 33px);
         padding: 0 10px; margin: 0; max-width: none;
         box-sizing: border-box;
-        background: var(--top); color: var(--on-top);
+        background: var(--bg);
         /* The strip has to stay a title bar: without this the window cannot be
          * moved, which is a worse bug than a generic font. */
         -webkit-app-region: drag; app-region: drag;
@@ -433,7 +420,7 @@ a { color: var(--accent); }
     display: grid; place-items: center; flex-shrink: 0; transition: transform .12s var(--ease); }
 .gear::after { content: ''; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
 .gear svg { width: 16px; height: 16px; display: block; }
-.gear:active { transform: scale(.94); background: rgba(245, 241, 233, .10); }
+.gear:active { transform: scale(.94); }
 .gear .ini { font-size: var(--t-2); font-weight: 600; color: var(--on-party); }
 
 /* Takes the side and bottom insets body gave up. */

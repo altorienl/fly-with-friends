@@ -50,7 +50,7 @@ page() { # page <css-w> <css-h> <scheme>
   # line-height:normal and the stylesheet does calc() with line-height 1.35.
   # There is no lockup now, so there is nothing to drift. Keep this in step
   # with .brand in index.html; it is the only coupling left in the launch path.
-  local BG="#ece8e1" TOP="#17150f" ON="#f5f1e9"
+  local BG="#ece8e1" FG="#17150f"
   local BAND=$(( INSET + 60 ))
   local SIDE=$(( W > 680 ? (W - 640) / 2 : 20 ))
 
@@ -63,16 +63,19 @@ page() { # page <css-w> <css-h> <scheme>
     width:${W}px;height:${H}px;background:${BG};
     position:relative;overflow:hidden;
   }
+  /* Not a band any more -- the same cream as the page. An ink bar across the
+     top was tried and read as something bolted on: "it makes the app locky off
+     and not good lookig". This is just where the header sits. */
   .band{
-    position:absolute;top:0;left:0;right:0;height:${BAND}px;background:${TOP};
+    position:absolute;top:0;left:0;right:0;height:${BAND}px;background:${BG};
     display:flex;align-items:flex-end;justify-content:space-between;
     padding:0 ${SIDE}px 8px ${SIDE}px;box-sizing:border-box;
   }
   .left{display:flex;align-items:center;gap:12px;height:44px;}
-  svg.mk{width:40px;height:40px;display:block;}
+  svg.mk{width:34px;height:34px;display:block;border-radius:8px;}
   .word{
     font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;
-    font-weight:600;font-size:17px;letter-spacing:-.01em;color:${ON};white-space:nowrap;
+    font-weight:600;font-size:17px;letter-spacing:-.01em;color:${FG};white-space:nowrap;
     line-height:1.35;
   }
   .gear{width:44px;height:44px;display:flex;align-items:center;justify-content:center;
@@ -84,10 +87,10 @@ page() { # page <css-w> <css-h> <scheme>
     <div class="left">
       <!-- Same geometry as icon-512.png, knocked out of the ink instead of
            plated in amber. Keep in step with .brand-mark in index.html. -->
-      <svg class="mk" viewBox="0 0 512 512"><g fill="${ON}"><circle cx="178.85" cy="136.8" r="30.0"/><circle cx="332.25" cy="136.8" r="30.0"/><rect x="62.8" y="183.0" width="385.4" height="24.9" rx="12.45"/><path d="M144.20 207.9 L213.50 207.9 L217.65 286.5 L140.05 286.5 Z"/><path d="M155.80 286.5 L130.30 391.0" stroke="${ON}" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M201.90 286.5 L227.90 391.0" stroke="${ON}" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M297.60 207.9 L366.90 207.9 L371.05 286.5 L293.45 286.5 Z"/><path d="M309.20 286.5 L283.70 391.0" stroke="${ON}" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M355.30 286.5 L380.30 391.0" stroke="${ON}" stroke-width="31.5" stroke-linecap="round" fill="none"/></g></svg>
+      <svg class="mk" viewBox="0 0 512 512"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFCB00"/><stop offset="1" stop-color="#FF9501"/></linearGradient></defs><rect width="512" height="512" rx="113" fill="url(#g)"/><g fill="#fff"><circle cx="178.85" cy="136.8" r="30.0"/><circle cx="332.25" cy="136.8" r="30.0"/><rect x="62.8" y="183.0" width="385.4" height="24.9" rx="12.45"/><path d="M144.20 207.9 L213.50 207.9 L217.65 286.5 L140.05 286.5 Z"/><path d="M155.80 286.5 L130.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M201.90 286.5 L227.90 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M297.60 207.9 L366.90 207.9 L371.05 286.5 L293.45 286.5 Z"/><path d="M309.20 286.5 L283.70 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/><path d="M355.30 286.5 L380.30 391.0" stroke="#fff" stroke-width="31.5" stroke-linecap="round" fill="none"/></g></svg>
       <div class="word">Fly with Friends</div>
     </div>
-    <div class="gear"><svg viewBox="0 0 24 24" fill="none" stroke="${ON}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+    <div class="gear"><svg viewBox="0 0 24 24" fill="none" stroke="#8a8275" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
   </div>
 </div>
 </body></html>
