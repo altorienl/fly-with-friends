@@ -1,0 +1,943 @@
+{
+ "note": "A real SerpApi response, captured 2026-10-31. BZN from seven origins, departing 2026-12-11. Kept because generated fixtures are far more scattered than real schedules, and the objective bugs this file guards against only appear on real ones.",
+ "dest": "BZN",
+ "dep": "2026-12-11",
+ "ret": null,
+ "parties": [
+  {
+   "id": "a",
+   "name": "Ana",
+   "seats": 1,
+   "airports": [
+    "LGA"
+   ]
+  },
+  {
+   "id": "b",
+   "name": "Ben",
+   "seats": 1,
+   "airports": [
+    "ORD"
+   ]
+  },
+  {
+   "id": "c",
+   "name": "Cara",
+   "seats": 1,
+   "airports": [
+    "ATL"
+   ]
+  },
+  {
+   "id": "d",
+   "name": "Dev",
+   "seats": 1,
+   "airports": [
+    "DFW"
+   ]
+  },
+  {
+   "id": "e",
+   "name": "Eli",
+   "seats": 1,
+   "airports": [
+    "SFO"
+   ]
+  },
+  {
+   "id": "f",
+   "name": "Fay",
+   "seats": 1,
+   "airports": [
+    "MSY"
+   ]
+  },
+  {
+   "id": "g",
+   "name": "Gus",
+   "seats": 1,
+   "airports": [
+    "DTW"
+   ]
+  }
+ ],
+ "generated_at": "2026-10-31T16:10:08Z",
+ "currency": "USD",
+ "trips": {
+  "query": {
+   "outbound": {
+    "a": [
+     {
+      "price": 119,
+      "depart": "2026-12-11 06:00",
+      "arrive": "2026-12-11 12:24",
+      "duration_minutes": 504,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "LGA",
+      "to": "BZN"
+     },
+     {
+      "price": 124,
+      "depart": "2026-12-11 15:30",
+      "arrive": "2026-12-11 22:50",
+      "duration_minutes": 560,
+      "stops": 2,
+      "airlines": [
+       "Southwest"
+      ],
+      "from": "LGA",
+      "to": "BZN"
+     },
+     {
+      "price": 124,
+      "depart": "2026-12-11 16:59",
+      "arrive": "2026-12-12 00:18",
+      "duration_minutes": 559,
+      "stops": 2,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "LGA",
+      "to": "BZN"
+     },
+     {
+      "price": 199,
+      "depart": "2026-12-11 07:30",
+      "arrive": "2026-12-11 12:24",
+      "duration_minutes": 414,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "LGA",
+      "to": "BZN"
+     },
+     {
+      "price": 219,
+      "depart": "2026-12-11 06:00",
+      "arrive": "2026-12-11 13:02",
+      "duration_minutes": 542,
+      "stops": 1,
+      "airlines": [
+       "American"
+      ],
+      "from": "LGA",
+      "to": "BZN"
+     },
+     {
+      "price": 255,
+      "depart": "2026-12-11 09:45",
+      "arrive": "2026-12-11 15:25",
+      "duration_minutes": 460,
+      "stops": 1,
+      "airlines": [
+       "Southwest"
+      ],
+      "from": "LGA",
+      "to": "BZN"
+     },
+     {
+      "price": 292,
+      "depart": "2026-12-11 06:00",
+      "arrive": "2026-12-11 11:33",
+      "duration_minutes": 453,
+      "stops": 1,
+      "airlines": [
+       "United"
+      ],
+      "from": "LGA",
+      "to": "BZN"
+     },
+     {
+      "price": 521,
+      "depart": "2026-12-11 07:00",
+      "arrive": "2026-12-11 15:13",
+      "duration_minutes": 613,
+      "stops": 2,
+      "airlines": [
+       "American",
+       "Alaska"
+      ],
+      "from": "LGA",
+      "to": "BZN"
+     }
+    ],
+    "b": [
+     {
+      "price": 160,
+      "depart": "2026-12-11 15:19",
+      "arrive": "2026-12-11 23:33",
+      "duration_minutes": 554,
+      "stops": 1,
+      "airlines": [
+       "Alaska"
+      ],
+      "from": "ORD",
+      "to": "BZN"
+     },
+     {
+      "price": 180,
+      "depart": "2026-12-11 07:25",
+      "arrive": "2026-12-11 12:09",
+      "duration_minutes": 344,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "ORD",
+      "to": "BZN"
+     },
+     {
+      "price": 180,
+      "depart": "2026-12-11 06:59",
+      "arrive": "2026-12-11 13:02",
+      "duration_minutes": 423,
+      "stops": 1,
+      "airlines": [
+       "American"
+      ],
+      "from": "ORD",
+      "to": "BZN"
+     },
+     {
+      "price": 180,
+      "depart": "2026-12-11 17:33",
+      "arrive": "2026-12-12 00:18",
+      "duration_minutes": 465,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "ORD",
+      "to": "BZN"
+     },
+     {
+      "price": 180,
+      "depart": "2026-12-11 19:18",
+      "arrive": "2026-12-12 00:26",
+      "duration_minutes": 368,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "ORD",
+      "to": "BZN"
+     },
+     {
+      "price": 225,
+      "depart": "2026-12-11 08:59",
+      "arrive": "2026-12-11 11:33",
+      "duration_minutes": 214,
+      "stops": 0,
+      "airlines": [
+       "United"
+      ],
+      "from": "ORD",
+      "to": "BZN"
+     },
+     {
+      "price": 314,
+      "depart": "2026-12-11 16:20",
+      "arrive": "2026-12-11 19:04",
+      "duration_minutes": 224,
+      "stops": 0,
+      "airlines": [
+       "United"
+      ],
+      "from": "ORD",
+      "to": "BZN"
+     },
+     {
+      "price": 352,
+      "depart": "2026-12-11 10:55",
+      "arrive": "2026-12-11 15:23",
+      "duration_minutes": 328,
+      "stops": 1,
+      "airlines": [
+       "United"
+      ],
+      "from": "ORD",
+      "to": "BZN"
+     }
+    ],
+    "c": [
+     {
+      "price": 217,
+      "depart": "2026-12-11 18:35",
+      "arrive": "2026-12-11 22:50",
+      "duration_minutes": 375,
+      "stops": 1,
+      "airlines": [
+       "Southwest"
+      ],
+      "from": "ATL",
+      "to": "BZN"
+     },
+     {
+      "price": 217,
+      "depart": "2026-12-11 06:15",
+      "arrive": "2026-12-11 10:30",
+      "duration_minutes": 375,
+      "stops": 1,
+      "airlines": [
+       "Southwest"
+      ],
+      "from": "ATL",
+      "to": "BZN"
+     },
+     {
+      "price": 245,
+      "depart": "2026-12-11 10:05",
+      "arrive": "2026-12-11 15:25",
+      "duration_minutes": 440,
+      "stops": 1,
+      "airlines": [
+       "Southwest"
+      ],
+      "from": "ATL",
+      "to": "BZN"
+     },
+     {
+      "price": 287,
+      "depart": "2026-12-11 07:00",
+      "arrive": "2026-12-12 09:47",
+      "duration_minutes": 1727,
+      "stops": 1,
+      "airlines": [
+       "Alaska"
+      ],
+      "from": "ATL",
+      "to": "BZN"
+     },
+     {
+      "price": 365,
+      "depart": "2026-12-11 19:18",
+      "arrive": "2026-12-12 15:23",
+      "duration_minutes": 1325,
+      "stops": 2,
+      "airlines": [
+       "United"
+      ],
+      "from": "ATL",
+      "to": "BZN"
+     },
+     {
+      "price": 419,
+      "depart": "2026-12-11 11:10",
+      "arrive": "2026-12-11 13:25",
+      "duration_minutes": 255,
+      "stops": 0,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "ATL",
+      "to": "BZN"
+     },
+     {
+      "price": 429,
+      "depart": "2026-12-11 08:05",
+      "arrive": "2026-12-11 12:09",
+      "duration_minutes": 364,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "ATL",
+      "to": "BZN"
+     },
+     {
+      "price": 429,
+      "depart": "2026-12-11 16:35",
+      "arrive": "2026-12-11 21:45",
+      "duration_minutes": 430,
+      "stops": 1,
+      "airlines": [
+       "United"
+      ],
+      "from": "ATL",
+      "to": "BZN"
+     },
+     {
+      "price": 429,
+      "depart": "2026-12-11 13:20",
+      "arrive": "2026-12-11 19:04",
+      "duration_minutes": 464,
+      "stops": 1,
+      "airlines": [
+       "United"
+      ],
+      "from": "ATL",
+      "to": "BZN"
+     },
+     {
+      "price": 429,
+      "depart": "2026-12-11 19:45",
+      "arrive": "2026-12-12 00:26",
+      "duration_minutes": 401,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "ATL",
+      "to": "BZN"
+     },
+     {
+      "price": 445,
+      "depart": "2026-12-11 08:30",
+      "arrive": "2026-12-11 13:27",
+      "duration_minutes": 417,
+      "stops": 1,
+      "airlines": [
+       "United"
+      ],
+      "from": "ATL",
+      "to": "BZN"
+     }
+    ],
+    "d": [
+     {
+      "price": 202,
+      "depart": "2026-12-11 08:15",
+      "arrive": "2026-12-11 12:09",
+      "duration_minutes": 294,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "DFW",
+      "to": "BZN"
+     },
+     {
+      "price": 202,
+      "depart": "2026-12-11 17:00",
+      "arrive": "2026-12-11 23:09",
+      "duration_minutes": 429,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "DFW",
+      "to": "BZN"
+     },
+     {
+      "price": 202,
+      "depart": "2026-12-11 18:24",
+      "arrive": "2026-12-12 00:18",
+      "duration_minutes": 414,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "DFW",
+      "to": "BZN"
+     },
+     {
+      "price": 257,
+      "depart": "2026-12-11 17:57",
+      "arrive": "2026-12-12 09:47",
+      "duration_minutes": 1010,
+      "stops": 1,
+      "airlines": [
+       "Alaska"
+      ],
+      "from": "DFW",
+      "to": "BZN"
+     },
+     {
+      "price": 262,
+      "depart": "2026-12-11 07:00",
+      "arrive": "2026-12-11 16:50",
+      "duration_minutes": 650,
+      "stops": 2,
+      "airlines": [
+       "United"
+      ],
+      "from": "DFW",
+      "to": "BZN"
+     },
+     {
+      "price": 300,
+      "depart": "2026-12-11 12:33",
+      "arrive": "2026-12-11 17:49",
+      "duration_minutes": 376,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "DFW",
+      "to": "BZN"
+     },
+     {
+      "price": 304,
+      "depart": "2026-12-11 10:40",
+      "arrive": "2026-12-11 13:02",
+      "duration_minutes": 202,
+      "stops": 0,
+      "airlines": [
+       "American"
+      ],
+      "from": "DFW",
+      "to": "BZN"
+     },
+     {
+      "price": 514,
+      "depart": "2026-12-11 09:00",
+      "arrive": "2026-12-11 13:27",
+      "duration_minutes": 327,
+      "stops": 1,
+      "airlines": [
+       "United"
+      ],
+      "from": "DFW",
+      "to": "BZN"
+     }
+    ],
+    "e": [
+     {
+      "price": 153,
+      "depart": "2026-12-11 07:00",
+      "arrive": "2026-12-11 23:33",
+      "duration_minutes": 933,
+      "stops": 2,
+      "airlines": [
+       "Alaska"
+      ],
+      "from": "SFO",
+      "to": "BZN"
+     },
+     {
+      "price": 153,
+      "depart": "2026-12-11 19:04",
+      "arrive": "2026-12-12 13:10",
+      "duration_minutes": 1026,
+      "stops": 2,
+      "airlines": [
+       "Alaska"
+      ],
+      "from": "SFO",
+      "to": "BZN"
+     },
+     {
+      "price": 175,
+      "depart": "2026-12-11 05:15",
+      "arrive": "2026-12-11 15:25",
+      "duration_minutes": 550,
+      "stops": 2,
+      "airlines": [
+       "Southwest"
+      ],
+      "from": "SFO",
+      "to": "BZN"
+     },
+     {
+      "price": 180,
+      "depart": "2026-12-11 06:00",
+      "arrive": "2026-12-11 12:09",
+      "duration_minutes": 309,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "SFO",
+      "to": "BZN"
+     },
+     {
+      "price": 180,
+      "depart": "2026-12-11 10:40",
+      "arrive": "2026-12-11 18:34",
+      "duration_minutes": 414,
+      "stops": 1,
+      "airlines": [
+       "Alaska"
+      ],
+      "from": "SFO",
+      "to": "BZN"
+     },
+     {
+      "price": 180,
+      "depart": "2026-12-11 19:24",
+      "arrive": "2026-12-12 00:26",
+      "duration_minutes": 242,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "SFO",
+      "to": "BZN"
+     },
+     {
+      "price": 182,
+      "depart": "2026-12-11 07:00",
+      "arrive": "2026-12-11 14:13",
+      "duration_minutes": 373,
+      "stops": 1,
+      "airlines": [
+       "Alaska"
+      ],
+      "from": "SFO",
+      "to": "BZN"
+     },
+     {
+      "price": 200,
+      "depart": "2026-12-11 08:00",
+      "arrive": "2026-12-11 15:25",
+      "duration_minutes": 385,
+      "stops": 1,
+      "airlines": [
+       "Southwest"
+      ],
+      "from": "SFO",
+      "to": "BZN"
+     },
+     {
+      "price": 211,
+      "depart": "2026-12-11 15:15",
+      "arrive": "2026-12-11 21:55",
+      "duration_minutes": 340,
+      "stops": 1,
+      "airlines": [
+       "Southwest"
+      ],
+      "from": "SFO",
+      "to": "BZN"
+     },
+     {
+      "price": 212,
+      "depart": "2026-12-11 07:40",
+      "arrive": "2026-12-11 13:10",
+      "duration_minutes": 270,
+      "stops": 1,
+      "airlines": [
+       "Alaska"
+      ],
+      "from": "SFO",
+      "to": "BZN"
+     },
+     {
+      "price": 227,
+      "depart": "2026-12-11 12:39",
+      "arrive": "2026-12-11 18:34",
+      "duration_minutes": 295,
+      "stops": 1,
+      "airlines": [
+       "Alaska"
+      ],
+      "from": "SFO",
+      "to": "BZN"
+     },
+     {
+      "price": 252,
+      "depart": "2026-12-11 15:58",
+      "arrive": "2026-12-11 23:33",
+      "duration_minutes": 395,
+      "stops": 1,
+      "airlines": [
+       "Alaska"
+      ],
+      "from": "SFO",
+      "to": "BZN"
+     },
+     {
+      "price": 282,
+      "depart": "2026-12-11 17:50",
+      "arrive": "2026-12-11 23:33",
+      "duration_minutes": 283,
+      "stops": 1,
+      "airlines": [
+       "Alaska"
+      ],
+      "from": "SFO",
+      "to": "BZN"
+     },
+     {
+      "price": 339,
+      "depart": "2026-12-11 08:24",
+      "arrive": "2026-12-11 11:39",
+      "duration_minutes": 135,
+      "stops": 0,
+      "airlines": [
+       "United"
+      ],
+      "from": "SFO",
+      "to": "BZN"
+     }
+    ],
+    "f": [
+     {
+      "price": 200,
+      "depart": "2026-12-11 07:50",
+      "arrive": "2026-12-11 13:02",
+      "duration_minutes": 372,
+      "stops": 1,
+      "airlines": [
+       "American"
+      ],
+      "from": "MSY",
+      "to": "BZN"
+     },
+     {
+      "price": 200,
+      "depart": "2026-12-11 05:20",
+      "arrive": "2026-12-11 13:25",
+      "duration_minutes": 545,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "MSY",
+      "to": "BZN"
+     },
+     {
+      "price": 200,
+      "depart": "2026-12-11 05:50",
+      "arrive": "2026-12-11 10:30",
+      "duration_minutes": 340,
+      "stops": 1,
+      "airlines": [
+       "Southwest"
+      ],
+      "from": "MSY",
+      "to": "BZN"
+     },
+     {
+      "price": 200,
+      "depart": "2026-12-11 16:38",
+      "arrive": "2026-12-12 00:18",
+      "duration_minutes": 520,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "MSY",
+      "to": "BZN"
+     },
+     {
+      "price": 200,
+      "depart": "2026-12-11 17:55",
+      "arrive": "2026-12-11 22:50",
+      "duration_minutes": 355,
+      "stops": 1,
+      "airlines": [
+       "Southwest"
+      ],
+      "from": "MSY",
+      "to": "BZN"
+     },
+     {
+      "price": 225,
+      "depart": "2026-12-11 10:45",
+      "arrive": "2026-12-11 15:25",
+      "duration_minutes": 340,
+      "stops": 1,
+      "airlines": [
+       "Southwest"
+      ],
+      "from": "MSY",
+      "to": "BZN"
+     },
+     {
+      "price": 260,
+      "depart": "2026-12-11 10:05",
+      "arrive": "2026-12-11 15:23",
+      "duration_minutes": 378,
+      "stops": 1,
+      "airlines": [
+       "United"
+      ],
+      "from": "MSY",
+      "to": "BZN"
+     },
+     {
+      "price": 265,
+      "depart": "2026-12-11 17:19",
+      "arrive": "2026-12-12 09:47",
+      "duration_minutes": 1048,
+      "stops": 1,
+      "airlines": [
+       "Alaska"
+      ],
+      "from": "MSY",
+      "to": "BZN"
+     },
+     {
+      "price": 285,
+      "depart": "2026-12-11 16:00",
+      "arrive": "2026-12-11 21:45",
+      "duration_minutes": 405,
+      "stops": 1,
+      "airlines": [
+       "United"
+      ],
+      "from": "MSY",
+      "to": "BZN"
+     },
+     {
+      "price": 290,
+      "depart": "2026-12-11 07:40",
+      "arrive": "2026-12-11 13:25",
+      "duration_minutes": 405,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "MSY",
+      "to": "BZN"
+     },
+     {
+      "price": 562,
+      "depart": "2026-12-11 12:27",
+      "arrive": "2026-12-11 23:33",
+      "duration_minutes": 726,
+      "stops": 2,
+      "airlines": [
+       "American",
+       "Alaska"
+      ],
+      "from": "MSY",
+      "to": "BZN"
+     }
+    ],
+    "g": [
+     {
+      "price": 175,
+      "depart": "2026-12-11 06:10",
+      "arrive": "2026-12-11 10:30",
+      "duration_minutes": 380,
+      "stops": 1,
+      "airlines": [
+       "Southwest"
+      ],
+      "from": "DTW",
+      "to": "BZN"
+     },
+     {
+      "price": 175,
+      "depart": "2026-12-11 08:03",
+      "arrive": "2026-12-11 12:09",
+      "duration_minutes": 366,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "DTW",
+      "to": "BZN"
+     },
+     {
+      "price": 175,
+      "depart": "2026-12-11 16:40",
+      "arrive": "2026-12-11 23:09",
+      "duration_minutes": 509,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "DTW",
+      "to": "BZN"
+     },
+     {
+      "price": 175,
+      "depart": "2026-12-11 18:15",
+      "arrive": "2026-12-11 22:50",
+      "duration_minutes": 395,
+      "stops": 1,
+      "airlines": [
+       "Southwest"
+      ],
+      "from": "DTW",
+      "to": "BZN"
+     },
+     {
+      "price": 175,
+      "depart": "2026-12-11 19:58",
+      "arrive": "2026-12-12 00:18",
+      "duration_minutes": 380,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "DTW",
+      "to": "BZN"
+     },
+     {
+      "price": 175,
+      "depart": "2026-12-11 20:14",
+      "arrive": "2026-12-12 00:26",
+      "duration_minutes": 372,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "DTW",
+      "to": "BZN"
+     },
+     {
+      "price": 230,
+      "depart": "2026-12-11 07:05",
+      "arrive": "2026-12-11 11:33",
+      "duration_minutes": 388,
+      "stops": 1,
+      "airlines": [
+       "United"
+      ],
+      "from": "DTW",
+      "to": "BZN"
+     },
+     {
+      "price": 234,
+      "depart": "2026-12-11 06:00",
+      "arrive": "2026-12-11 13:02",
+      "duration_minutes": 542,
+      "stops": 1,
+      "airlines": [
+       "American"
+      ],
+      "from": "DTW",
+      "to": "BZN"
+     },
+     {
+      "price": 267,
+      "depart": "2026-12-11 18:18",
+      "arrive": "2026-12-12 09:47",
+      "duration_minutes": 1049,
+      "stops": 1,
+      "airlines": [
+       "Alaska"
+      ],
+      "from": "DTW",
+      "to": "BZN"
+     },
+     {
+      "price": 309,
+      "depart": "2026-12-11 08:40",
+      "arrive": "2026-12-11 12:24",
+      "duration_minutes": 344,
+      "stops": 1,
+      "airlines": [
+       "Delta"
+      ],
+      "from": "DTW",
+      "to": "BZN"
+     },
+     {
+      "price": 370,
+      "depart": "2026-12-11 06:31",
+      "arrive": "2026-12-11 15:13",
+      "duration_minutes": 642,
+      "stops": 2,
+      "airlines": [
+       "American",
+       "Alaska"
+      ],
+      "from": "DTW",
+      "to": "BZN"
+     }
+    ]
+   },
+   "return": {}
+  }
+ },
+ "errors": []
+}

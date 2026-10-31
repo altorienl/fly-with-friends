@@ -211,6 +211,7 @@ console.log('\n-- the invariants the names promise, over generated groups --');
     IDS.forEach(function (k) { live[k] = dupe[k] = dom[k] = infeas[k] = 0; });
     var runs = 0, noProfiles = 0, counts = {};
     var tightFail = [], cheapFail = [], balancedFail = [], shapeFail = [];
+    var perMin = [], tooClose = [];
     var connFixed = 0, easeCost = [];
 
     for (var s = 1; s <= N; s++) {
@@ -226,8 +227,22 @@ console.log('\n-- the invariants the names promise, over generated groups --');
             if (e.dominatedBy) { dom[e.id]++; return; }
             live[e.id]++;
         });
-        var n = liveOf(m).length;
+        var shown = liveOf(m);
+        var n = shown.length;
         counts[n] = (counts[n] || 0) + 1;
+        for (var x = 0; x < shown.length; x++) {
+            for (var y = x + 1; y < shown.length; y++) {
+                var A = shown[x], B = shown[y];
+                if (A.seated !== B.seated) continue;
+                if (Math.abs(A.total - B.total) <= 10
+                    && Math.abs(A.worst - B.worst) <= 10
+                    && Math.abs(A.mins - B.mins) <= 45) {
+                    tooClose.push(s + ': ' + A.id + ' $' + A.total + '/' + A.worst
+                        + 'm/' + A.mins + ' vs ' + B.id + ' $' + B.total + '/'
+                        + B.worst + 'm/' + B.mins);
+                }
+            }
+        }
 
         var feas = m.filter(function (e) { return e.feasible; });
         var cl = by(m, 'closest'), ch = by(m, 'cheapest'), ea = by(m, 'easiest'),
@@ -270,6 +285,18 @@ console.log('\n-- the invariants the names promise, over generated groups --');
             if (ea.conn.length < ba.conn.length) connFixed++;
             easeCost.push(ea.total - ba.total);
         }
+
+        /* What the recommendation paid, per minute of closeness it bought over
+         * the loosest row available to it. The old objective had no bound on
+         * this at all -- a hard veto plus a local argmax over refund rate,
+         * neither carrying units -- and on a live BZN search it paid $387 for
+         * 45 minutes. Buying closeness is the product; paying an unbounded
+         * amount for it is the bug. */
+        if (tl && tl.length > 1 && tb) {
+            var loosest = tl[tl.length - 1];
+            var gained = loosest.worst - tb.worst, paid = tb.total - loosest.total;
+            if (gained > 0 && paid > 0) perMin.push(paid / gained);
+        }
     }
 
     check('closest is the tightest profile on offer, every group',
@@ -284,9 +311,51 @@ console.log('\n-- the invariants the names promise, over generated groups --');
     /* Distinctness. A profile is allowed to collapse -- "the cheapest is also
      * the balanced pick" is a useful thing to be told -- but a profile that
      * collapses nearly always is a filter wearing a name. */
+    /* ---- the recommendation's price of closeness, with units on it ----
+     *
+     * The gate above ("balanced still IS the pre-profile recommendation")
+     * re-derives its own reference from tripBest(tripLadder()) -- the very
+     * function it is checking -- so it verifies the plumbing in legPlanFor and
+     * stays green under ANY change to the objective, including a wrong one.
+     * Worth keeping for the plumbing; it is not a check on the recommendation
+     * and must not be read as one. This is.
+     *
+     * SPREAD_PER_MIN is $1.50. The shadows for a connection and for air time
+     * can carry a defensible pick above that, so the ceiling sits at several
+     * times the rate rather than at it. The rule this replaced failed the same
+     * measurement at $8.60/min on a live search, and had no ceiling at all in
+     * principle -- which is the part that mattered. */
+    perMin.sort(function (a, b) { return a - b; });
+    var p95 = perMin.length ? perMin[Math.min(perMin.length - 1, Math.floor(perMin.length * 0.95))] : 0;
+    check('the recommendation never pays an unbounded price for closeness',
+          perMin.every(function (x) { return x <= 12; }),
+          'worst $' + (perMin.length ? perMin[perMin.length - 1].toFixed(2) : 0) + '/min');
+    check('...and usually pays well under the ceiling',
+          p95 <= 6, 'p95 $' + p95.toFixed(2) + '/min over ' + perMin.length + ' groups');
+
     function rate(k) { return runs ? live[k] / runs : 0; }
-    check('closest is its own answer in most groups',
-          rate('closest') > 0.8, Math.round(100 * rate('closest')) + '%');
+    /* 0.8 under the old objective, 62% under the priced one, and the drop is
+     * the change working rather than a regression. The old rule bought
+     * closeness through a hard veto and a local argmax over refund rate, so
+     * "balanced" systematically sat looser than it should and "closest" was
+     * distinct from it almost always. Now that balanced pays a stated $1.50 a
+     * minute, balanced IS the tightest plan in 38% of groups -- and in those
+     * the card does not lie, it merges, which is the owner's "as least things
+     * on the screen as possible" arriving for free.
+     *
+     * The figure that would mean the name is a lie is `dominated`, measured
+     * just below at 0%, and the separate check that closest is always the
+     * tightest profile on offer. Those are the guards; this is a floor against
+     * the card becoming vestigial. */
+    check('closest is still its own answer in most groups',
+          rate('closest') > 0.5, Math.round(100 * rate('closest')) + '%');
+    /* What the dominance tolerances actually promise: any two rows a reader is
+     * shown differ by a margin they could act on. Before the tolerances a card
+     * could survive on one air-minute summed across the group -- $588 against
+     * $588, nine hours further apart -- and the caption then had to find
+     * something to say about a plan that was the same trip. */
+    check('no two rows on a screen are within the noise of each other',
+          tooClose.length === 0, tooClose.slice(0, 3).join('\n          '));
     /* 0.8 while profiles scored both legs: with two legs a plan signature spans
      * twice as many picks, so two profiles agreed far less often and nearly
      * every one looked distinct. Profiles now decide the outbound only -- the

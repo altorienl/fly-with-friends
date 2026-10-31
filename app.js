@@ -1903,6 +1903,74 @@ function worthIt(r) { return r.stops <= 0 && r.mins <= 90; }
  * written for. */
 function worthItHome(r) { return r.stops <= 0 && r.mins <= 150; }
 
+/* ------------------------------------------------- when the group lands
+ *
+ * Nothing in this file knew what time of day it was. Measured on live data:
+ * a Thanksgiving search returned a plan landing three people at 00:06, 00:31
+ * and 01:00 the following morning and labelled it "Balanced", while the app's
+ * own ladder held a plan landing 10:57-11:08 -- eleven minutes apart -- for
+ * $69 a head more. Every number the old objective could see said the first
+ * plan was better: it was cheaper, and it was close together. Landing at one
+ * in the morning costs a night and most of the next day, and the model had no
+ * way to say so.
+ *
+ * Shadow dollars per seat, never money. Measured past the end of the useful
+ * day on the date the leg was asked for, so an arrival after midnight scores
+ * as the deep overrun it is without needing a rule about midnight -- 00:31 is
+ * 451 minutes past 17:00, and reads that way by arithmetic.
+ *
+ * Cheaper on the way home for the reason worthItHome already gives: an evening
+ * spent travelling home was being spent travelling either way. Capped because
+ * past about 2am the difference between bad and worse stops being a decision
+ * anybody is making. */
+/* Two slopes, because the loss is not linear and a linear ramp priced it
+ * wrong in both directions. Measured: at a flat $0.08/min the objective paid
+ * $5 to move a BZN group from 114 minutes apart landing 12:24 to landing
+ * together at 22:50 -- a perfect window, at ten to eleven at night, which is
+ * nobody's idea of a better trip. Raising the single rate until that stopped
+ * made a 6pm arrival cost more than a 6pm arrival costs.
+ *
+ * So: the evening is cheap and the night is dear. Landing at 18:30 loses you
+ * dinner and is priced like it. Landing after about nine loses the night --
+ * the day is gone, the desk may be shut, and you are checking in rather than
+ * arriving -- and the slope goes up more than sevenfold to say so. */
+var DAY_ENDS = 17 * 60;          /* 17:00: later than this starts eating the evening */
+var NIGHT_FROM = 21 * 60;        /* 21:00: later than this the day is gone */
+var LATE_PER_MIN = 0.06;         /* per seat per minute, evening */
+var NIGHT_PER_MIN = 0.45;        /* per seat per minute, past NIGHT_FROM */
+var LATE_HOME_FACTOR = 0.4;      /* the same, on the way home, where it costs less */
+var LATE_CAP = 150;              /* per seat: past ~2am, worse stops being a decision */
+
+/* Epoch minutes of DAY_ENDS on a YYYY-MM-DD, matching optimizer.toMinutes,
+ * which builds arriveMin with Date.UTC and therefore carries the date. */
+function dayEndsOn(date) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date || '');
+    if (!m) return null;
+    return Date.UTC(+m[1], +m[2] - 1, +m[3]) / 60000 + DAY_ENDS;
+}
+
+/* What a plan's arrival times cost the group, in shadow dollars. Summed over
+ * seats and parties rather than taken at the worst traveller: two people
+ * landing at 1am is twice the problem one is, and unlike spread -- which is a
+ * property of the group -- lateness is suffered individually. */
+function latenessOf(ctx, picks, leg) {
+    var ref = dayEndsOn(leg === 'return' ? state.q.ret : state.q.dep);
+    if (ref == null || !picks) return 0;
+    var scale = leg === 'return' ? LATE_HOME_FACTOR : 1;
+    var night = ref + (NIGHT_FROM - DAY_ENDS);
+    var sum = 0;
+    ctx.ids.forEach(function (id) {
+        var p = picks[id];
+        if (!p || !p.option || p.option.arriveMin == null) return;
+        var at = p.option.arriveMin;
+        var evening = Math.max(0, Math.min(at, night) - ref);
+        var overnight = Math.max(0, at - night);
+        var per = Math.min(LATE_CAP, LATE_PER_MIN * evening + NIGHT_PER_MIN * overnight);
+        sum += seatsFor(ctx, id) * scale * per;
+    });
+    return sum;
+}
+
 /* The whole decision, priced across both legs at once, as a handful of named
  * choices rather than a ladder folded away below the fold. The first real user
  * reaction to this app was "that's expensive, why can't it show me the cheapest
@@ -1915,7 +1983,7 @@ function tripLadder() {
     var rows = [];
     FWF.DEFAULT_THRESHOLDS.forEach(function (T) {
         var total = 0, worst = 0, ok = true, per = {};
-        var reg = { stops: 0, mins: 0, who: null }, conn = {}, mins = 0;
+        var reg = { stops: 0, mins: 0, who: null }, conn = {}, mins = 0, late = 0;
         /* The outbound of this row, so the return can be chosen against it.
          * ctxs is outbound-then-return, so it is always set by the time the
          * return is reached. */
@@ -1951,6 +2019,7 @@ function tripLadder() {
             }
             if (!r) { ok = false; return; }
             total += r.cost;
+            late += latenessOf(c, r.picks, c.leg);
             if (!ownWindow) worst = Math.max(worst, r.spread);
             var g = regretOf(c, r.picks);
             if (g.stops > reg.stops) { reg.stops = g.stops; reg.who = g.who; }
@@ -1975,7 +2044,7 @@ function tripLadder() {
             if (each > topPer) { topPer = each; topId = id; }
         }
         rows.push({ th: T, total: total, worst: worst, per: per, regret: reg,
-                    mins: mins, conn: Object.keys(conn),
+                    mins: mins, conn: Object.keys(conn), late: late,
                     topPer: Math.round(topPer), topId: topId });
     });
     if (!rows.length) return null;
@@ -2000,20 +2069,50 @@ function tripLadder() {
  * much closeness, restricted to plans that do not ask anybody to fly materially
  * worse than they would alone. Same rule the per-leg recommendation uses. The
  * alternatives stay one tap away rather than competing for attention. */
+/* Shadow dollars a group pays for one minute of landing closer together. The
+ * one number here that is a judgement rather than a measurement: $1.50/min is
+ * about $90 an hour of the first arriver sitting in an arrivals hall, which is
+ * the thing the window actually buys. Swept over 269 real group instances --
+ * below $0.50 it loosens too readily, above $3 it starts buying tightness at
+ * the wrong end of the day. */
+var SPREAD_PER_MIN = 1.5;
+
+/* What the group gives up to take this row, in one currency.
+ *
+ * This replaced two rules that had no units between them, and the pair of them
+ * cost real money on live searches. A hard veto deleted any row where the
+ * worst-off traveller gained a connection or 90 air-minutes -- while the same
+ * file priced a connection at EASE_PER_STOP, so a connection was worth $120
+ * here and infinity there. Then a local argmax over $/minute took the first
+ * refund step and declined every later one however good, because it was
+ * written as an argmax and read as a stopping rule.
+ *
+ * Measured on a live 4-party BZN search: the app recommended $1,086 at 6
+ * minutes apart with a $699 plan 51 minutes apart sitting vetoed in its own
+ * ladder -- $387 to buy 45 minutes, on a product whose users check it against
+ * Google. Scoring instead of vetoing fixes that case and 40 others, and it
+ * fixes them in both directions: it also stops the app declining a $5 step
+ * that lands everybody on the same minute, which the old rule could not take
+ * because with two rows any refund at all sent it to the looser one.
+ *
+ * total is real money; the rest are shadow dollars and never reach a screen. */
+function tripScore(r) {
+    var reg = r.regret || { stops: 0, mins: 0 };
+    return r.total
+        + SPREAD_PER_MIN * r.worst
+        + EASE_PER_STOP * Math.max(0, reg.stops)
+        + EASE_PER_MIN * Math.max(0, reg.mins)
+        + (r.late || 0);
+}
+
 function tripBest(l) {
     if (!l || !l.length) return null;
-    var fair = l.filter(function (r) { return worthIt(r.regret || { stops: 0, mins: 0 }); });
-    if (!fair.length) fair = l;
-    if (fair.length === 1) return fair[0];
-
-    /* l runs cheapest-last, so walk it tightest-first to measure what each step
-     * of looseness refunds. */
-    var best = fair[0], rate = -1;
-    for (var i = 1; i < fair.length; i++) {
-        var added = fair[i].worst - fair[i - 1].worst;
-        if (added <= 0) continue;
-        var r = (fair[i - 1].total - fair[i].total) / added;
-        if (r > rate) { rate = r; best = fair[i]; }
+    var best = l[0], bestScore = tripScore(l[0]);
+    for (var i = 1; i < l.length; i++) {
+        var sc = tripScore(l[i]);
+        /* Strictly better, so a tie goes to the tighter row: l runs
+         * tightest-first and closeness is what the app is for. */
+        if (sc < bestScore) { bestScore = sc; best = l[i]; }
     }
     return best;
 }
@@ -2521,7 +2620,21 @@ function matchProfiles() {
      * now compares exactly what a card can state. Burden is still computed and
      * still reported on the entry; it just no longer keeps a card alive on its
      * own. */
+    /* With tolerances, because the comparison was on raw integers and a card
+     * only has to be better by ONE of something to survive. Measured on live
+     * data: 135 cards held up by a thirty-minute air-time lead or less, the
+     * worst of them $588 against $588, NINE HOURS further apart, kept on
+     * screen by four air-minutes summed across four people. Nobody reads four
+     * minutes off a card and nobody would choose on it.
+     *
+     * So a rival has to be better by a margin a reader would act on before it
+     * counts as better, and worse by one before it counts as worse. The
+     * numbers are what the cards actually print: dollars to the nearest ten,
+     * landing spread to the nearest ten minutes, and air time -- summed over
+     * the whole group and shown rounded to hours -- to the nearest three
+     * quarters of an hour. */
     var cmp = ['total', 'worst', 'mins'];
+    var TOL = { total: 10, worst: 10, mins: 45 };
     var feas = out.filter(function (e) { return e.feasible && !e.dupeOf; });
     feas.forEach(function (e) {
         if (e.id === 'balanced') return;
@@ -2536,10 +2649,39 @@ function matchProfiles() {
             if (o.seated < e.seated) continue;
             var weak = true, strict = o.seated > e.seated;
             for (var k = 0; k < cmp.length; k++) {
-                if (o[cmp[k]] > e[cmp[k]]) { weak = false; break; }
-                if (o[cmp[k]] < e[cmp[k]]) strict = true;
+                var t = TOL[cmp[k]] || 0;
+                if (o[cmp[k]] > e[cmp[k]] + t) { weak = false; break; }
+                if (o[cmp[k]] < e[cmp[k]] - t) strict = true;
             }
             if (weak && strict) { e.dominatedBy = o.id; return; }
+        }
+    });
+
+    /* Tolerances create a third case the strict comparison could not: a row
+     * that is neither beaten nor beating, because every difference between it
+     * and the row above is smaller than a reader would act on. Those used to
+     * be kept alive by whichever difference happened to be non-zero, and then
+     * the caption had to find something to say about a plan that was
+     * genuinely the same trip -- "38h 23m in the air" sitting under "38h",
+     * which is the card admitting it is worse while occupying a row.
+     *
+     * A profile that lands the same people at the same time for the same
+     * money IS the one above it, whatever flights it picked, so it is folded
+     * in as an alias exactly like an identical signature. The surviving row is
+     * the earlier one, and MATCH_PROFILES runs balanced-first, so what the
+     * reader keeps is the recommendation rather than an arbitrary twin. */
+    var surv = out.filter(function (e) {
+        return e.feasible && !e.dupeOf && !e.dominatedBy;
+    });
+    surv.forEach(function (e, i) {
+        if (e.id === 'balanced') return;
+        for (var j = 0; j < i; j++) {
+            var o = surv[j];
+            if (o.dupeOf || o.seated !== e.seated) continue;
+            var same = cmp.every(function (k) {
+                return Math.abs(o[k] - e[k]) <= (TOL[k] || 0);
+            });
+            if (same) { e.dupeOf = o.id; return; }
         }
     });
 
@@ -3415,27 +3557,41 @@ function recommendedIn(ctx) {
     /* Rows that do not ask anybody to fly materially worse than they would on
      * their own. If every row does, we keep them all rather than recommending
      * nothing -- but then the tightest is no longer automatically the answer. */
-    var fair = f.filter(function (r) {
-        return r.result && r.result.picks && worthIt(regretOf(ctx, r.result.picks));
-    });
-    if (!fair.length) fair = f;
-
     /* "Tightest" is an explicit request, so it is honoured as asked. */
     if (state.recommend === 'tightest') return f[0].threshold;
-    if (!ctx.target) return fair[0].threshold;
     if (state.recommend === 'target') {
         var at = f.filter(function (r) { return r.threshold <= SET.target; });
         return (at.length ? at[at.length - 1] : f[0]).threshold;
     }
-    var best = fair[0], rate = -1;
-    for (var i = 1; i < fair.length; i++) {
-        if (fair[i].threshold === FWF.INF) continue;
-        var add = fair[i].threshold - fair[i - 1].threshold;
-        if (add <= 0) continue;
-        var r = (fair[i - 1].result.cost - fair[i].result.cost) / add;
-        if (r > rate) { rate = r; best = fair[i]; }
-    }
-    return best.threshold;
+
+    /* The same priced comparison tripBest() makes, on the per-leg ladder's row
+     * shape. It used to be the same two unit-free rules as well -- a worthIt
+     * veto and a max-refund-rate argmax -- plus a third quirk this drops: when
+     * no target window was set it returned fair[0] outright, so two groups a
+     * minute apart in feasibility got recommendations produced by different
+     * philosophies. One rule now, whether or not the target is reachable.
+     *
+     * Spread here is the achieved spread, not the threshold. The old loop
+     * measured refunds against the threshold, which is the window the row was
+     * SOLVED at rather than how far apart anybody actually landed -- so a row
+     * labelled 240 whose plan came in 30 minutes apart was charged for 240. */
+    var best = null, bestScore = Infinity;
+    f.forEach(function (r) {
+        if (!r.result || !r.result.picks) return;
+        var sc = r.result.cost
+            + SPREAD_PER_MIN * (r.result.spread || 0)
+            + latenessOf(ctx, r.result.picks, ctx.leg);
+        var reg = regretOf(ctx, r.result.picks);
+        var fairness = ctx.leg === 'return' ? worthItHome : worthIt;
+        sc += EASE_PER_STOP * Math.max(0, reg.stops) + EASE_PER_MIN * Math.max(0, reg.mins);
+        /* The veto is gone, but the judgement it encoded is not: a plan that
+         * puts somebody on a connection they did not need is still worth more
+         * than the shadow alone says, because the regret figure is the WORST
+         * traveller's and cannot see that two people took one. */
+        if (!fairness(reg)) sc += EASE_PER_STOP;
+        if (sc < bestScore) { bestScore = sc; best = r; }
+    });
+    return (best || f[0]).threshold;
 }
 
 /* ------------------------------------------------------------ airlines
