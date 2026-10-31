@@ -3,6 +3,23 @@
 name = "fly-with-friends"
 compatibility_date = "2026-10-30"
 
+# fly.altorien.com, not just the workers.dev hostname. Two reasons, and the
+# second is the real one: a link sent to a group chat should not read like
+# somebody's dev environment, and *.workers.dev cannot be covered by a WAF
+# rule at all -- every protection on the API is code until the app sits on a
+# zone Cloudflare can put rules in front of.
+#
+# workers_dev is explicit and load-bearing. Adding a [[routes]] block turns
+# the workers.dev hostname OFF by default -- it 404'd the moment this was
+# first deployed, which breaks every ?t= trip link already shared, since all
+# of them point there. Setting it true keeps both hostnames live. Do not
+# remove it to tidy the file up.
+workers_dev = true
+
+[[routes]]
+pattern = "fly.altorien.com"
+custom_domain = true
+
 [assets]
 directory = "./dist"
 not_found_handling = "single-page-application"

@@ -16,5 +16,11 @@ id = "25716e1f76e943bca5011c69ab6f5d52"
 # one hostile page spends the allowance using thousands of visitors' IPs, each
 # looking like a single polite caller. Does not gate GET, so shared links keep
 # opening inside WhatsApp and iMessage browsers.
+#
+# Both hostnames, and the workers.dev one never comes out of this list: every
+# ?t= trip link shared before the move to fly.altorien.com points at it, and
+# dropping it would not break those links visibly -- the page would still
+# load, the trip would still render, and only saving or re-searching would
+# fail with a 403. That is the worst kind of breakage, so the entry stays.
 [vars]
-ALLOWED_ORIGINS = "https://fly-with-friends.altorien.workers.dev"
+ALLOWED_ORIGINS = "https://fly.altorien.com,https://fly-with-friends.altorien.workers.dev"
