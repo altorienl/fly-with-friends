@@ -4675,12 +4675,19 @@ function renderPlanView() {
                 : 'Everyone on their best flight home');
     }
 
+    /* The map sits between the plan and the people, and in that order for a
+     * reason: the two cards above are the answer, the cards below are who it
+     * is for, and the picture is the sentence that joins them. Above the
+     * answer it would be an establishing shot in front of the headline. */
+    html += flightMapCard();
+
     html += C.ids.map(travellerCard).join('');
     /* And the people who are already there, after the ones who are flying,
      * because that is the order the group thinks in. */
     html += locals().map(localCard).join('');
 
     host.innerHTML = html;
+    fmAnimate(host);
 }
 
 /* The window ladder used to live here, folded, as a table of every threshold
@@ -5844,6 +5851,1120 @@ function timeline(picks, included, excluded, band) {
     }
 
     return html + '</div>';
+}
+
+/* --- BEGIN flight map ------------------------------------------------ */
+/* The picture of the thesis: several origins, one destination, one point.
+ *
+ * Everything between this marker and the END one below is pure arithmetic
+ * over degrees and viewBox units, and test-map.js lifts it into a vm by those
+ * two strings. Nothing in here may touch the DOM, the clock, or state.
+ *
+ * THE PROJECTION, AND WHY IT IS THIS ONE
+ *
+ * Azimuthal equidistant, centered on the destination. Two properties, and both
+ * of them are the product:
+ *
+ *   - the destination is the origin of the coordinate system, so the thing
+ *     everybody converges on is literally the center of the picture;
+ *   - from that center bearing is true and radius is true great-circle
+ *     distance, so a straight line out of the hub IS the great circle, drawn
+ *     to scale, with no seam and no pole to route around.
+ *
+ * Which means the honest route from any origin to this destination is a
+ * straight radial line. The curve drawn below is therefore a stated drawing
+ * convention and not a claim about the route -- FM_BOW is one number, applied
+ * identically to every traveler, in one rotational sense. Set it to 0 and
+ * every path is an exact great circle; nothing else in the layout changes.
+ *
+ * WHAT IS NOT CLAIMED
+ *
+ * No coastline, no graticule, no basemap, and no scale bar: the fit rescales
+ * each card to its own group, so distances are true against each other and
+ * mean nothing against another card. This is a diagram of relative position,
+ * not a map of the world. Position is true; the absence of land is not a
+ * missing feature.
+ */
+
+/* The viewBox. Fixed units rather than pixels, so the collision maths below is
+ * resolution-independent and the whole picture scales with the card. 327 is
+ * the inner width of a .win card on a 393pt phone, so on the common device one
+ * unit is one pixel and the type lands exactly on the 11px step. */
+var FM_W = 327;
+
+/* The height is the group's own shape, not a constant.
+ *
+ * A fixed box fits the cloud to whichever axis runs out first and gives the
+ * other one back as white space -- three cities strung across the United
+ * States were drawn across the full width of a card that was then half empty
+ * top and bottom, which is the single loudest way for a picture to look like
+ * it was dropped in rather than designed. The card is as tall as the group is,
+ * between a floor that keeps a wide group from becoming a letterbox and a
+ * ceiling that stops a north-south group from eating the screen. */
+var FM_H_MIN = 132, FM_H_MAX = 208;
+
+/* Markers. An origin is a .tl-dot somewhere else -- same circle, same party
+ * color, same white initials, same 2px card-colored ring -- stepped down
+ * from 34 because eight of them have to share one small box. The hub is bigger
+ * because it is the one thing every path is about, and because the clearance
+ * it opens around itself is what keeps eight arriving paths apart. */
+var FM_DOT = 28, FM_HUB = 36;
+
+/* Clearance from a marker edge: where a path stops, and how far a label sits
+ * off the circle it belongs to. */
+var FM_PAD = 4;
+
+/* The shortest run of visible line a route is allowed.
+ *
+ * True distance alone does not survive a real group. Chicago is 975km from
+ * Atlanta and San Francisco is 3,100, so on a card scaled to San Francisco
+ * the Chicago route is 33 units long before two markers and their clearance
+ * eat 40 of them -- and the route that is the whole point of the picture
+ * comes out as a six-pixel dash, or as nothing at all.
+ *
+ * So there is a floor, and it is a stated one: every origin is at least this
+ * far outside the hub, and above the floor distance is true. The floor is in
+ * screen units and the fit is rescaled to the group, which means it only ever
+ * bites when a group has a wide spread of distances -- a group who are all
+ * three hours out gets scaled up until nobody is near it, and the picture
+ * stays honest end to end. */
+var FM_MIN_LINE = 20;
+
+/* How many times the floor is applied and the fit redone. See fmLayout. */
+var FM_FLOOR_PASSES = 8;
+
+/* The label box. Measured, not guessed, and deliberately a shade generous:
+ * over-estimating a label costs it a nudge, under-estimating prints it
+ * through a face.
+ *
+ * The timeline's 7px a character does not carry here. That figure was taken
+ * on "4:28pm", and these labels are capitals -- ORD measures 8.04 a character
+ * at 11px, against 6.89 for MIA. 8.5 covers the widest of them. The interpunct
+ * between two codes in one place is barely half a character and is counted as
+ * such, because a seven-character label over-estimated by a fifth gives up
+ * placements it did not need to.
+ *
+ * FM_LBL_HALO is the knockout stroke in .fm-code, which is painted outside
+ * the glyphs and is part of what has to clear everything else. */
+var FM_LBL_H = 16, FM_LBL_CH = 8.5, FM_LBL_HALO = 3, FM_LBL_THIN = 0.55;
+
+function fmLabelW(text) {
+    var s = String(text), n = 0;
+    for (var i = 0; i < s.length; i++) n += s.charAt(i) === '·' ? FM_LBL_THIN : 1;
+    return n * FM_LBL_CH + FM_LBL_HALO;
+}
+
+/* Extra room the fit keeps beyond the markers, for the codes hung off them.
+ * More above and below than at the sides, because the card is wide and short:
+ * a label pushed off the top has nowhere to go, one pushed off the side has
+ * the slack the fit leaves when a roughly square group is fitted into a wide
+ * box. The vertical figure is a whole label; the horizontal one only has to
+ * stop a code starting hard against the edge. */
+var FM_PAD_SIDE = 6;
+
+/* Twelve candidate directions, 30 degrees apart, offered in order of how far
+ * they are from the one the geometry wants. */
+var FM_LBL_DIRS = 12;
+
+/* Sideways bow, as a fraction of the straight-line length. A drawing
+ * convention, not data -- see the header. 0 draws exact great circles. */
+var FM_BOW = 0.10;
+
+/* What a route is allowed to do about somebody standing in it.
+ *
+ * Three origins on nearly the same bearing out of the destination -- Seattle,
+ * San Francisco and Denver into Atlanta is the ordinary case, not a contrived
+ * one -- put one person's marker squarely on another person's route. Drawn
+ * straight, San Francisco's line disappears behind Denver and comes out the
+ * other side, and the picture now says Denver is a connection on the way.
+ * That is a sentence about the itinerary and it is false.
+ *
+ * The bow is therefore allowed to escalate until the route clears every
+ * marker that is not its own. The ladder is tried in order and the first
+ * clearance wins, so the house convention is kept wherever it can be: the
+ * standard bow, then wider in the same direction, then -- only when nothing
+ * on that side works -- the other way round. */
+var FM_BOW_LADDER = [1, 1.7, 2.5, 0.45, -1, -1.7, -2.5];
+
+/* A dart, nose at +x, about 11 units long. A drawn airplane silhouette at
+ * this size is four gray pixels and a rumour; a dart is the shape every
+ * departure board in the world already uses for "going that way", and it
+ * stays crisp when the card scales. */
+var FM_PLANE = 'M6 0L-5 4.4L-2.6 0L-5-4.4Z';
+
+/* Three passes, then the planes stop. A loop with no end is a loop that is
+ * still running in somebody's pocket twenty minutes later.
+ *
+ * The stagger is per path and deliberately small: the group leaves together
+ * on the first pass, which is the thing being said, and drifts apart over
+ * the next two, which stops three passes reading as one long one. */
+var FM_DUR = 2.4, FM_REPEAT = 3, FM_STAGGER = 0.18;
+
+/* Earth, in km. Only ratios survive the fit, but a real radius keeps the
+ * projected numbers readable when something has to be debugged. */
+var FM_R = 6371;
+
+var FM_RAD = Math.PI / 180;
+
+/* Azimuthal equidistant about (lat0, lon0).
+ *
+ * Returns km east and km SOUTH -- y is flipped here rather than at every call
+ * site, because the only consumer is a screen where y grows downwards, and a
+ * north-up map that flips its own y somewhere else is a map that will one day
+ * be upside down.
+ *
+ * The antipode is the entire outer circle at once and has no single answer; it
+ * is placed due north, which is as wrong as any other choice and at least is
+ * not NaN. Nobody is flying to the antipode.
+ *
+ * This is the one piece of spherical geometry in the file and it is the seam:
+ * when the shared geo module lands, bearing and central angle come from there
+ * and the two lines below go. */
+function fmProject(lat, lon, lat0, lon0) {
+    var p = lat * FM_RAD, p0 = lat0 * FM_RAD, dl = (lon - lon0) * FM_RAD;
+    var cosc = Math.sin(p0) * Math.sin(p) + Math.cos(p0) * Math.cos(p) * Math.cos(dl);
+    if (cosc > 1) cosc = 1; else if (cosc < -1) cosc = -1;
+    var c = Math.acos(cosc);
+    if (c === 0) return { x: 0, y: 0 };
+    if (Math.PI - c < 1e-9) return { x: 0, y: -Math.PI * FM_R };
+    var br = Math.atan2(Math.cos(p) * Math.sin(dl),
+                        Math.cos(p0) * Math.sin(p) - Math.sin(p0) * Math.cos(p) * Math.cos(dl));
+    var r = c * FM_R;
+    return { x: r * Math.sin(br), y: -r * Math.cos(br) };
+}
+
+/* Fit a point cloud into w by h with padX and padY kept clear on every side.
+ *
+ * One scale for both axes, because two would stretch the geography, and a
+ * stretched azimuthal projection is no longer equidistant in any direction --
+ * the one property it was chosen for.
+ *
+ * An axis with no extent contributes no constraint rather than an infinite
+ * one, so three airports in a line still fill the box, and a group all leaving
+ * from the same airport lands in the middle at scale 1 instead of dividing by
+ * zero. */
+function fmFit(pts, w, h, padX, padY) {
+    if (padY == null) padY = padX;
+    var loX = Infinity, loY = Infinity, hiX = -Infinity, hiY = -Infinity;
+    for (var i = 0; i < pts.length; i++) {
+        if (pts[i].x < loX) loX = pts[i].x;
+        if (pts[i].x > hiX) hiX = pts[i].x;
+        if (pts[i].y < loY) loY = pts[i].y;
+        if (pts[i].y > hiY) hiY = pts[i].y;
+    }
+    if (!isFinite(loX)) return { k: 1, ox: w / 2, oy: h / 2 };
+    var sx = hiX - loX, sy = hiY - loY;
+    var iw = w - 2 * padX, ih = h - 2 * padY;
+    var k = Math.min(sx > 0 ? iw / sx : Infinity, sy > 0 ? ih / sy : Infinity);
+    if (!isFinite(k) || k <= 0) k = 1;
+    return { k: k,
+             ox: padX + (iw - sx * k) / 2 - loX * k,
+             oy: padY + (ih - sy * k) / 2 - loY * k };
+}
+
+function fmAt(fit, p) { return { x: p.x * fit.k + fit.ox, y: p.y * fit.k + fit.oy }; }
+
+/* How tall this group's card should be: the height at which the cloud fills
+ * the width exactly, clamped.
+ *
+ * Below the floor a wide group becomes a letterbox with markers larger than
+ * the picture they sit in; above the ceiling a group strung north to south
+ * takes more of the screen than any one card on this screen is worth. Inside
+ * those two, the card has no dead space in either direction, because the
+ * scale that fits the width is also the scale that fits the height. */
+function fmHeight(pts, w, padX, padY) {
+    var loX = Infinity, loY = Infinity, hiX = -Infinity, hiY = -Infinity;
+    for (var i = 0; i < pts.length; i++) {
+        if (pts[i].x < loX) loX = pts[i].x;
+        if (pts[i].x > hiX) hiX = pts[i].x;
+        if (pts[i].y < loY) loY = pts[i].y;
+        if (pts[i].y > hiY) hiY = pts[i].y;
+    }
+    var sx = hiX - loX, sy = hiY - loY;
+    if (!isFinite(sx) || sx <= 0) return FM_H_MIN;
+    var ih = (w - 2 * padX) * (sy / sx);
+    return Math.max(FM_H_MIN, Math.min(FM_H_MAX, Math.round(ih + 2 * padY)));
+}
+
+/* Origins landing within one marker of each other are one marker.
+ *
+ * Straight out of mergeMarks, for the same reason: SFO, OAK and SJC are the
+ * same pixel at country scale, and three rings drawn on top of each other are
+ * not three people, they are a smudge. They become one node carrying a
+ * facepile, exactly the way the timeline draws a landing cluster.
+ *
+ * Distance is measured from the FIRST member of a group and never from the
+ * last, so a straggle of airports cannot chain into one node spanning half the
+ * picture. Nearest the hub first, so the crowded middle settles before the
+ * outskirts and the answer does not depend on the order people were typed in.
+ */
+/* ...but only where they really are the same place.
+ * 
+ * The screen test alone is not enough once the floor is in play. Dublin is
+ * 460km from London and Sydney is 17,000; the floor pushes Dublin out to a
+ * third of the radius, where it lands on New York, and the card prints one
+ * marker reading "JFK\u00b7DUB" -- a shared origin that does not exist. Two
+ * airports become one marker only if they are a taxi apart on the ground as
+ * well as a pixel apart on the card. 400km covers a metro and its overflow
+ * fields -- Oakland with San Francisco, LaGuardia with Boston -- and nothing
+ * that is really two different trips. */
+var FM_MERGE_KM = 400;
+
+function fmCluster(pts, minDist, maxKm) {
+    var order = pts.slice().sort(function (a, b) { return (a.d - b.d) || (a.i - b.i); });
+    var out = [];
+    for (var i = 0; i < order.length; i++) {
+        var p = order[i], hit = null;
+        for (var j = 0; j < out.length; j++) {
+            var dx = p.x - out[j].seed.x, dy = p.y - out[j].seed.y;
+            if (Math.sqrt(dx * dx + dy * dy) >= minDist) continue;
+            if (maxKm && p.kx != null && out[j].seed.kx != null) {
+                var gx = p.kx - out[j].seed.kx, gy = p.ky - out[j].seed.ky;
+                if (Math.sqrt(gx * gx + gy * gy) > maxKm) continue;
+            }
+            hit = out[j]; break;
+        }
+        if (hit) hit.members.push(p);
+        else out.push({ seed: p, members: [p] });
+    }
+    for (var m = 0; m < out.length; m++) {
+        var g = out[m], sx = 0, sy = 0;
+        for (var n = 0; n < g.members.length; n++) { sx += g.members[n].x; sy += g.members[n].y; }
+        g.x = sx / g.members.length;
+        g.y = sy / g.members.length;
+        /* Members are handed back in the order they were given in, not the
+         * order they were clustered in, so a facepile reads left to right the
+         * way the party list does. */
+        g.members.sort(function (a, b) { return a.i - b.i; });
+    }
+    return out;
+}
+
+/* A quadratic Bezier from a to b, bowed sideways by bow of its own length.
+ *
+ * The normal is taken in one fixed rotational sense for every path, so the
+ * whole picture turns the same way instead of each curve picking a side. bow 0
+ * is the straight chord, which on this projection is the great circle. */
+function fmQuad(a, b, bow) {
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    if (!len) return { p0: { x: a.x, y: a.y }, p1: { x: mx, y: my }, p2: { x: b.x, y: b.y } };
+    return { p0: { x: a.x, y: a.y },
+             p1: { x: mx + (dy / len) * bow * len, y: my - (dx / len) * bow * len },
+             p2: { x: b.x, y: b.y } };
+}
+
+function fmQuadAt(q, t) {
+    var u = 1 - t;
+    return { x: u * u * q.p0.x + 2 * u * t * q.p1.x + t * t * q.p2.x,
+             y: u * u * q.p0.y + 2 * u * t * q.p1.y + t * t * q.p2.y };
+}
+
+/* Tangent direction in degrees, which is what SVG rotate() wants. The
+ * derivative only vanishes on a degenerate curve; there it falls back to the
+ * chord rather than returning NaN. */
+function fmQuadAngle(q, t) {
+    var u = 1 - t;
+    var dx = 2 * (u * (q.p1.x - q.p0.x) + t * (q.p2.x - q.p1.x));
+    var dy = 2 * (u * (q.p1.y - q.p0.y) + t * (q.p2.y - q.p1.y));
+    if (!dx && !dy) { dx = q.p2.x - q.p0.x; dy = q.p2.y - q.p0.y; }
+    return Math.atan2(dy, dx) / FM_RAD;
+}
+
+/* de Casteljau, twice: the left half at t1, then the right half of that at the
+ * rescaled t0. Splitting rather than resampling, so a trimmed path is still
+ * one exact curve and the plane runs along the geometry that was drawn rather
+ * than along a polyline approximation of it. */
+function fmSplitQuad(q, t0, t1) {
+    if (!(t1 > t0)) return { p0: q.p0, p1: q.p0, p2: q.p0 };
+    var left = function (qq, t) {
+        var a = { x: qq.p0.x + (qq.p1.x - qq.p0.x) * t, y: qq.p0.y + (qq.p1.y - qq.p0.y) * t };
+        var b = { x: qq.p1.x + (qq.p2.x - qq.p1.x) * t, y: qq.p1.y + (qq.p2.y - qq.p1.y) * t };
+        return { p0: qq.p0, p1: a, p2: { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t } };
+    };
+    var right = function (qq, t) {
+        var a = { x: qq.p0.x + (qq.p1.x - qq.p0.x) * t, y: qq.p0.y + (qq.p1.y - qq.p0.y) * t };
+        var b = { x: qq.p1.x + (qq.p2.x - qq.p1.x) * t, y: qq.p1.y + (qq.p2.y - qq.p1.y) * t };
+        return { p0: { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, p1: b, p2: qq.p2 };
+    };
+    return right(left(q, t1), t0 / t1);
+}
+
+var FM_SAMPLES = 48;
+
+/* Arc length, and the parameter at a given arc length, from one sampling pass.
+ * 48 chords on a curve this shallow is accurate to well under a unit, and the
+ * table is built once per path rather than once per query. */
+function fmArcTable(q) {
+    var pts = [fmQuadAt(q, 0)], cum = [0], prev = pts[0];
+    for (var i = 1; i <= FM_SAMPLES; i++) {
+        var p = fmQuadAt(q, i / FM_SAMPLES);
+        var dx = p.x - prev.x, dy = p.y - prev.y;
+        cum.push(cum[i - 1] + Math.sqrt(dx * dx + dy * dy));
+        pts.push(p); prev = p;
+    }
+    return { pts: pts, cum: cum, len: cum[FM_SAMPLES] };
+}
+
+function fmTAtLen(tab, want) {
+    if (!(want > 0)) return 0;
+    if (want >= tab.len) return 1;
+    for (var i = 1; i <= FM_SAMPLES; i++) {
+        if (tab.cum[i] >= want) {
+            var span = tab.cum[i] - tab.cum[i - 1];
+            var f = span > 0 ? (want - tab.cum[i - 1]) / span : 0;
+            return (i - 1 + f) / FM_SAMPLES;
+        }
+    }
+    return 1;
+}
+
+/* Cut dStart off the front and dEnd off the back, so a path leaves the edge of
+ * its own avatar and stops at the edge of the hub rather than running
+ * underneath both. The clearance at the hub is the whole reason eight paths
+ * can meet there and still read as eight paths.
+ *
+ * A route shorter than the two markers put together has nothing left to draw.
+ * It returns null, and the caller draws no line rather than a backwards one. */
+function fmTrimQuad(q, dStart, dEnd) {
+    var tab = fmArcTable(q);
+    if (tab.len <= dStart + dEnd + 1) return null;
+    var t0 = fmTAtLen(tab, dStart), t1 = fmTAtLen(tab, tab.len - dEnd);
+    if (!(t1 > t0)) return null;
+    return fmSplitQuad(q, t0, t1);
+}
+
+function fmPathD(q) {
+    var r = function (n) { return Math.round(n * 10) / 10; };
+    return 'M' + r(q.p0.x) + ' ' + r(q.p0.y)
+         + 'Q' + r(q.p1.x) + ' ' + r(q.p1.y) + ' ' + r(q.p2.x) + ' ' + r(q.p2.y);
+}
+
+/* ---- collision primitives ---- */
+
+/* Overlapping area of two boxes. Area rather than a boolean, because the
+ * scoring below has to prefer a label that clips a corner over one that sits
+ * squarely on another label, and a boolean cannot tell those apart. */
+function fmOverlap(a, b) {
+    var w = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
+    var h = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+    return (w > 0 && h > 0) ? w * h : 0;
+}
+
+function fmBoxArea(b) { return Math.max(0, b.x1 - b.x0) * Math.max(0, b.y1 - b.y0); }
+
+/* How much of a box is off the card. */
+function fmOutside(b, w, h) {
+    return fmBoxArea(b) - fmOverlap(b, { x0: 0, y0: 0, x1: w, y1: h });
+}
+
+/* Does a segment touch a box. Liang-Barsky, so a segment that passes clean
+ * through with neither end inside still counts -- which is exactly the bug in
+ * the mockup, where a label sat in clear space and its own flight path went
+ * straight through the middle of it. */
+function fmSegBox(ax, ay, bx, by, box) {
+    var t0 = 0, t1 = 1, dx = bx - ax, dy = by - ay;
+    var p = [-dx, dx, -dy, dy];
+    var qv = [ax - box.x0, box.x1 - ax, ay - box.y0, box.y1 - ay];
+    for (var i = 0; i < 4; i++) {
+        if (p[i] === 0) { if (qv[i] < 0) return false; continue; }
+        var r = qv[i] / p[i];
+        if (p[i] < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
+        else { if (r < t0) return false; if (r < t1) t1 = r; }
+    }
+    return true;
+}
+
+/* How far a point is from a box, and from a segment. The two halves of the
+ * next one. */
+function fmPtBoxDist(px, py, b) {
+    var dx = Math.max(b.x0 - px, 0, px - b.x1);
+    var dy = Math.max(b.y0 - py, 0, py - b.y1);
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+function fmPtSegDist(px, py, ax, ay, bx, by) {
+    var dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+    var t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
+    t = t < 0 ? 0 : (t > 1 ? 1 : t);
+    var qx = ax + t * dx, qy = ay + t * dy;
+    return Math.sqrt(Math.pow(px - qx, 2) + Math.pow(py - qy, 2));
+}
+
+/* The gap between a marker and a box, where the marker is the capsule it is
+ * actually painted as rather than the square drawn round it.
+ *
+ * The square is what the first version tested, and it cost real placements:
+ * a code tucked into the empty corner outside a round face was scored as
+ * sitting on top of it, and the label went somewhere worse. Negative is an
+ * overlap, and the number is how deep. */
+function fmMarkerBoxGap(node, box) {
+    var ex = Math.max(0, (node.hitR || node.r) - node.r);
+    var d = (fmSegBox(node.x - ex, node.y, node.x + ex, node.y, box))
+        ? 0
+        : Math.min(fmPtBoxDist(node.x - ex, node.y, box), fmPtBoxDist(node.x + ex, node.y, box),
+                   fmPtSegDist(box.x0, box.y0, node.x - ex, node.y, node.x + ex, node.y),
+                   fmPtSegDist(box.x1, box.y0, node.x - ex, node.y, node.x + ex, node.y),
+                   fmPtSegDist(box.x1, box.y1, node.x - ex, node.y, node.x + ex, node.y),
+                   fmPtSegDist(box.x0, box.y1, node.x - ex, node.y, node.x + ex, node.y));
+    return d - node.r;
+}
+
+/* ---- label placement ---- */
+
+/* Candidate directions for one label, in order of preference.
+ *
+ * The first is radially outward from the hub, and that one placement is why a
+ * label cannot be struck through by its own flight path: the path reaches the
+ * marker from the hub side, so the far side of the marker is the one side the
+ * path is never on. Every other candidate is a concession, offered
+ * nearest-first, so a label only ever moves as far as it has to. */
+function fmLabelDirs(node, hub) {
+    var dx = node.x - hub.x, dy = node.y - hub.y;
+    var a0 = (dx || dy) ? Math.atan2(dy, dx) : -Math.PI / 2;
+    var step = 2 * Math.PI / FM_LBL_DIRS, out = [a0];
+    for (var s = 1; s <= FM_LBL_DIRS / 2; s++) {
+        out.push(a0 + s * step);
+        if (s < FM_LBL_DIRS / 2) out.push(a0 - s * step);
+    }
+    return out;
+}
+
+/* The box for a label at angle a off a marker of radius r.
+ *
+ * Offset by the radius plus the box's own support width in that direction,
+ * which is the exact distance at which an axis-aligned box of this size first
+ * clears a circle of that radius. A label set diagonally therefore sits as
+ * close as one set square, and neither one touches the ring. */
+function fmLabelBox(node, a, text, push) {
+    var w = fmLabelW(text), h = FM_LBL_H;
+    /* A node carrying a facepile is a capsule, not a circle: its support in a
+     * direction picks up the half-length of the pile as well as the radius.
+     * Without this, the label for a two-person marker was placed off the
+     * middle of the pile and landed on the second face. */
+    var ex = Math.max(0, (node.hitR || node.r) - node.r);
+    var off = node.r + Math.abs(Math.cos(a)) * ex + FM_PAD + (push || 0)
+            + (Math.abs(Math.cos(a)) * w + Math.abs(Math.sin(a)) * h) / 2;
+    var cx = node.x + Math.cos(a) * off, cy = node.y + Math.sin(a) * off;
+    return { x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2,
+             cx: cx, cy: cy, a: a, push: push || 0 };
+}
+
+/* What a candidate costs, normalized by the label's own area so a long code
+ * and a short one are scored on the same scale.
+ *
+ * The weights are an ordering, not a tuning. Being cut off by the edge of the
+ * card is worse than sitting on another label, which is worse than sitting on
+ * somebody's face, which is worse than being crossed by a line, which is worse
+ * than pointing the wrong way. Each step is a clear multiple of the next so
+ * the order cannot be reversed by a rounding difference. */
+var FM_PEN_EDGE = 80, FM_PEN_LBL = 40, FM_PEN_DOT = 20, FM_PEN_PATH = 10, FM_PEN_TURN = 4;
+
+/* Twelve directions at one distance is not always twelve openings. A marker
+ * with people on three sides of it and a route on the fourth has nowhere to
+ * put its code at arm's length, and the least-bad answer at that distance
+ * was a label painted underneath somebody's face -- invisible, which is
+ * worse than the collision it was avoiding.
+ *
+ * So each direction is also offered further out. Reaching costs a little,
+ * so a label still sits close when close is clear, and a leader line is not
+ * needed because the furthest rung is barely a marker's width away -- past
+ * that the label stops belonging to anything. */
+var FM_LBL_PUSH = [0, 10, 20], FM_PEN_PUSH = 0.12;
+
+/* When even the furthest rung is this bad, the code is dropped. The face is
+ * still there, it is still that party's color and initials, and the city
+ * is written out in words on that person's own card below. A label nobody
+ * can read is not information, it is a defect that costs ink. */
+var FM_LBL_GIVE_UP = 6;
+
+function fmLabelCost(box, ctx) {
+    var area = fmBoxArea(box) || 1, pen = 0, i;
+    pen += FM_PEN_EDGE * fmOutside(box, ctx.w, ctx.h) / area;
+    for (i = 0; i < ctx.labels.length; i++) pen += FM_PEN_LBL * fmOverlap(box, ctx.labels[i]) / area;
+    for (i = 0; i < ctx.dots.length; i++) {
+        /* Its own marker is skipped: fmLabelBox has already offset the box
+         * clear of it, and charging it for its own circle would only pick
+         * between directions on rounding noise. */
+        if (i === ctx.self) continue;
+        var gap = fmMarkerBoxGap(ctx.dots[i], box);
+        if (gap < 0) pen += FM_PEN_DOT * Math.min(1, -gap / ctx.dots[i].r);
+    }
+    for (i = 0; i < ctx.segs.length; i++) {
+        var s = ctx.segs[i];
+        if (fmSegBox(s[0], s[1], s[2], s[3], box)) { pen += FM_PEN_PATH; break; }
+    }
+    var turn = Math.abs(((box.a - ctx.ideal + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI);
+    pen += FM_PEN_TURN * turn / Math.PI;
+    pen += FM_PEN_PUSH * (box.push || 0);
+    return pen;
+}
+
+/* Place every label. Nodes nearest the hub go first: they have the fewest
+ * directions that are not already somebody's path or somebody's face, so they
+ * get to choose while there is still something to choose from. */
+function fmPlaceLabels(nodes, hub, segs, w, h) {
+    /* The things a label must not be painted over, as the capsules they are
+     * drawn as. The hub is one of them: it is round, it is in the middle,
+     * and it is the last thing on the card that should be covered. */
+    var dots = nodes.map(function (n) {
+        return { x: n.x, y: n.y, r: n.r, hitR: n.hitR || n.r };
+    });
+    dots.push({ x: hub.x, y: hub.y, r: hub.r, hitR: hub.r });
+
+    var order = nodes.map(function (n, i) { return i; }).sort(function (a, b) {
+        var da = Math.pow(nodes[a].x - hub.x, 2) + Math.pow(nodes[a].y - hub.y, 2);
+        var db = Math.pow(nodes[b].x - hub.x, 2) + Math.pow(nodes[b].y - hub.y, 2);
+        return (da - db) || (a - b);
+    });
+
+    var placed = [], out = new Array(nodes.length);
+    for (var oi = 0; oi < order.length; oi++) {
+        var i = order[oi], n = nodes[i];
+        var dirs = fmLabelDirs(n, hub);
+        var ctx = { w: w, h: h, labels: placed, dots: dots, segs: segs, ideal: dirs[0], self: i };
+        var best = null, bestCost = Infinity;
+        for (var d = 0; d < dirs.length; d++) {
+            for (var u = 0; u < FM_LBL_PUSH.length; u++) {
+                var box = fmLabelBox(n, dirs[d], n.label, FM_LBL_PUSH[u]);
+                var c = fmLabelCost(box, ctx);
+                if (c < bestCost - 1e-9) { bestCost = c; best = box; }
+            }
+        }
+        /* The last millimeter, and only the last millimeter. FM_PEN_EDGE
+         * has already made a clipped label expensive, so anything that
+         * reaches here is off the card by a fraction of a unit -- the half
+         * a unit of knockout stroke on the first letter of a code, which
+         * reads as a nicked glyph. It is slid back on rather than left
+         * nicked, because the alternative placements were all worse for
+         * reasons that have not gone away. */
+        if (best) {
+            var sx = Math.max(0, -best.x0) - Math.max(0, best.x1 - w);
+            var sy = Math.max(0, -best.y0) - Math.max(0, best.y1 - h);
+            if (sx || sy) {
+                best.x0 += sx; best.x1 += sx; best.cx += sx;
+                best.y0 += sy; best.y1 += sy; best.cy += sy;
+            }
+        }
+        var drop = bestCost > FM_LBL_GIVE_UP;
+        /* A dropped label is not reserved space: the next node may use it. */
+        if (!drop) placed.push(best);
+        out[i] = { x: best.cx, y: best.cy, cost: bestCost, box: best, drop: drop };
+    }
+    return out;
+}
+
+/* How wide a marker really is once the people on it are drawn.
+ *
+ * One person is the circle. Two or three are a facepile, laid out the way
+ * .tl-dots lays one out -- overlapped by FM_LAP of a diameter, centered on the
+ * node -- so the thing a route has to miss is a capsule, and its half-length
+ * is what counts as the radius for clearance. */
+var FM_LAP = 0.3, FM_PILE_MAX = 3;
+
+function fmPileR(count, r) {
+    var m = Math.min(count, FM_PILE_MAX);
+    return r + (m - 1) * (2 * r) * (1 - FM_LAP) / 2;
+}
+
+/* The closest a curve comes to a point, sampled. Sampling rather than solving:
+ * the exact minimum distance from a point to a quadratic is a cubic root
+ * find, the answer is only ever compared against a threshold, and 24 samples
+ * on a curve this shallow are wrong by well under the 4 units of clearance
+ * being tested for. */
+var FM_CLEAR_SAMPLES = 24;
+
+function fmClearance(q, px, py) {
+    var best = Infinity;
+    for (var i = 0; i <= FM_CLEAR_SAMPLES; i++) {
+        var p = fmQuadAt(q, i / FM_CLEAR_SAMPLES);
+        var d = Math.sqrt(Math.pow(p.x - px, 2) + Math.pow(p.y - py, 2));
+        if (d < best) best = d;
+    }
+    return best;
+}
+
+/* Pick the bow for one route: the first rung of the ladder that clears every
+ * other marker, or failing that the rung that comes closest to clearing.
+ *
+ * "Clears" is measured against the pile radius plus the standard clearance,
+ * so a route passes outside a face rather than grazing its ring. The node's
+ * own marker and the hub are not in the test -- the route is supposed to
+ * touch those two, that is what a route is. */
+function fmPickBow(node, ni, nodes, hub, base) {
+    if (!base) return 0;
+    var best = null, bestSlack = -Infinity;
+    for (var li = 0; li < FM_BOW_LADDER.length; li++) {
+        var q = fmQuad(node, hub, base * FM_BOW_LADDER[li]);
+        var slack = Infinity;
+        for (var j = 0; j < nodes.length; j++) {
+            if (j === ni) continue;
+            var need = nodes[j].hitR + FM_PAD;
+            var s = fmClearance(q, nodes[j].x, nodes[j].y) - need;
+            if (s < slack) slack = s;
+        }
+        if (slack >= 0) return base * FM_BOW_LADDER[li];
+        if (slack > bestSlack) { bestSlack = slack; best = base * FM_BOW_LADDER[li]; }
+    }
+    return best;
+}
+
+/* How far out a marker can go in its own direction and still fit the card. */
+function fmReachR(node, hub, w, h, padX, padY) {
+    var ux = node.x - hub.x, uy = node.y - hub.y;
+    var len = Math.sqrt(ux * ux + uy * uy);
+    if (!len) return 0;
+    ux /= len; uy /= len;
+    var lim = Infinity, t;
+    if (ux > 1e-9) { t = (w - padX - hub.x) / ux; if (t < lim) lim = t; }
+    if (ux < -1e-9) { t = (padX - hub.x) / ux; if (t < lim) lim = t; }
+    if (uy > 1e-9) { t = (h - padY - hub.y) / uy; if (t < lim) lim = t; }
+    if (uy < -1e-9) { t = (padY - hub.y) / uy; if (t < lim) lim = t; }
+    return Math.max(0, lim);
+}
+
+/* Markers that are not the same place must not sit on top of each other.
+ *
+ * Two origins on the same bearing at different distances is the case the
+ * floor makes worse rather than better: Dublin lifted to the floor lands
+ * where New York already is, and the card shows one face half-hidden behind
+ * another with no way to tell there are two.
+ *
+ * Separation is bought from distance and never from bearing. Which way a
+ * person is coming from is the one thing this picture gets exactly right, and
+ * it is the one thing that is never traded; how far out they sit has already
+ * been compromised by the floor, so it is the axis that gives. The inner
+ * marker moves in, the outer moves out, each along its own radius, and
+ * neither goes inside the floor or off the card. Where both ends are pinned
+ * the overlap stands, because the alternative is a picture that lies about
+ * which direction somebody is flying in from. */
+var FM_SPREAD_PASSES = 8, FM_SPREAD_EPS = 0.05;
+
+function fmSpread(nodes, hub, floorR, reach) {
+    function rad(n) { return Math.sqrt(Math.pow(n.x - hub.x, 2) + Math.pow(n.y - hub.y, 2)); }
+    function setRad(n, r) {
+        var cur = rad(n);
+        if (!cur) return;
+        n.x = hub.x + (n.x - hub.x) / cur * r;
+        n.y = hub.y + (n.y - hub.y) / cur * r;
+    }
+    for (var pass = 0; pass < FM_SPREAD_PASSES; pass++) {
+        var moved = false;
+        for (var i = 0; i < nodes.length; i++) {
+            for (var j = i + 1; j < nodes.length; j++) {
+                var a = nodes[i], b = nodes[j];
+                var need = a.hitR + b.hitR + FM_PAD;
+                var d = Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
+                /* Each push is shared between two markers moving along two
+                 * different radii, so the separation gained is less than
+                 * the distance moved and the pair converges on the target
+                 * rather than reaching it. Stop a twentieth of a unit
+                 * short, which is a fifth of a device pixel, instead of
+                 * spending every pass chasing it. */
+                if (d >= need - FM_SPREAD_EPS) continue;
+                var ra = rad(a), rb = rad(b);
+                /* Which one goes inward is settled on the ground, not on
+                 * the card. Once the floor has lifted two origins to the
+                 * same radius, moving whichever happens to be drawn a
+                 * fraction nearer can put the long-haul traveler inside
+                 * the short-haul one -- the card then states an order that
+                 * is the reverse of the truth. */
+                var aIn = (a.km != null && b.km != null && a.km !== b.km)
+                    ? a.km < b.km : ra <= rb;
+                var inner = aIn ? a : b, outer = aIn ? b : a;
+                var ri = rad(inner), ro = rad(outer);
+                /* Split the deficit, but only between the two that can
+                 * actually move. With a strict half each, a marker already
+                 * sitting on the floor pinned half of every correction to
+                 * nothing and the pair crept towards clearance without ever
+                 * arriving -- eight passes still left them a third of a unit
+                 * short. Whatever one end cannot take, the other does. */
+                var deficit = need - d;
+                var roomIn = Math.max(0, ri - floorR);
+                var roomOut = Math.max(0, reach(outer) - ro);
+                var gotIn = Math.min(deficit / 2, roomIn);
+                var gotOut = Math.min(deficit - gotIn, roomOut);
+                gotIn = Math.min(deficit - gotOut, roomIn);
+                if (gotIn <= 0.01 && gotOut <= 0.01) continue;
+                setRad(inner, ri - gotIn);
+                setRad(outer, ro + gotOut);
+                moved = true;
+            }
+        }
+        if (!moved) break;
+    }
+}
+
+/* ---- the whole layout ---- */
+
+/* dest is {code, lat, lon}; origins are {id, code, lat, lon, color, initials}.
+ *
+ * Returns plain data and nothing else. Nothing in here knows what an SVG is,
+ * which is what lets the suite assert that no label leaves the card and no
+ * path crosses a label without rendering a single element. */
+function fmLayout(dest, origins, opts) {
+    opts = opts || {};
+    var w = opts.w || FM_W, h = opts.h || 0;
+    var bow = opts.bow == null ? FM_BOW : opts.bow;
+    var dotR = (opts.dot || FM_DOT) / 2, hubR = (opts.hub || FM_HUB) / 2;
+
+    if (!dest || !isFinite(dest.lat) || !isFinite(dest.lon)) return null;
+    var usable = (origins || []).filter(function (o) {
+        return o && isFinite(o.lat) && isFinite(o.lon)
+            && String(o.code).toUpperCase() !== String(dest.code).toUpperCase();
+    });
+    /* One origin is a line, not a convergence, and there is nothing in it a
+     * reader does not already have on that person's own card. */
+    if (usable.length < 2) return null;
+
+    var raw = usable.map(function (o, i) {
+        var p = fmProject(o.lat, o.lon, dest.lat, dest.lon);
+        return { i: i, x: p.x, y: p.y, d: Math.sqrt(p.x * p.x + p.y * p.y), o: o };
+    });
+
+    /* Room for a marker and the code hung off it. See FM_PAD_SIDE. */
+    var padX = Math.max(dotR, hubR) + FM_PAD + FM_PAD_SIDE;
+    var padY = Math.max(dotR, hubR) + FM_PAD + FM_LBL_H;
+
+    /* The hub joins the cloud being fitted, always: a group all on one side of
+     * the destination would otherwise fit itself neatly and push the
+     * destination off the card. */
+    var cloud = raw.concat([{ x: 0, y: 0 }]);
+    if (!h) h = fmHeight(cloud, w, padX, padY);
+
+    /* The floor, applied in the projection and then refitted, because the
+     * floor is a number of screen units and the scale is a consequence of the
+     * cloud the floor just changed. Pushing an origin out shrinks the scale,
+     * which lowers the projected distance the floor is worth, which can push
+     * it out again -- so it is iterated rather than solved. It converges
+     * geometrically: one pass leaves the nearest marker six units inside its
+     * own floor, eight leaves it a hundredth of one. The count is a
+     * convergence budget and not a guess.
+     *
+     * The last thing done is a lift and not a fit. Lift-then-fit always ends
+     * one step behind itself -- the points were lifted against the scale
+     * before the one that is about to be used -- and the card came out with
+     * its nearest marker a quarter of a unit inside its own floor no matter
+     * how many passes it was given. The final lift moves points outward by a
+     * fraction of a unit into padding that is twenty wide, so nothing can
+     * leave the card by doing it. */
+    var floorScreen = dotR + hubR + 2 * FM_PAD + FM_MIN_LINE;
+    var kept = raw.map(function (p) { return { i: p.i, x: p.x, y: p.y, d: p.d, o: p.o }; });
+    var lift = function (k) {
+        var floorProj = floorScreen / k, moved = false;
+        for (var ri = 0; ri < kept.length; ri++) {
+            var p0 = raw[ri];
+            if (p0.d > 0 && p0.d < floorProj) {
+                kept[ri].x = p0.x / p0.d * floorProj;
+                kept[ri].y = p0.y / p0.d * floorProj;
+                kept[ri].d = floorProj;
+                moved = true;
+            }
+        }
+        return moved;
+    };
+    var fit = fmFit(cloud, w, h, padX, padY);
+    for (var pass = 0; pass < FM_FLOOR_PASSES; pass++) {
+        if (!lift(fit.k)) break;
+        var lifted = kept.concat([{ x: 0, y: 0 }]);
+        if (!opts.h) h = fmHeight(lifted, w, padX, padY);
+        fit = fmFit(lifted, w, h, padX, padY);
+    }
+    lift(fit.k);
+
+    var hub = fmAt(fit, { x: 0, y: 0 });
+    hub.r = hubR;
+    hub.code = String(dest.code || '').toUpperCase();
+
+    var screen = kept.map(function (p, ki) {
+        var s = fmAt(fit, p);
+        /* The projection in km travels with the point, because whether two
+         * markers are one place is a question about the ground and not about
+         * where the floor happened to put them. */
+        return { i: p.i, x: s.x, y: s.y, o: p.o, kx: raw[ki].x, ky: raw[ki].y,
+                 d: Math.sqrt(Math.pow(s.x - hub.x, 2) + Math.pow(s.y - hub.y, 2)) };
+    });
+
+    var nodes = fmCluster(screen, dotR * 2, FM_MERGE_KM).map(function (g) {
+        var codes = [], seen = {};
+        g.members.forEach(function (m) {
+            var c = String(m.o.code).toUpperCase();
+            if (!seen[c]) { seen[c] = 1; codes.push(c); }
+        });
+        var km = Infinity;
+        g.members.forEach(function (m) {
+            var t = Math.sqrt(m.kx * m.kx + m.ky * m.ky);
+            if (t < km) km = t;
+        });
+        return { x: g.x, y: g.y, r: dotR, km: km,
+                 people: g.members.map(function (m) { return m.o; }),
+                 codes: codes,
+                 /* Two airports in one place are still two airports and the
+                  * reader is owed both -- but only the first two, because a
+                  * third turns the shortest label on the card into the
+                  * longest. */
+                 label: codes.slice(0, 2).join('·') + (codes.length > 2 ? '+' : '') };
+    });
+
+    /* Everybody leaving from one place is one marker, and one marker is not a
+     * convergence. The traveler cards below already say where each of them
+     * is starting from, and they say it in words. */
+    if (nodes.length < 2) return null;
+
+    /* How much room a node actually takes. A facepile is wider than the
+     * circle at its center, and a route that clears the center circle can
+     * still go straight through the second face. */
+    nodes.forEach(function (n) { n.hitR = fmPileR(n.people.length, n.r); });
+
+    fmSpread(nodes, hub, floorScreen, function (n) {
+        return fmReachR(n, hub, w, h, padX, padY);
+    });
+
+    var paths = [], segs = [];
+    nodes.forEach(function (n, ni) {
+        var q = fmTrimQuad(fmQuad(n, hub, fmPickBow(n, ni, nodes, hub, bow)),
+                           n.r + FM_PAD, hub.r + FM_PAD);
+        n.path = null;
+        if (!q) return;
+        var mid = fmQuadAt(q, 0.5);
+        paths.push({ node: ni, q: q, d: fmPathD(q),
+                     /* One color per path, and it is the color of the only
+                      * person on it. A shared marker is several people leaving
+                      * one place on one airplane-shaped line, so that line is
+                      * drawn in ink rather than in one of their colors. */
+                     color: n.people.length === 1 ? n.people[0].color : null,
+                     mid: { x: mid.x, y: mid.y, a: fmQuadAngle(q, 0.5) } });
+        var tab = fmArcTable(q);
+        for (var s = 0; s < FM_SAMPLES; s += 4) {
+            segs.push([tab.pts[s].x, tab.pts[s].y, tab.pts[s + 4].x, tab.pts[s + 4].y]);
+        }
+        n.path = paths.length - 1;
+    });
+
+    var labels = fmPlaceLabels(nodes, hub, segs, w, h);
+    nodes.forEach(function (n, i) {
+        n.lx = labels[i].x; n.ly = labels[i].y;
+        n.lbox = labels[i].box; n.lcost = labels[i].cost; n.ldrop = labels[i].drop;
+    });
+
+    return { w: w, h: h, hub: hub, nodes: nodes, paths: paths, segs: segs };
+}
+
+/* The layout, as markup. Still pure: a string in, a string out, no DOM and
+ * no state, so the suite can assert what the card does and does not contain
+ * -- most usefully that a reduced-motion render carries no animation at all
+ * rather than an animation somebody has to remember to switch off.
+ *
+ * Paint order is the argument of the picture: routes, then planes, then
+ * codes, then faces, then the destination. Everything is drawn over the
+ * thing it is about, and a face is never the thing that gets covered. */
+function fmSvg(lay, opts) {
+    opts = opts || {};
+    var reduce = !!opts.reduce;
+    var svg = '<svg class="fmap" viewBox="0 0 ' + lay.w + ' ' + lay.h + '" '
+        + 'xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
+        + 'role="img" aria-label="' + esc(opts.aria || '') + '">';
+
+    /* Routes first, so everything else is drawn over them. */
+    lay.paths.forEach(function (p, i) {
+        svg += '<path id="fmr' + i + '" class="fm-route" d="' + p.d + '"'
+            + (p.color ? ' style="stroke:' + esc(p.color) + '"' : '') + '/>';
+    });
+
+    lay.paths.forEach(function (p, i) {
+        var rest = 'translate(' + p.mid.x.toFixed(1) + ' ' + p.mid.y.toFixed(1)
+            + ') rotate(' + p.mid.a.toFixed(1) + ')';
+        var fill = p.color ? ' style="fill:' + esc(p.color) + '"' : '';
+        if (reduce) {
+            svg += '<g class="fm-plane" transform="' + rest + '">'
+                + '<path d="' + FM_PLANE + '"' + fill + '/></g>';
+        } else {
+            /* No authored transform while the motion is running, because
+             * animateMotion adds its transform to the element's own and the
+             * plane would be offset twice. The resting place is parked in a
+             * data attribute and put on only when the animation is taken off.
+             *
+             * begin is 0 for the same reason: with a delay the plane would
+             * render at the SVG's origin, in the top left corner, until the
+             * animation started. The durations differ slightly so the group
+             * leaves together on the first pass and drifts apart after, which
+             * is both prettier and what actually happens.
+             *
+             * .fm-wait hides it until fmAnimate lets the clock run. A paused
+             * SMIL animation is a transform that has not been sampled yet, so
+             * a plane on a card below the fold sat visibly in the corner of
+             * the picture until the reader scrolled to it. */
+            svg += '<g class="fm-plane fm-wait" data-rest="' + rest + '">'
+                + '<path d="' + FM_PLANE + '"' + fill + '/>'
+                + '<animateMotion dur="' + (FM_DUR + i * FM_STAGGER).toFixed(2) + 's" begin="0s"'
+                + ' repeatCount="' + FM_REPEAT + '" rotate="auto" calcMode="linear">'
+                + '<mpath href="#fmr' + i + '" xlink:href="#fmr' + i + '"/>'
+                + '</animateMotion></g>';
+        }
+    });
+
+    /* Codes over the routes, with a card-colored halo under the glyphs:
+     * fmPlaceLabels has already moved every label off every path, and this is
+     * what makes the one case it cannot solve legible instead of struck
+     * through. */
+    lay.nodes.forEach(function (n) {
+        if (n.ldrop) return;
+        svg += '<text class="fm-code" x="' + n.lx.toFixed(1) + '" y="' + n.ly.toFixed(1)
+            + '" dy=".35em">' + esc(n.label) + '</text>';
+    });
+
+    /* People on top, because a face is never the thing that should be
+     * covered. A node carrying more than one person is a facepile, overlapped
+     * the way .tl-dots overlaps, earliest on top. */
+    lay.nodes.forEach(function (n) {
+        var ppl = n.people.slice(0, FM_PILE_MAX);
+        var span = (ppl.length - 1) * (n.r * 2) * (1 - FM_LAP);
+        svg += '<g class="fm-dots">';
+        for (var k = ppl.length - 1; k >= 0; k--) {
+            var cx = n.x - span / 2 + k * (n.r * 2) * (1 - FM_LAP);
+            svg += '<circle class="fm-dot" cx="' + cx.toFixed(1) + '" cy="' + n.y.toFixed(1)
+                + '" r="' + n.r + '" style="fill:' + esc(ppl[k].color) + '"/>'
+                + '<text class="fm-ini" x="' + cx.toFixed(1) + '" y="' + n.y.toFixed(1)
+                + '" dy=".35em">' + esc(ppl[k].initials) + '</text>';
+        }
+        svg += '</g>';
+    });
+
+    svg += '<circle class="fm-hub" cx="' + lay.hub.x.toFixed(1) + '" cy="' + lay.hub.y.toFixed(1)
+        + '" r="' + lay.hub.r + '"/>'
+        + '<text class="fm-hub-t" x="' + lay.hub.x.toFixed(1) + '" y="' + lay.hub.y.toFixed(1)
+        + '" dy=".35em">' + esc(lay.hub.code) + '</text>';
+
+    return svg + '</svg>';
+}
+
+/* --- END flight map -------------------------------------------------- */
+
+/* ------------------------------------------------------------ flight map */
+/* The impure half: where the origins come from, and what the planes do.
+ * Everything that is arithmetic is above, between the landmark comments. */
+
+/* Who is on the map, and where they are leaving from.
+ *
+ * An airport the coordinate table has never heard of drops that person off
+ * the picture and off it only -- their own card below still carries their
+ * flights, their fare and their Book button. A map that omits one person is a
+ * worse map; a map that puts them at latitude NaN is a broken card, and a
+ * broken card loses the other seven as well. */
+function fmOrigins(leg) {
+    var rows = (leg && leg.rows) || {};
+    return C.ids.map(function (id) {
+        var t = C.travelers.filter(function (x) { return x.id === id; })[0];
+        if (!t) return null;
+        var i = state.q.parties.map(function (p) { return p.id; }).indexOf(id);
+        var r = rows[id];
+        /* The airport they were actually given, not the first one they typed:
+         * somebody who offered SFO, OAK and SJC is flying out of exactly one
+         * of them and the picture should say which. */
+        var code = (r && r.option && r.option.from) || t.origins[0] || '';
+        if (!code) return null;
+        var g = GEO.get(code);
+        if (!g) return null;
+        return { id: id, code: String(code).toUpperCase(), lat: g.lat, lon: g.lon,
+                 color: partyColor(i < 0 ? 0 : i),
+                 initials: partyInitials(state.q.parties[i] || { name: t.name }, i < 0 ? 0 : i) };
+    }).filter(Boolean);
+}
+
+/* The card. Returns '' rather than an empty frame whenever there is nothing
+ * to converge -- no geo table, one origin, or a destination nobody has
+ * coordinates for. A map with one line on it is not this product. */
+function flightMap(leg) {
+    if (typeof GEO === 'undefined' || !GEO || !GEO.get) return '';
+    if (!state.q || !state.q.dest || !C) return '';
+    var dg = GEO.get(state.q.dest);
+    if (!dg) return '';
+
+    var lay = fmLayout({ code: state.q.dest, lat: dg.lat, lon: dg.lon }, fmOrigins(leg));
+    if (!lay) return '';
+
+    var dest = AIRPORTS.get(state.q.dest);
+    return '<div class="win fmap-win">' + fmSvg(lay, {
+        /* The one sentence on this card, and it is only ever heard. */
+        aria: lay.nodes.map(function (n) { return n.codes.join(' and '); }).join(', ')
+            + ' to ' + (dest ? dest.city : lay.hub.code),
+        reduce: !!(window.matchMedia
+            && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+    }) + '</div>';
+}
+
+/* Which leg the picture is of. Outbound: the product is the arrival, and the
+ * arrival is the leg everybody is converging ON. The way home is the same
+ * picture with the arrows reversed, which is a second card saying the first
+ * one backwards. */
+function flightMapCard() {
+    return flightMap(TRIP && TRIP.legOut);
+}
+
+/* Start paused, run while the card is on screen, stop for good after
+ * FM_REPEAT passes. Three separate claims, because "does not burn battery"
+ * fails in three separate ways: animating below the fold, animating in a
+ * backgrounded tab, and animating until the page is closed. */
+function fmAnimate(host) {
+    var svg = host && host.querySelector && host.querySelector('svg.fmap');
+    if (!svg) return;
+    var anims = svg.querySelectorAll('animateMotion');
+    if (!anims.length) return;
+
+    var io = null, done = false;
+    /* One place that lets the clock run, so "paused" and "hidden" can
+     * never disagree: the planes are invisible until the first frame has
+     * actually been sampled. */
+    function run() {
+        svg.unpauseAnimations();
+        var w = svg.querySelectorAll(".fm-wait");
+        for (var i = 0; i < w.length; i++) w[i].classList.remove("fm-wait");
+    }
+    function settle() {
+        if (done) return;
+        done = true;
+        for (var i = 0; i < anims.length; i++) {
+            var g = anims[i].parentNode;
+            if (!g) continue;
+            g.setAttribute('transform', g.getAttribute('data-rest') || '');
+            g.removeChild(anims[i]);
+        }
+        run();
+        if (io) io.disconnect();
+        document.removeEventListener('visibilitychange', onHide);
+    }
+    function onHide() {
+        if (done) return;
+        if (document.hidden) svg.pauseAnimations();
+        else if (svg.getAttribute('data-seen') === '1') run();
+    }
+
+    var left = anims.length;
+    for (var i = 0; i < anims.length; i++) {
+        anims[i].addEventListener('endEvent', function () { if (--left <= 0) settle(); });
+    }
+    /* A backstop, because endEvent is the one thing here that is a browser
+     * promise rather than our own arithmetic. Generous enough that it never
+     * cuts a real run short, including a run that spent time paused. */
+    setTimeout(settle, (FM_DUR + anims.length * FM_STAGGER) * FM_REPEAT * 1000 + 20000);
+
+    svg.pauseAnimations();
+    document.addEventListener('visibilitychange', onHide);
+    if (window.IntersectionObserver) {
+        io = new IntersectionObserver(function (es) {
+            es.forEach(function (e) {
+                svg.setAttribute('data-seen', e.isIntersecting ? '1' : '0');
+                if (done) return;
+                if (e.isIntersecting && !document.hidden) run();
+                else svg.pauseAnimations();
+            });
+        }, { threshold: 0.25 });
+        io.observe(svg);
+    } else {
+        svg.setAttribute('data-seen', '1');
+        run();
+    }
 }
 
 /* --------------------------------------------------------------- sheets */

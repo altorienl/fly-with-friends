@@ -1248,6 +1248,52 @@ a { color: var(--accent); }
 .tl-rt span { display: block; font-size: 10px; line-height: 1; color: var(--faint);
     white-space: nowrap; font-variant-numeric: tabular-nums; }
 
+/* The map. Same card as every other block worth reading, with the padding
+   stepped down because the picture already pads itself: fmLayout keeps a
+   marker's width plus its label clear of the viewBox on every side, so a
+   second 16px inside the card is 16px of nothing. */
+.fmap-win { padding: var(--s3); }
+.fmap { display: block; width: 100%; height: auto; }
+
+/* The routes. One weight, one cap, the party's own color, and nothing else:
+   no shadow under the line, no glow at the hub, no tint behind the picture.
+   Where a traveler has no single color -- two people leaving one airport --
+   the line is ink, because a shared line in one of their two colors is a
+   line that says the wrong name. */
+.fm-route { fill: none; stroke: var(--edge-2); stroke-width: 1.4; stroke-linecap: round; }
+
+/* The plane. Filled, never stroked, so it stays a shape rather than becoming
+   an outline at 2x. SMIL animation cannot be stopped from CSS, so the
+   reduced-motion case is decided in flightMap() and this file never sees an
+   animation to switch off -- the plane simply arrives already parked
+   mid-route. */
+.fm-plane path { fill: var(--text); }
+/* Held back until fmAnimate starts the clock. A paused SMIL animation has not
+   sampled its motion transform yet, so without this a card below the fold
+   draws every plane stacked in the top left corner of the picture until the
+   reader scrolls to it. */
+.fm-wait { visibility: hidden; }
+
+/* The people, which are .tl-dot in another coordinate system: same circle,
+   same party fill, same white initials, same 2px card-colored ring. The ring
+   is a stroke here rather than a box-shadow because SVG has no box-shadow,
+   and 2 is the same 2. */
+.fm-dot { stroke: var(--card); stroke-width: 2; }
+.fm-ini { fill: var(--on-party); font-size: var(--t-2); font-weight: 600; text-anchor: middle; }
+
+/* The destination: ink, not a ninth party color. It is the one place on the
+   card that belongs to everybody, and the chosen-pill treatment is already
+   the app's word for "this one". */
+.fm-hub { fill: var(--chosen); stroke: var(--card); stroke-width: 2; }
+.fm-hub-t { fill: var(--chosen-ink); font-size: var(--t-2); font-weight: 600; text-anchor: middle; }
+
+/* The codes. paint-order puts a card-colored halo under the glyphs, which is
+   the belt to fmPlaceLabels' braces: placement moves a label off every path
+   it can, and the halo makes the one it cannot legible instead of struck
+   through. */
+.fm-code { fill: var(--faint); font-size: var(--t-1); font-weight: 500; text-anchor: middle;
+    paint-order: stroke; stroke: var(--card); stroke-width: 3px; stroke-linejoin: round; }
+
 .pax { display: grid; grid-template-columns: 32px 24px 1fr auto; gap: 12px; align-items: center; padding: 12px 16px; border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card); margin-bottom: 8px; box-shadow: var(--lift); }
 .pax.out { border-style: dashed; opacity: .8; }
 .pax-logo { width: 24px; height: 24px; border-radius: var(--r-sm); object-fit: contain; background: var(--card-2); }
@@ -1784,6 +1830,11 @@ footer .sep { color: var(--faint); margin: 0 8px; }
      works on the curated 309 -- airports.js reads it defensively. -->
 <script src="airports-extra.js"></script>
 <script src="airports.js"></script>
+<!-- PROTOTYPE STAND-IN: the real coordinate table and great-circle math are
+     another agent's work. _geo-proto.js only exists so the map component has a
+     GEO.get(code) to call while that lands, and the leading underscore keeps it
+     under .gitignore's _* rule so it cannot be committed by accident. -->
+<script src="_geo-proto.js"></script>
 <script src="optimizer.js"></script>
 <script src="app.js"></script>
 </body>
