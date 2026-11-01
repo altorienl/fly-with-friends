@@ -89,6 +89,27 @@ eq('unpinnable input returns null',
    ctx.deepLink([{ from: 'DEN', to: 'IAH', depart: '2027-02-04 10:01', stops: 0 }], 1), null);
 eq('empty input returns null', ctx.deepLink([], 1), null);
 
+/* deepLink is what the Book button actually calls, and until now nothing
+ * checked what it HANDS to tfsEncode. The encoder was tested directly with
+ * explicit legs and seats, so two mutations survived a full suite run:
+ *
+ *   - deepLink encoding only the first leg, which turns a round trip into a
+ *     one-way booking screen
+ *   - deepLink passing 1 seat regardless, so a party of two is sent to book
+ *     a single ticket
+ *
+ * Both are money mistakes a reader cannot see: the link opens, it looks
+ * right, and it is for the wrong trip. */
+var backGood = { from: 'IAH', to: 'DEN', depart: '2027-02-08 09:00', stops: 0, segs: [UA1241] };
+check('a round trip encodes BOTH legs',
+      ctx.deepLink([good, backGood], 1) !== ctx.deepLink([good], 1),
+      'dropping the return produced an identical link');
+check('the seat count reaches the link',
+      ctx.deepLink([good, backGood], 2) !== ctx.deepLink([good, backGood], 1),
+      'two seats produced the same link as one');
+check('...and three differs from two',
+      ctx.deepLink([good, backGood], 3) !== ctx.deepLink([good, backGood], 2));
+
 
 /* ------------------------------------- a round trip across two airlines
  *

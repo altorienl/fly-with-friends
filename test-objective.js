@@ -26,7 +26,7 @@ if (cut < 0) throw new Error('test-return.js no longer exposes the harness this 
 var head = harness.slice(0, cut)
     .replace("'recommendedIn', 'blankQuery', 'migrateQuery'];",
              "'recommendedIn', 'blankQuery', 'migrateQuery', 'tripScore', 'latenessOf',\n"
-             + "               'matchOf', 'tripMatches', 'coherentReturn', 'returnThOf'];")
+             + "               'matchOf', 'tripMatches', 'coherentReturn', 'returnThOf', 'shadowOf'];")
     .replace("+ ',clearMemo:function(){returnTh={};}'",
              "+ ',clearMemo:function(){returnTh={};MATCHES=null;PICKED_PLAN=null;OUT_PICKS=null;}'"
              + "+ ',set C(v){C=v;},get C(){return C;}'"
@@ -168,6 +168,30 @@ check('...although the late plan really is on the ladder and really is tighter',
       lN.some(function (r) { return (r.late || 0) > 0 && r.worst < tbN.worst; }),
       lN.map(function (r) { return '$' + r.total + '/' + r.worst + 'm/late$'
           + Math.round(r.late || 0); }).join('  '));
+
+console.log('\n-- a seat is a seat, in every shadow --');
+/* Both shadows multiply by seats, and until now neither multiplication was
+ * tested. Deleting the factor from the ease shadow survived a full suite
+ * run: a party of three would have had their connection priced like one
+ * person's, so the optimizer would cheerfully route the biggest party
+ * through a change of planes to save money it was not really saving.
+ *
+ * The lateness shadow was already covered by "it counts seats" below; this
+ * is the same property for the other one. */
+var easeCtx = function (seats) {
+    return { ids: ['x'], travelers: [{ id: 'x', name: 'X', seats: seats }],
+             costFn: function () { return 100; },
+             ownBest: { x: { stops: 0, mins: 120 } } };
+};
+var slower = { stops: 1, duration_minutes: 240 };
+var one = T.shadowOf(easeCtx(1), 'ease')(slower, 'x');
+var two = T.shadowOf(easeCtx(2), 'ease')(slower, 'x');
+var three = T.shadowOf(easeCtx(3), 'ease')(slower, 'x');
+check('one seat pays the base shadow', one > 100, '$' + one);
+check('two seats pay twice the penalty', (two - 100) === (one - 100) * 2,
+      '1 seat +$' + (one - 100) + ', 2 seats +$' + (two - 100));
+check('three seats pay three times', (three - 100) === (one - 100) * 3,
+      '3 seats +$' + (three - 100));
 
 console.log('\n-- lateness is priced, and only when it should be --');
 /* A term that fires on everything is a constant and changes no argmin; one
