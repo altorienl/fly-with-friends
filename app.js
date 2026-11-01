@@ -4675,11 +4675,23 @@ function renderPlanView() {
                 : 'Everyone on their best flight home');
     }
 
-    /* The map sits between the plan and the people, and in that order for a
-     * reason: the two cards above are the answer, the cards below are who it
-     * is for, and the picture is the sentence that joins them. Above the
-     * answer it would be an establishing shot in front of the headline. */
-    html += flightMapCard();
+    /* The map is NOT on the results page.
+     *
+     * It was, for about twenty minutes. It is a good picture -- true bearings,
+     * real coordinates, no words on it longer than an airport code -- and on
+     * a phone it is 238px, which grew this page by 12%. The owner's reaction
+     * to seeing it live: "now its so big it kinda ruins the results page".
+     *
+     * He was right, and the reason is that every fact on it is already on
+     * this screen in words. The timeline above says when people land and how
+     * far apart; the traveller cards below name each person's airport. The
+     * map restates both, larger, as the biggest and least dense card on a
+     * screen whose whole design rule is that there should be less on it.
+     *
+     * flightMap() is kept and tested because the picture earns its space
+     * somewhere nothing else is competing for it -- the waiting screen, where
+     * the alternative is a spinner. Do not re-add this line without an answer
+     * to what it displaces. */
 
     html += C.ids.map(travellerCard).join('');
     /* And the people who are already there, after the ones who are flying,
