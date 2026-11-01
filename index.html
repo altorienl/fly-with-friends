@@ -1300,9 +1300,19 @@ a { color: var(--accent); }
  * same place on the right. The answer fills in rather than replacing a
  * different-looking page, which is the whole reason it reads as a system
  * working rather than a page loading.
- * Nothing here is a card and nothing here fakes progress -- the request is one
- * POST and the browser cannot see inside it, so the pulse is uniform and the
- * only moving figures, the search count and the clock, are both measured. */
+ * Nothing here is a card and nothing here fakes progress. It used to be that
+ * the browser could not see inside the request at all -- one POST, sent and
+ * arrived -- so every mark on this screen pulsed at the same rate because
+ * that was the only honest thing a uniform unknown could look like. The
+ * worker now reports each traveler's legs as they resolve, so the marks and
+ * the lines move per person and stop per person, and the count in the footer
+ * is a count of searches that have actually finished.
+ *
+ * What has not changed is the rule. There is no percentage anywhere in here,
+ * no estimate, and nothing that advances on a timer: when the progress stream
+ * is absent -- an older worker, a proxy that buffered, a browser with no
+ * streams -- the screen says the two things it still knows, which are how
+ * many searches were sent and how long ago. */
 .sx-head { margin-bottom: var(--s5); }
 .sx-dest { font-size: var(--t-6); font-weight: 600; letter-spacing: var(--tr-6);
     line-height: var(--lh-tight); margin-top: var(--s1); }
@@ -1311,8 +1321,36 @@ a { color: var(--accent); }
 .sx-dest .sx-code { color: var(--faint); font-weight: 500; letter-spacing: .02em; }
 .sx-when { font-size: var(--t-2); color: var(--muted); margin-top: var(--s2); }
 
+/* ---------------- the convergence ----------------
+ * One line per traveler, entering at the left, every one of them curving
+ * into the same point on the right. It is a diagram of what the group is
+ * doing, not a map: there are no coordinates in it, because the results page
+ * answers the geography question properly and two answers to one question is
+ * how an app starts contradicting itself.
+ *
+ * It is also the progress indicator, which is the only reason it earns the
+ * space. A line that is dashed and traveling is a search still out; a line
+ * that has gone solid has come back; a line that has gone flat grey is a
+ * route that returned nothing or could not be asked. No legend, because the
+ * row directly beneath each line says the same thing in words.
+ *
+ * Hairlines, at the weight the rest of the app already uses for emphasis. No
+ * glow, no gradient, no fill -- the whole figure is seven pixels of ink. */
+.sxc { display: block; width: 100%; margin: var(--s2) 0 var(--s5); overflow: visible; }
+.sxc-line {
+    fill: none; stroke-width: 1.25; stroke-linecap: round; opacity: .55;
+    stroke-dasharray: 2 6;
+    animation: sxcFlow 1.15s linear infinite;
+}
+/* Traveling toward the destination, two dash periods a cycle so the loop has
+ * no seam. Transform is untouched, so this cannot move anything. */
+@keyframes sxcFlow { to { stroke-dashoffset: -16; } }
+.sxc-line.done { stroke-dasharray: none; opacity: 1; animation: none; }
+.sxc-line.dead { stroke: var(--edge-2); stroke-dasharray: 1 4; opacity: .4; animation: none; }
+.sxc-end { fill: var(--text); }
+
 /* Same grid as .trav-top on the results screen, on purpose. */
-.sx-row { display: grid; grid-template-columns: 34px 1fr auto; gap: var(--s3);
+.sx-row { display: grid; grid-template-columns: 34px 1fr 78px; gap: var(--s3);
     align-items: center; border-top: 1px solid var(--edge); padding: var(--s4) 0; }
 .sx-row:last-child { border-bottom: 1px solid var(--edge); }
 .sx-main { min-width: 0; }
@@ -1321,13 +1359,35 @@ a { color: var(--accent); }
  * different ways to make the window, and all three are being tried. */
 .sx-from { font-size: var(--t-2); color: var(--muted); margin-top: 3px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* A fixed-width slot, right-aligned, holding either the marks or the word
+ * that replaces them. Fixed because the column must not resize when a leg
+ * lands: the row is the same object as the results row it becomes, and a
+ * column that breathes would move every name on the screen. */
+.sx-mark { width: 78px; display: flex; justify-content: flex-end; align-items: center; gap: 4px; }
 /* A 1px mark, which is one of the four sanctioned emphasis tools -- not a grey
  * skeleton block, which is the generic "this app was generated" tell. It sits
  * exactly where the price lands and is exactly as wide, so nothing moves when
- * the figure arrives. */
-.sx-wait { width: 56px; height: 2px; border-radius: 1px; background: var(--edge-2);
-    animation: sxPulse 1.4s var(--ease) infinite; }
+ * the figure arrives. One mark for a one-way, two for a round trip, so half a
+ * round trip reads as half. */
+.sx-leg { flex: 1 1 auto; height: 2px; border-radius: 1px; background: var(--edge-2);
+    animation: sxPulse 1.4s var(--ease) infinite;
+    /* Staggered row against row, so the column reads as a set of searches
+       running rather than one synchronized blink -- which is what a progress
+       bar looks like, and would be promising progress we cannot see. Both
+       marks in a row share the phase: out of step they would read as one leg
+       being further along than the other. */
+    animation-delay: var(--sx-delay, 0s); }
+.sx-leg.on { background: var(--text); opacity: 1; animation: none; }
 @keyframes sxPulse { 0%, 100% { opacity: .28; } 50% { opacity: 1; } }
+/* The three measured answers. Nothing here is a percentage and nothing here
+ * is a guess: a leg has come back with flights, come back with none, or could
+ * not be asked. */
+.sx-state { font-size: var(--t-2); color: var(--text); font-weight: 500;
+    white-space: nowrap; }
+.sx-state.quiet { color: var(--muted); font-weight: 400; }
+.sx-state.bad { color: var(--bad); }
+
 .sx-foot { display: flex; align-items: baseline; justify-content: space-between;
     gap: var(--s3); flex-wrap: wrap; margin-top: var(--s4);
     font-size: var(--t-2); color: var(--muted); }
@@ -1760,10 +1820,16 @@ footer .sep { color: var(--faint); margin: 0 8px; }
          polite live region announces the elapsed clock without interrupting. -->
     <section id="s5" class="hidden" tabindex="-1" aria-label="Searching" aria-busy="true">
         <div class="sx-head">
-            <span class="k">Landing everyone in</span>
+            <span class="k">Bringing everyone to</span>
             <h2 class="sx-dest"><span id="sxDest"></span> <span class="sx-code" id="sxCode"></span></h2>
             <div class="sx-when" id="sxWhen"></div>
         </div>
+        <!-- The convergence. Decorative to a screen reader on purpose: every
+             fact it draws is already stated in words by the rows underneath
+             it, and reading a set of unlabeled paths aloud would be noise
+             before the same information arrived properly. -->
+        <svg class="sxc" id="sxConverge" aria-hidden="true" focusable="false"
+             viewBox="0 0 300 60" height="60"></svg>
         <div id="sxRows"></div>
         <div class="sx-foot" id="sxFoot" role="status" aria-live="polite"></div>
     </section>
