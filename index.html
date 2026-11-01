@@ -1053,6 +1053,11 @@ a { color: var(--accent); }
  * obviously tappable is what makes every other control here tappable -- a
  * four-sided hairline, a 48px target and a surface that flashes under the
  * thumb -- and amber is left to the one filled primary that sends the trip. */
+/* Only on the search button, never on a pinned one. A reader comparing two
+   traveller cards sees Book on one and Find on the other and concludes the
+   Find is broken; this says it is a different destination, not a worse one. */
+.book-why { margin-top: 6px; text-align: center; font-size: var(--t-0);
+    color: var(--faint); }
 .trav-book { padding: var(--s3) 0 var(--s1); }
 .trav-book .btn { width: 100%; background: transparent; color: var(--text);
     border: 1px solid var(--edge-2); box-shadow: none; }

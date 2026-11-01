@@ -4476,7 +4476,7 @@ function tripBookLinks(origin, dest, dep, ret, seats, options, name) {
     var opts = options || [];
     if (opts.length && (opts.length === 1 || oneCarrierThroughout(opts))) {
         var one = deepLink(opts, seats);
-        if (one) return [{ label: 'Book ' + name + '\u2019s trip', url: one }];
+        if (one) return [{ label: 'Book ' + name + '\u2019s trip', url: one, exact: true }];
     }
     /* Different airlines out and back. Two pinned one-ways would each land on
      * a real booking screen and were tried -- "please remove book the way out
@@ -4485,7 +4485,13 @@ function tripBookLinks(origin, dest, dep, ret, seats, options, name) {
      * cannot dead-end here is the search: a round trip pinned across two
      * carriers is exactly the thing Google refuses. It opens on the route and
      * the dates with both flights in the list. */
-    return [{ label: 'Find ' + name + '\u2019s trip',
+    return [{ label: 'Find ' + name + '\u2019s trip', exact: false,
+              /* Said out loud on the card, because "Find" next to somebody
+               * else's "Book" reads as a worse button rather than a different
+               * destination. It opens the route and the dates with both of
+               * these flights in the list; it cannot open them pinned,
+               * because Google will not sell this pair as one round trip. */
+              why: 'Two airlines, so this opens a search',
               url: tripSearchUrl(origin, dest, dep, ret, seats) }];
 }
 
@@ -4498,8 +4504,9 @@ function tripSearchUrl(origin, dest, dep, ret, seats) {
 
 /* Kept for anything still asking for a single url. */
 function tripBookUrl(origin, dest, dep, ret, seats, options) {
-    return tripBookLinks(origin, dest, dep, ret, seats, options, 'this').url
-        || tripBookLinks(origin, dest, dep, ret, seats, options, 'this')[0].url;
+    /* One call. This read `.url || [0].url` on an array, so the first operand
+     * was undefined every time and the function ran twice to get one link. */
+    return tripBookLinks(origin, dest, dep, ret, seats, options, 'this')[0].url;
 }
 
 function bookUrl(o, seats) {
@@ -4955,7 +4962,8 @@ function travellerCard(id, i) {
                         t.seats, chosen, t.name).map(function (lk) {
             return '<a class="btn primary" style="display:block;text-align:center;'
                 + 'text-decoration:none" href="' + esc(lk.url)
-                + '" target="_blank" rel="noopener">' + esc(lk.label) + ' &rarr;</a>';
+                + '" target="_blank" rel="noopener">' + esc(lk.label) + ' &rarr;</a>'
+                + (lk.why ? '<div class="book-why">' + esc(lk.why) + '</div>' : '');
         }).join('')
         + '</div></div></div>';
 }

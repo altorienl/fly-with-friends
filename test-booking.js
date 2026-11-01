@@ -163,6 +163,23 @@ console.log('\n-- a trip on two airlines is two tickets --');
     check('a one-way trip is one pinned link', links([wnOut]).length === 1
           && pinned(links([wnOut])[0]));
 
+    /* Each button has to say which of the two things it does, because a
+     * reader comparing two traveller cards sees "Book" on one and "Find" on
+     * the other and concludes the Find is broken rather than different. The
+     * flag is what the card renders the note from, so it has to track the
+     * link that was actually built, not the label. */
+    check('a pinned link declares itself exact', wnBoth[0].exact === true);
+    check('...and says nothing further, because Book is not surprising',
+          !wnBoth[0].why, wnBoth[0].why);
+    check('a search link declares itself not exact', mixed[0].exact === false);
+    check('...and says why it is a search', typeof mixed[0].why === 'string'
+          && /airline/i.test(mixed[0].why), mixed[0].why);
+    /* The note must never appear over a pinned link -- that would tell
+     * somebody their exact itinerary is only a search. */
+    check('exact and why can never both be set',
+          [].concat(mixed, wnBoth, links([wnOut]))
+            .every(function (l) { return !(l.exact && l.why); }));
+
     /* No segments means nothing can be pinned at all, and the search link is
      * the honest answer -- it has always worked. */
     var bare = links([{ from: 'PHL', to: 'LAX', depart: '2026-12-09 06:00', stops: 0, segs: null },
