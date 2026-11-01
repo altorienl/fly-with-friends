@@ -1112,6 +1112,13 @@ a { color: var(--accent); }
 .pill.on { border-color: var(--chosen); color: var(--chosen-ink); background: var(--chosen); }
 .pills > .k { flex: 1 0 100%; margin: 0 0 var(--s2); }
 
+/* Centered under the full-width date field above it. Three pills hugging the
+ * left edge under an element that spans the column left a ragged notch down
+ * the side of the screen -- "looks a bit ocky all the way left". Only this
+ * field: the other pill groups sit in panels where left is right. */
+.field.centered { text-align: center; }
+.field.centered .pills { justify-content: center; }
+
 /* Locked feature: readable, clearly not tappable, and not greyed out so far
  * that it reads as broken. */
 
@@ -1573,7 +1580,7 @@ footer .sep { color: var(--faint); margin: 0 8px; }
         </div>
 
 
-        <div class="field">
+        <div class="field centered">
             <span class="k">Stops</span>
             <div class="pills" id="sStops" role="radiogroup" aria-label="Maximum stops"></div>
         </div>

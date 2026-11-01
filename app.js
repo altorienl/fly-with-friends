@@ -4155,11 +4155,27 @@ function flyerBlocks() {
                 + clock(b.option.departMin) + '\u2013' + clock(b.option.arriveMin)
                 + '  ' + (b.option.airlines || []).join('/'));
         }
+        /* Flush left, alone on the line, and nothing after it.
+         *
+         * The flight lines above are indented to group them under the name,
+         * and the url was indented to match -- which cost it the thing it is
+         * for. Mail and messaging clients auto-link by scanning for a line
+         * that STARTS with the scheme; leading whitespace, or any trailing
+         * text, and several of them render it as plain text. Reported as
+         * "the link isn't a click, I had to copy it and paste it into the
+         * browser".
+         *
+         * Losing the indent costs a little grouping. Not being clickable
+         * costs the whole message, which exists to be clicked. */
         tripBookLinks(origin, state.q.dest, state.q.dep, state.q.ret || null,
                       t.seats, chosen, t.name).forEach(function (lk) {
-            lines.push('  ' + lk.url);
+            lines.push(lk.url);
         });
-        out.push(lines.join('\n'));
+        /* Trimmed per line. A carrier field can come back empty, which left
+         * "7:53pm-7:53pm  " with trailing spaces -- invisible in the editor
+         * and, in some clients, enough to stop the next line being treated
+         * as the start of a url. */
+        out.push(lines.map(function (l) { return l.replace(/\s+$/, ''); }).join('\n'));
     });
     return out;
 }
