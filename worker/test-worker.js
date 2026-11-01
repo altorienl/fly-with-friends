@@ -709,6 +709,54 @@ await (async () => {
   check('spaces around the comma are tolerated', spaced.status === 200,
     'got ' + spaced.status);
 
+  /* The localhost exemption is a REGEX for a reason, and nothing was holding
+   * it to that. Loosening it to a substring test survived a full suite run,
+   * and a substring test hands the write endpoint to any host with the word
+   * in it -- https://localhost.attacker.test is not localhost, and
+   * http://notlocalhost.test is not either.
+   *
+   * These are the shapes an attacker reaches for first, and the only cost of
+   * getting it wrong is somebody else spending the allowance. */
+  for (const bad of ['https://localhost.attacker.test',
+                     'http://notlocalhost.test',
+                     'http://localhost.evil.test',
+                     'http://127.0.0.1.attacker.test']) {
+    fresh();
+    const r = await worker.fetch(from(bad), twoOrigins);
+    check('refuses a lookalike: ' + bad, r.status === 403, 'got ' + r.status);
+  }
+  /* ...while the real thing still works, which is what the exemption is for. */
+  for (const good of ['http://localhost:8000', 'http://127.0.0.1:5173', 'http://localhost']) {
+    fresh();
+    const r = await worker.fetch(from(good), twoOrigins);
+    check('still serves local dev: ' + good, r.status === 200, 'got ' + r.status);
+  }
+
+  /* The month's spend gate. Deleting it outright survived a full suite run,
+   * which means nothing here was holding the one line that stands between a
+   * busy day and a bill the provider will not send -- SerpApi refuses rather
+   * than billing over, so "exhausted" means the app stops working for
+   * everyone until the month turns.
+   *
+   * The counter is pushed to the ceiling and a search that would cross it
+   * has to come back 429, with the month named as the reason. */
+  fresh();
+  const cap = planCaps({ perMonth: 1000, hourLimit: 200 }).monthly;
+  store.set('budget:' + new Date().toISOString().slice(0, 7), String(cap - 1));
+  const overspend = await worker.fetch(from('https://app.test'), twoOrigins);
+  check('a search that would cross the monthly cap is refused',
+    overspend.status === 429, 'got ' + overspend.status);
+  const why = await overspend.json().catch(() => ({}));
+  check('...and says the month is the reason', why.exhausted === 'month',
+    JSON.stringify(why).slice(0, 120));
+
+  /* And one search below the line still goes through, so the gate is a
+   * ceiling rather than an off switch. */
+  fresh();
+  store.set('budget:' + new Date().toISOString().slice(0, 7), '0');
+  const under = await worker.fetch(from('https://app.test'), twoOrigins);
+  check('under the cap it still searches', under.status === 200, 'got ' + under.status);
+
   fresh();
   const stranger = await worker.fetch(from('https://evil.test'), twoOrigins);
   check('an origin not on the list is refused', stranger.status === 403,
