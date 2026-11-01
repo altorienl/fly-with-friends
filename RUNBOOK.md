@@ -52,8 +52,13 @@ It is never in the repo, never in the browser bundle, and never in a response
 body. The browser only ever talks to the API Worker. Confirm before publishing:
 
 ```
-git grep -nIE "(api[_-]?key|secret|token)\s*[:=]\s*['\"][A-Za-z0-9_-]{12,}"
+./check-secrets.sh
 ```
+
+It scans the working tree and the full history of every ref, and exits
+non-zero on a hit. History matters: a key deleted today is still served by
+GitHub from yesterday's commit, so a clean working tree proves nothing on a
+public repo.
 
 `ALLOWED_ORIGINS` in `worker/wrangler.toml` is not a secret but is load-bearing:
 it is the list of sites allowed to spend searches. Leaving a site off it means
