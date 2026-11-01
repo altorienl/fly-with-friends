@@ -975,7 +975,19 @@ a { color: var(--accent); }
 .leg { display: block; margin-top: 28px; }
 
 /* one person, both legs, one action */
-.win { margin-bottom: 18px; }
+/* Boxed, like the chooser above it. Reported after a real session: "I
+ * scrolled past it and didn't even realize it was showing me crucial data
+ * points" -- which it was, the arrival spread and every traveller's place in
+ * it. As bare text on cream between two other bare-text sections it had
+ * nothing telling a reader to stop.
+ *
+ * Same card as .choices.boxed, deliberately: two cards that mean "this is a
+ * block worth reading" should not be two different cards. */
+.win {
+    margin-bottom: var(--s5);
+    background: var(--card); border: 1px solid var(--edge);
+    border-radius: var(--r-lg); padding: var(--s4);
+}
 .win-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 .win-head .t { font-size: var(--t-4); font-weight: 600; }
 .win-head .s { font-size: var(--t-2); color: var(--muted); font-variant-numeric: tabular-nums; }

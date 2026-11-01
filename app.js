@@ -4074,51 +4074,6 @@ function bookUrl(o, seats) {
 }
 
 
-/* A block you can paste into the group chat. The decision happens there, not
- * here, and until now the app handed the organiser a screenful of numbers and no
- * way to move them. Covers both legs, because nobody books half a trip.
- * Stamped with the capture time on purpose: fares move, and a pasted total with
- * no date is the kind of thing a group argues with on Friday. */
-function legLines(leg, heading) {
-    var b = legBreakdown(leg);
-    if (!b) return [];
-    var prevLeg = state.leg, prevC = C;
-    state.leg = leg; C = b.ctx;
-
-    var verb = leg === 'outbound' ? 'lands' : 'leaves';
-    /* Pasted into a chat this is a sentence, not a column, so the gap is spelled
-     * out here the same way it is on the line that states the result.
-     *
-     * The way home is unclustered by default, so "everyone within 11 hours 10
-     * minutes of each other" claimed a target nobody aimed at -- the same lie
-     * the shaded band was removed from the return timeline for. Report it the
-     * way the screen does: an outcome, stated as a gap. */
-    var loose = leg === 'return' && !state.q.clusterReturn;
-    var lines = [heading + ' — ' + (loose
-        ? gapWords(b.spread) + ' apart'
-        : b.plan.excluded && b.plan.excluded.length
-            ? seatsOf(b.plan.included) + ' of ' + seatsAll() + ' within ' + gapWords(b.spread)
-            : withinEachOther(b.spread))];
-
-    b.ctx.ids.slice().sort(function (x, y) {
-        var ox = b.rows[x], oy = b.rows[y];
-        return (ox ? ox.option.clusterMin : 0) - (oy ? oy.option.clusterMin : 0);
-    }).forEach(function (id) {
-        var r = b.rows[id];
-        if (!r) return;
-        var t = b.ctx.travelers.filter(function (z) { return z.id === id; })[0];
-        var o = r.option;
-        lines.push('  • ' + t.name + ' — ' + o.from + ' to ' + o.to + ', ' + verb + ' '
-            + clock(leg === 'outbound' ? o.arriveMin : o.departMin)
-            + ', ' + money(r.cost) + (t.seats > 1 ? ' for ' + t.seats : '')
-            + ((o.airlines || []).length ? ', ' + o.airlines.join('/') : '')
-            + (o.stops === 0 ? ', nonstop' : ', ' + o.stops + (o.stops === 1 ? ' stop' : ' stops'))
-            + (r.inWindow ? '' : '  (' + (leg === 'outbound' ? 'lands apart' : 'leaves apart') + ')'));
-    });
-
-    state.leg = prevLeg; C = prevC;
-    return lines;
-}
 
 /* The one sentence the trip is about. Used as the first line of anything that
  * leaves the app and as the subject of an email, because in an inbox "Fort
@@ -4157,6 +4112,58 @@ function tripHeadline() {
  * around two thousand characters, so the per-person lines are trimmed before
  * anything else and the trip link is the last thing that can ever go. */
 var MAILTO_MAX = 1800;
+
+/* One flyer, one block: name, price, the two flights, and the link that
+ * books them.
+ *
+ * Shared by the email and by whatever the native sheet sends, because they
+ * are the same message. Reported twice from real use -- "I shared the trip
+ * and chose email to send to my friends but it didn't have the flight links
+ * so it becomes useless", and then "seeing a whole bunch of words and not
+ * just flight, price, time, links for each flyer".
+ *
+ * The second half of that matters more than it sounds: a recipient who
+ * cannot book from the message has to run the search again, which spends
+ * THIS owner's metered allowance to recover an answer already paid for.
+ *
+ * This reverses an earlier instruction -- "the email should provide the
+ * links and just total price not the break outs" -- which took per-person
+ * fares and deep links out because three 400-character tokens buried the
+ * total. The links are back because without them the message does not do its
+ * job; what keeps them readable is that there is now one per person rather
+ * than one per flight, and almost no prose around them. */
+function flyerBlocks() {
+    if (!TRIP || !C) return [];
+    var out = [];
+    C.ids.forEach(function (id) {
+        var t = C.travelers.filter(function (x) { return x.id === id; })[0];
+        var o = TRIP.legOut && TRIP.legOut.rows[id];
+        var b = TRIP.legBack && TRIP.legBack.rows[id];
+        if (!t || !o || !o.option) return;
+        var pp = TRIP.perPerson[id];
+        var origin = o.option.from;
+        var chosen = [];
+        if (o.option) chosen.push(o.option);
+        if (b && b.option) chosen.push(b.option);
+
+        var lines = [t.name + (pp ? '  ' + money(pp.total) : '')];
+        lines.push('  ' + o.option.from + '\u2192' + o.option.to + '  '
+            + clock(o.option.departMin) + '\u2013' + clock(o.option.arriveMin)
+            + '  ' + (o.option.airlines || []).join('/'));
+        if (b && b.option) {
+            lines.push('  ' + b.option.from + '\u2192' + b.option.to + '  '
+                + clock(b.option.departMin) + '\u2013' + clock(b.option.arriveMin)
+                + '  ' + (b.option.airlines || []).join('/'));
+        }
+        tripBookLinks(origin, state.q.dest, state.q.dep, state.q.ret || null,
+                      t.seats, chosen, t.name).forEach(function (lk) {
+            lines.push('  ' + lk.url);
+        });
+        out.push(lines.join('\n'));
+    });
+    return out;
+}
+
 function emailUrl() {
     var a = AIRPORTS.get(state.q.dest);
     var where = a ? a.city : state.q.dest;
@@ -4164,11 +4171,8 @@ function emailUrl() {
         + ' \u2014 ' + tripHeadline().toLowerCase();
 
     var head = [
-        tripHeadline() + '.',
-        '',
-        where + ' \u00b7 ' + prettyRange(state.q.dep, state.q.ret),
-        money(TRIP.total) + (hasReturn() ? ' round trip' : ' one way')
-            + ' for ' + seatsAll() + ', all in.',
+        where + ' \u00b7 ' + prettyRange(state.q.dep, state.q.ret)
+            + ' \u00b7 ' + money(TRIP.total) + ' for ' + seatsAll(),
         ''
     ];
     /* One short line each, and it is the landing time -- not the fare. The
@@ -4177,21 +4181,21 @@ function emailUrl() {
      * ("why is mine $40 more than yours") that the one tap into the trip
      * answers properly, with the actual flights next to the actual numbers.
      * What the email is for is the claim: here is when you land. */
-    var who = [];
-    C.ids.forEach(function (id) {
-        var t = C.travelers.filter(function (x) { return x.id === id; })[0];
-        var o = TRIP.legOut && TRIP.legOut.rows[id];
-        if (!t || !o || !o.option) return;
-        who.push(t.name + ' \u2014 lands ' + clock(o.option.arriveMin));
-    });
+    var who = flyerBlocks();
+    var tail = ['', shareUrl()];
 
-    var tail = ['', 'Open the trip to book \u2014 every flight is one tap from here:',
-                shareUrl()];
-
-    var body = head.concat(who).concat(tail).join('\n');
-    while (body.length > MAILTO_MAX && who.length) {
+    /* mailto has no agreed length limit and clients truncate silently around
+     * two thousand characters. Whole flyers are dropped from the end rather
+     * than links from everybody, so the people who are left still have a
+     * bookable message -- and the trip link, which covers all of them, is
+     * never what gets cut. */
+    var join = function (list, mark) {
+        return head.concat(list.join('\n\n'), mark || []).concat(tail).join('\n');
+    };
+    var body = join(who);
+    while (body.length > MAILTO_MAX && who.length > 1) {
         who = who.slice(0, -1);
-        body = head.concat(who, ['  \u2026']).concat(tail).join('\n');
+        body = join(who, ['', '\u2026']);
     }
     if (body.length > MAILTO_MAX) body = head.concat(tail).join('\n');
     return 'mailto:?subject=' + encodeURIComponent(subject)
@@ -4200,34 +4204,19 @@ function emailUrl() {
 
 function chatBlock() {
     if (!TRIP || !C) return '';
+    /* The same message the email sends. It used to be a different, much
+     * longer one -- a headline, two labelled leg sections, a WHAT EACH
+     * PERSON PAYS block, a fares-as-of line -- and it went into a group
+     * chat, where it read as "a whole bunch of words". Nothing in it was
+     * wrong; almost none of it was what a recipient needed, which is their
+     * own flight and the link that books it. */
     var a = AIRPORTS.get(state.q.dest);
-    var lines = [];
-    lines.push(tripHeadline());
-    lines.push((a ? a.city + ' (' + a.code + ')' : state.q.dest) + ' · '
-        + prettyRange(state.q.dep, state.q.ret));
-    lines.push('');
-    lines = lines.concat(legLines('outbound', 'GETTING THERE'));
-    if (hasReturn()) { lines.push(''); lines = lines.concat(legLines('return', 'GETTING HOME')); }
-
-    lines.push('');
-    lines.push('WHAT EACH PERSON PAYS');
-    C.ids.forEach(function (id) {
-        var t = C.travelers.filter(function (x) { return x.id === id; })[0];
-        var pp = TRIP.perPerson[id];
-        if (!t || !pp) return;
-        lines.push('  • ' + t.name + ' ' + money(pp.total)
-            + (t.seats > 1 ? ' (' + money(Math.round(pp.total / t.seats)) + ' each)' : ''));
-    });
-
-    lines.push('');
-    lines.push(groupWord() + ', ' + (hasReturn() ? 'round trip' : 'one way') + ': ' + money(TRIP.total)
-        + (SET.priceDisplay === 'fare' ? ' (fares only)' : ' including bags'));
-    var gen = DATA && DATA.generated_at ? new Date(DATA.generated_at) : null;
-    lines.push('Fares as of ' + (gen ? gen.toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : 'unknown')
-        + ' — check before paying.');
-    lines.push(shareUrl());
-    return lines.join('\n');
+    var head = (a ? a.city : state.q.dest) + ' \u00b7 '
+        + prettyRange(state.q.dep, state.q.ret)
+        + ' \u00b7 ' + money(TRIP.total) + ' for ' + seatsAll();
+    return [head, ''].concat(flyerBlocks().join('\n\n'), ['', shareUrl()]).join('\n');
 }
+
 
 /* The way home offers the other answer, priced. Nothing else.
  *
@@ -4427,7 +4416,11 @@ function hopRow(dir, r, leg, id, seats) {
      * say which night. */
     var showMin = leg === 'outbound' ? o.arriveMin : o.departMin;
     var otherMin = leg === 'outbound' ? o.departMin : o.arriveMin;
-    var otherWord = leg === 'outbound' ? 'leaves ' : 'lands ';
+    /* "departs"/"arrives", not "leaves"/"lands". Reported as "can you be
+     * normal and use departure and arrival" -- the short words were chosen
+     * to sound unfussy and landed as baby talk on a screen people are about
+     * to spend hundreds of dollars from. */
+    var otherWord = leg === 'outbound' ? 'departs ' : 'arrives ';
     return '<div class="hop"><span class="hop-dir">' + dir + '</span>' + logo
         + '<div class="hop-main"><div class="hop-route">' + esc(o.from) + ' &rarr; ' + esc(o.to)
         + '</div><div class="hop-meta">' + esc((o.airlines || []).join(', ')) + ' · '
@@ -4435,7 +4428,7 @@ function hopRow(dir, r, leg, id, seats) {
         + (r.inWindow ? '' : ' · <span style="color:var(--bad)">outside the window</span>') + '</div>'
         + priceLevel(leg, id) + '</div>'
         + '<div class="hop-right"><div class="hop-time mono">'
-        + (leg === 'outbound' ? 'lands ' : 'leaves ') + clock(showMin) + '</div>'
+        + (leg === 'outbound' ? 'arrives ' : 'departs ') + clock(showMin) + '</div>'
         + (otherMin != null
             ? '<div class="hop-other mono">' + otherWord + clock(otherMin) + '</div>' : '')
         + '<div class="hop-cost mono">' + money(r.cost)
