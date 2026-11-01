@@ -180,8 +180,12 @@ console.log('\n-- budget margin + band: party blamed for a filter it passes --')
               + C.subset.excluded.map(function (x) { return x.id; }).join(',') + ')' : 'null'));
     /* The misattribution itself: nothing in blocked/relaxed/detoured records the
      * margin rule, so the only explanation the screen can reach for is the band. */
+    /* prep.missing is [] at this point whenever the check above it passed, and
+     * [].every(...) is true for any predicate -- so this only ever carried
+     * content on a run that had already failed. Named explicitly so an empty
+     * list reads as "nothing to attribute" rather than as a silent pass. */
     check('a party emptied by pruning is recorded somewhere compute() exposes',
-          C.prep.missing.every(function (id) {
+          C.prep.missing.length === 0 || C.prep.missing.every(function (id) {
               return C.blocked.some(function (b) { return b.id === id; });
           }),
           'prep.missing = ' + JSON.stringify(C.prep.missing)

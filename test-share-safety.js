@@ -34,10 +34,21 @@ ck('maxDetour is a number', typeof q.maxDetour === 'number');
 ck('dest is at most 3 chars', q.dest.length <= 3);
 ck('airports keep only real 3-letter codes', JSON.stringify(q.parties[0].airports) === '["SFO"]');
 ck('name is truncated, not executed', q.parties[0].name.length <= 22);
-ck('no field still equals the payload',
-   JSON.stringify(q).indexOf('onerror') === -1 || q.avoid.concat([q.parties[0].name]).every(function (v) {
-       return String(v).length <= 40;
-   }));
+/* This used to be an || of two claims, and the first one was false: avoid[0]
+ * is still '<img src=x onerror=alert(document.domain' after sanitising, so the
+ * check passed entirely on the second branch, which only restates
+ * sanitizeQuery's own slice(0, 40). A check in the security suite named "no
+ * field still equals the payload" was green while the payload was in the
+ * field. Both halves are now asserted separately and named for what they are. */
+ck('every field is truncated to its cap',
+   q.avoid.concat([q.parties[0].name]).every(function (v) { return String(v).length <= 40; }),
+   JSON.stringify(q.avoid));
+/* Sanitising truncates; it does not strip markup, and it is not supposed to --
+ * escaping at the single render site is what makes that safe. So this asserts
+ * the real contract: whatever survives, no field is the payload intact. */
+ck('no field is the payload intact',
+   JSON.stringify(q).indexOf(PAYLOAD) === -1,
+   'payload found verbatim in ' + JSON.stringify(q).slice(0, 120));
 
 console.log('\n-- stopsText cannot emit markup --');
 ck('markup in stops renders as nonstop', ctx.stopsText(PAYLOAD) === 'nonstop');

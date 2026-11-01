@@ -559,9 +559,17 @@ console.log('\n-- no row reads as strictly worse than the one next to it --');
           unexplained.length === 0, unexplained.slice(0, 4).join('\n          '));
 
     /* The rule behind it: dominance may only compare what a card can print. */
-    var r = src.slice(src.indexOf('var cmp = ['), src.indexOf('var cmp = [') + 60);
+    /* Guarded, because indexOf returns -1 when the landmark moves and
+     * src.slice(-1, 59) is ''. '' contains no 'worstBurden', so this check
+     * passed for any source at all -- renaming cmp to axes left all 576 checks
+     * green. A source-reading check has to fail loudly when it can no longer
+     * find what it reads, or it is not a check. */
+    var at = src.indexOf('var cmp = [');
+    check('the dominance axes are still where this test reads them', at !== -1,
+          'landmark "var cmp = [" not found in app.js');
+    var r = at === -1 ? '<<landmark missing>>' : src.slice(at, at + 60);
     check('dominance does not compare on worstBurden, which is never shown',
-          r.indexOf('worstBurden') === -1, r);
+          at !== -1 && r.indexOf('worstBurden') === -1, r);
 }());
 
 /* ------------------------------------- no two rows may read the same */
@@ -736,6 +744,92 @@ console.log('\n-- the choice strip renders the profiles --');
     ctx.PICKED_PLAN = null;
     check('every card\'s price and spread are the plan it opens',
           mismatch.length === 0, mismatch.join('\n          '));
+
+    /* ...and again on a group that cannot seat everybody, which is where it was
+     * actually wrong. The check above only ever ran on a complete group, so it
+     * passed for months while every subset card quoted the seated parties'
+     * outbound plus EVERYBODY's return -- the two halves of one price summed
+     * over different sets of people. Measured at the time: wrong on 262 of 262
+     * subset cards, worst case $1,601 shown above a $2,834 plan.
+     *
+     * The person a plan leaves behind still buys a ticket. Any card that prices
+     * a trip as though they did not is quoting a trip nobody is taking. */
+    var gSub = JSON.parse(JSON.stringify(F.groups[0]));
+    var odd = gSub.parties[2].id;
+    /* Same flights, shifted most of a day, so this party is reachable at a wide
+     * window and unseatable at a tight one. Emptying the list instead would
+     * test the filtered-out path, which is a different branch. */
+    gSub.trip.outbound[odd] = gSub.trip.outbound[odd].map(function (o) {
+        var c = JSON.parse(JSON.stringify(o));
+        c.depart = c.depart.replace(/ \d\d:/, ' 19:');
+        c.arrive = c.arrive.replace(/ \d\d:/, ' 23:');
+        return c;
+    });
+    load(gSub);
+    /* The band is what turns a far-flung party into an unseatable one: with it
+     * the tight profiles cannot reach 23:00 and have to choose between opening
+     * the window to most of a day or leaving somebody out. */
+    ctx.state.q.band.outbound = { from: '12:00', to: '18:00' };
+    ctx.MATCHES = null;
+    var subs = ctx.tripMatches();
+    var subsetCards = subs.filter(function (m) { return m.seated < m.reach; });
+    var subMismatch = [];
+    subs.forEach(function (m) {
+        ctx.PICKED_PLAN = m.plan;
+        ctx.state.match = m.key;
+        if (m.th != null) ctx.thBoth(m.th);
+        var o = ctx.legBreakdown('outbound');
+        var b = ctx.hasReturn() ? ctx.legBreakdown('return') : null;
+        var sum = o.total + (b ? b.total : 0);
+        if (Math.abs(sum - m.total) > 0.5) {
+            subMismatch.push(m.key + ' (' + m.seated + ' of ' + m.reach + '): card '
+                + ctx.money(m.total) + ' vs plan ' + ctx.money(sum));
+        }
+    });
+    ctx.PICKED_PLAN = null;
+    check('a subset card is priced over everyone the plan below it prices',
+          subMismatch.length === 0, subMismatch.join('\n          '));
+    /* Guards the guard: if the fixture stops producing a subset, the check
+     * above becomes a second pass over complete groups and silently stops
+     * testing the thing it is named for. */
+    check('...and the fixture really did strand somebody',
+          subsetCards.length > 0,
+          subs.map(function (m) { return m.key + ' ' + m.seated + '/' + m.reach; }).join(' '));
+
+    /* No profile may buy its closeness with somebody's seat.
+     *
+     * Every live profile has to seat the same number of people. A group either
+     * can fit everybody somewhere or it cannot, and that answer belongs to the
+     * group, not to which card you tapped -- "Closest landing" reaching a
+     * 0-minute spread by flying one person and stranding six is not a tighter
+     * trip, it is a different trip, and it sorts to the top of a cheapest-first
+     * column while it does it.
+     *
+     * This closes a whole class at once. Every closeness assertion above is
+     * conditioned on headcount in the direction a smaller plan trivially
+     * satisfies, so three separate headcount guards -- in freeTighten, in
+     * subsetTightest's binary search, and in reachOf's window -- could all be
+     * removed with the suite staying green. Checked across every fixture group
+     * and five landing bands, because a band is what makes seats scarce. */
+    var uneven = [];
+    [['', ''], ['12:00', '18:00'], ['06:00', '12:00'], ['', '15:00'], ['18:00', '']]
+      .forEach(function (b) {
+        F.groups.forEach(function (g, gi) {
+            load(JSON.parse(JSON.stringify(g)));
+            ctx.state.q.band.outbound = { from: b[0], to: b[1] };
+            ctx.MATCHES = null;
+            var ms;
+            try { ms = ctx.tripMatches(); } catch (e) { return; }
+            if (!ms || ms.length < 2) return;
+            var n = ms[0].seated;
+            if (!ms.every(function (m) { return m.seated === n; })) {
+                uneven.push('group ' + gi + ' band "' + b.join('-') + '": '
+                    + ms.map(function (m) { return m.key + ' ' + m.seated + '/' + m.reach; }).join('  '));
+            }
+        });
+    });
+    check('no profile seats fewer people than another',
+          uneven.length === 0, uneven.slice(0, 6).join('\n          '));
 
     /* One row says nothing unless there is something to flag. It used to say
      * "One plan covers it -- cheapest, closest and least flying are the same

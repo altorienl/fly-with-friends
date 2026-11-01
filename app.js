@@ -1937,6 +1937,26 @@ function coherentReturnUncached(ctx, th) {
     return repriceMoney(ctx, best);
 }
 
+/* What the people this plan could not seat are still paying.
+ *
+ * A subset plan has no pick for the party it left out, but that party is still
+ * flying -- legBreakdown() prices them from soloOpen and sums them into the
+ * breakdown under the chooser. So the card above it has to count them too.
+ * While it did not, every subset card quoted the seated parties' outbound plus
+ * EVERYBODY's return: measured wrong on 262 of 262 subset cards, by as much as
+ * 77% ($1,601 shown against a $2,834 plan). Nothing flagged it, because the
+ * return side was already summing everyone and so the totals looked complete.
+ *
+ * This is the one definition. legBreakdown's own loop below must keep matching
+ * it, or the number on the card and the number beneath it drift apart again. */
+function strandedCost(ctx, plan) {
+    if (!ctx || !plan || !plan.picks) return 0;
+    return ctx.ids.reduce(function (n, id) {
+        if (plan.picks[id]) return n;
+        return n + (ctx.soloOpen[id] ? ctx.soloOpen[id].cost : 0);
+    }, 0);
+}
+
 function legBreakdown(leg) {
     var ctx = compute(leg);
     if (!ctx) return null;
@@ -2898,6 +2918,10 @@ function tripMatches() {
      * sum to. */
     var back = hasReturn() ? legBreakdown('return') : null;
     var backTotal = back ? back.total : 0;
+    /* The outbound context, for the fares of anyone a subset plan leaves out.
+     * The return total above already covers everybody, so without this the two
+     * halves of a card's price are summed over different sets of people. */
+    var outCtx = compute('outbound');
 
     MATCHES = matchList(live.map(function (e) {
         var per = {}, topPer = 0;
@@ -2908,7 +2932,8 @@ function tripMatches() {
             topPer = Math.max(topPer, per[id] / seats);
         });
         return {
-            key: e.id, name: e.label, total: e.total + backTotal,
+            key: e.id, name: e.label,
+            total: e.total + strandedCost(outCtx, e.plans.outbound) + backTotal,
             topPer: Math.round(topPer),
             seated: e.seated, reach: e.reach,
             /* The outbound spread, which is what "apart" means on this screen:
