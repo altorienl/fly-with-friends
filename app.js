@@ -6864,7 +6864,7 @@ function fmOrigins(leg) {
          * of them and the picture should say which. */
         var code = (r && r.option && r.option.from) || t.origins[0] || '';
         if (!code) return null;
-        var g = GEO.get(code);
+        var g = AIRPORTS_GEO.get(code);
         if (!g) return null;
         return { id: id, code: String(code).toUpperCase(), lat: g.lat, lon: g.lon,
                  color: partyColor(i < 0 ? 0 : i),
@@ -6876,9 +6876,9 @@ function fmOrigins(leg) {
  * to converge -- no geo table, one origin, or a destination nobody has
  * coordinates for. A map with one line on it is not this product. */
 function flightMap(leg) {
-    if (typeof GEO === 'undefined' || !GEO || !GEO.get) return '';
+    if (typeof AIRPORTS_GEO === 'undefined' || !AIRPORTS_GEO || !AIRPORTS_GEO.get) return '';
     if (!state.q || !state.q.dest || !C) return '';
-    var dg = GEO.get(state.q.dest);
+    var dg = AIRPORTS_GEO.get(state.q.dest);
     if (!dg) return '';
 
     var lay = fmLayout({ code: state.q.dest, lat: dg.lat, lon: dg.lon }, fmOrigins(leg));
