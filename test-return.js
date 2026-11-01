@@ -55,7 +55,17 @@ var EXPORTS = ['compute', 'legBreakdown', 'tripLadder', 'tripBest', 'windowStrip
 function load() {
     var nodes = {};
     var document = {
-        documentElement: makeEl('html'), body: makeEl('body'),
+        /* documentElement needs a real style object: app code publishes CSS
+         * custom properties through it (--brand-h), and a bare stub makes
+         * every suite that loads app.js throw on boot rather than fail --
+         * which reads as passing to anything checking for the word FAILED. */
+        documentElement: (function () {
+            var h = makeEl('html');
+            h.style = { setProperty: function () {}, removeProperty: function () {},
+                        getPropertyValue: function () { return ''; } };
+            return h;
+        })(),
+        body: makeEl('body'),
         getElementById: function (id) { return nodes[id] || (nodes[id] = makeEl(id)); },
         querySelector: function () { return makeEl('q'); },
         querySelectorAll: function () { return []; },

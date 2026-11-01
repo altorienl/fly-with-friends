@@ -15,7 +15,12 @@ var src = fs.readFileSync(__dirname + '/app.js', 'utf8');
 
 /* app.js expects a DOM. Slice out the booking helpers and run them bare. */
 var from = src.indexOf('function tfsEncode');
-var to = src.indexOf('/* A block you can paste into the group chat');
+/* Anchored on a function signature, not on a comment. This used to cut at
+ * "/* A block you can paste into the group chat", which was the note above
+ * chatBlock(); rewriting that comment deleted the landmark and this file
+ * began exiting 1 before running a single check -- a crash, which reads as
+ * neither pass nor fail to anything grepping for FAILED. */
+var to = src.indexOf('function chatBlock()');
 if (from < 0 || to < 0) { console.error('FAIL: could not locate booking helpers in app.js'); process.exit(1); }
 var ctx = {
     btoa: function (s) { return Buffer.from(s, 'binary').toString('base64'); },

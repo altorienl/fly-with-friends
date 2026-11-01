@@ -59,6 +59,19 @@ git grep -nIE "(api[_-]?key|secret|token)\s*[:=]\s*['\"][A-Za-z0-9_-]{12,}"
 it is the list of sites allowed to spend searches. Leaving a site off it means
 the page loads and every search returns 403 — see "symptoms" below.
 
+## Running the tests
+
+```
+./run-tests.sh
+```
+
+Not a bare loop over `node test-*.js`. Two suites spent a day silently not
+running: one threw on boot when a DOM stub lacked `style.setProperty`, the
+other exited 1 because it slices `app.js` on a comment landmark that had been
+rewritten. Both printed a stack trace rather than the word FAILED, so
+anything grepping for FAILED called it a clean run. The script checks exit
+codes.
+
 ## Deploying
 
 Two Workers, deployed separately so searching and serving can be paused
