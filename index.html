@@ -1171,7 +1171,17 @@ a { color: var(--accent); }
    and the first arrival to the last is a 3px rule on the axis -- the window,
    measured, with visible air either side. The rule sits below the avatars, not
    behind them, because behind five clustered faces it would be invisible. */
-.timeline { position: relative; height: 96px; margin-bottom: var(--s5); overflow: hidden; }
+/* Taller by the height of the ruler, which sits below the staggered mark
+ * times rather than competing with them. */
+.timeline { position: relative; height: 130px; margin-bottom: var(--s5); overflow: hidden; }
+/* The scale. Quiet on purpose -- it is context for the dots above it, and the
+ * moment it reads as loudly as the landing times it is competing with them. */
+.tl-ruler { position: absolute; left: 0; right: 0; bottom: 0; height: 18px; }
+.tl-rt { position: absolute; transform: translateX(-50%); text-align: center; }
+.tl-rt i { display: block; width: 1px; height: 4px; margin: 0 auto 3px;
+    background: var(--edge); }
+.tl-rt span { font-family: var(--mono); font-size: 10px; line-height: 1;
+    color: var(--faint); white-space: nowrap; }
 .tl-axis { position: absolute; left: 0; right: 0; top: 58px; height: 1px; background: var(--edge); }
 /* Was .tl-band, an --accent-dim panel behind the dots: amber spent on a
    background, and at that opacity it read as a rendering fault rather than as
@@ -1183,7 +1193,10 @@ a { color: var(--accent); }
 .tl-dot { position: relative; direction: ltr; width: 34px; height: 34px; border-radius: var(--r-pill); display: grid; place-items: center; font-size: var(--t-2); font-weight: 600; color: var(--on-party); box-shadow: 0 0 0 2px var(--bg); }
 .tl-dots .tl-dot + .tl-dot { margin-right: -10px; }
 .tl-t { font-size: var(--t-1); line-height: 1; color: var(--muted); margin-top: var(--s4); white-space: nowrap; }
-.tl-t.alt { margin-top: calc(var(--s4) + var(--s3)); }
+/* Three rows, assigned in JS by what actually fits. A fourth would reach the
+ * ruler, so timeline() drops the label instead and lets the dot stand. */
+.tl-t.r1 { margin-top: calc(var(--s4) + var(--s3)); }
+.tl-t.r2 { margin-top: calc(var(--s4) + var(--s3) * 2); }
 
 .pax { display: grid; grid-template-columns: 32px 24px 1fr auto; gap: 12px; align-items: center; padding: 12px 16px; border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card); margin-bottom: 8px; box-shadow: var(--lift); }
 .pax.out { border-style: dashed; opacity: .8; }

@@ -5067,6 +5067,92 @@ function paxRow(id, pick, out, gap) {
  * Where the way home IS one departure -- asked for, or free -- the band is
  * drawn, because then it is telling the truth and the leg should read like the
  * outbound. The dots always tell the truth about the times. */
+/* Where in the day this is.
+ *
+ * The axis is scaled to the cluster, not to the clock: a five-minute landing
+ * window and a six-hour one are drawn exactly the same width. Without a scale
+ * under it the picture is unreadable -- two dots near the middle could be
+ * five minutes apart or five hours, and nothing on the card says which, or
+ * whether any of it is the middle of the night.
+ *
+ * Ticks come from a fixed ladder of sensible steps, and the first step that
+ * fits in four or fewer labels wins. Four is the ceiling because this is a
+ * caption, not a chart axis -- it answers "roughly when, and how zoomed in"
+ * and then gets out of the way. */
+var RULER_STEPS = [5, 15, 30, 60, 120, 180, 360, 720];
+/* Measured off the rendered ruler: 10px mono is almost exactly 6px a
+ * character, and the axis is about 324px inside a card on a 390px phone, so
+ * 300 is the narrow case with a little room left over. */
+var EDGE_CH = 6, NARROW_AXIS_PX = 300;
+/* Mark times are a size up from the ruler: "4:28pm" measures 41px at 11px
+ * mono, so a shade under 7px a character. Rounded up, because overestimating
+ * a label only costs a row and underestimating prints one over another. */
+var LABEL_CH = 7, LABEL_GAP_PX = 6;
+
+function rulerTicks(from, to) {
+    var span = to - from;
+    if (!(span > 0)) return [];
+    var step = RULER_STEPS[RULER_STEPS.length - 1];
+    for (var i = 0; i < RULER_STEPS.length; i++) {
+        if (span / RULER_STEPS[i] <= 4) { step = RULER_STEPS[i]; break; }
+    }
+    var ticks = [];
+    /* Snapped to the step, so labels land on 11:00 and 11:15 rather than on
+     * wherever the window happened to start. */
+    for (var m = Math.ceil(from / step) * step; m <= to; m += step) {
+        var pct = ((m - from) / span) * 100;
+        var label = tickLabel(m, step);
+        /* Dropped rather than clamped: a half-clipped label is worse than no
+         * label, and .timeline clips its overflow. The margin is per label,
+         * not a flat percentage, because a label is centred on its tick and
+         * they are not the same width -- "8pm" needs 3% of the axis and
+         * "11:15am" needs 7%. A flat margin wide enough for the long one threw
+         * away perfectly placed short ones, which is how the 8pm on a
+         * late-evening return went missing. */
+        var edge = (label.length * EDGE_CH) / 2 / NARROW_AXIS_PX * 100;
+        if (pct < edge || pct > 100 - edge) continue;
+        ticks.push({ m: m, pct: pct, label: label });
+    }
+    return ticks;
+}
+
+/* On the hour, the minutes are noise -- "11am" reads faster than "11:00am"
+ * and this line is meant to be read at a glance. */
+function tickLabel(m, step) {
+    var d = new Date(m * 60000), h = d.getUTCHours(), mm = d.getUTCMinutes();
+    if (SET.time24) return (h < 10 ? '0' + h : h) + ':' + (mm < 10 ? '0' + mm : mm);
+    if (mm !== 0) return clock(m);
+    return (h % 12 === 0 ? 12 : h % 12) + (h < 12 ? 'am' : 'pm');
+}
+
+/* Which row each time label sits in, or -1 for "do not print it".
+ *
+ * Separated from timeline() because this is the part that was wrong and the
+ * part worth testing: the old rule alternated a single flag whenever two
+ * marks fell within 48px, with the percentage worked out against a 390px
+ * phone. The axis inside the card is 324px, so 48px was really 40px --
+ * narrower than a label, which measures 41px for "4:28pm" at 11px mono.
+ * Three marks 40px apart therefore shared a line and printed
+ * "11:02am11:10am" over itself.
+ *
+ * Greedy, first row that fits, measured against each label's own width.
+ * Three rows is the ceiling: a fourth reaches the ruler, and past that the
+ * honest move is to drop the label and let the dot and the ruler carry it. */
+var LABEL_ROWS = 3;
+
+function labelRows(marks) {
+    var rowRight = [];
+    return marks.map(function (mk) {
+        var halfPx = String(mk.label).length * LABEL_CH / 2;
+        var cxPx = mk.pct / 100 * NARROW_AXIS_PX;
+        var row = 0;
+        while (row < rowRight.length && cxPx - halfPx < rowRight[row] + LABEL_GAP_PX) row++;
+        if (row >= LABEL_ROWS) return -1;
+        rowRight[row] = cxPx + halfPx;
+        return row;
+    });
+}
+
 function timeline(picks, included, excluded, band) {
     var times = included.map(function (id) { return picks[id].option.clusterMin; });
     var lo = Math.min.apply(null, times), hi = Math.max.apply(null, times);
@@ -5093,11 +5179,26 @@ function timeline(picks, included, excluded, band) {
         + (band === false ? '' : '<div class="tl-span" style="left:' + Math.max(pct(lo), 0)
             + '%;width:' + Math.max(Math.min(pct(hi), 100) - Math.max(pct(lo), 0), 1.5) + '%"></div>');
 
-    var minGap = (48 / 390) * 100, last = -999, alt = false;
-    keys.forEach(function (m) {
+    /* Labels are packed into rows, not alternated between two.
+     *
+     * The old rule flipped a single alt flag whenever two marks came closer
+     * than 48px, with the percentage worked out against a 390px phone. The
+     * axis inside the card is 324px, so that 48px was really 40px -- narrower
+     * than a label, which measures 41px for "4:28pm" at 11px mono. Three
+     * marks 40px apart therefore stayed on one line and printed
+     * "11:02am11:10am" on top of itself.
+     *
+     * Each label now takes the first row where it actually fits, measured
+     * against its own width. Three rows is the ceiling; a fourth would push
+     * into the ruler, and past that the honest thing is to drop the label and
+     * let the dot and the ruler below carry the time. */
+    var rows = labelRows(keys.map(function (m) {
+        return { pct: pct(m), label: clock(m) };
+    }));
+    keys.forEach(function (m, ki) {
         var p = pct(m);
-        alt = (p - last < minGap) ? !alt : false;
-        last = p;
+        var lab = clock(m);
+        var row = rows[ki];
         var dots = groups[m].map(function (g) {
             var i = idxOf(g.id);
             var style = g.dim ? 'background:var(--edge);color:var(--muted)' : 'background:' + partyColor(i < 0 ? 0 : i);
@@ -5105,8 +5206,19 @@ function timeline(picks, included, excluded, band) {
                 + esc(partyInitials(state.q.parties[i] || { name: name(g.id) }, i < 0 ? 0 : i)) + '</div>';
         }).join('');
         html += '<div class="tl-mark" style="left:' + p + '%"><div class="tl-dots">' + dots + '</div>'
-            + '<div class="tl-t mono' + (alt ? ' alt' : '') + '">' + clock(m) + '</div></div>';
+            + (row >= 0 ? '<div class="tl-t mono r' + row + '">' + lab + '</div>' : '')
+            + '</div>';
     });
+
+    var ticks = rulerTicks(from, to);
+    if (ticks.length) {
+        html += '<div class="tl-ruler" aria-hidden="true">'
+            + ticks.map(function (t) {
+                return '<div class="tl-rt" style="left:' + t.pct + '%">'
+                    + '<i></i><span>' + esc(t.label) + '</span></div>';
+            }).join('')
+            + '</div>';
+    }
 
     return html + '</div>';
 }
