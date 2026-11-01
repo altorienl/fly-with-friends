@@ -163,7 +163,7 @@
     ['DPS','Bali','Ngurah Rai','ID'],['MNL','Manila','Ninoy Aquino','PH'],
     ['CEB','Cebu','Mactan-Cebu','PH'],['SGN','Ho Chi Minh City','Tan Son Nhat','VN'],
     ['HAN','Hanoi','Noi Bai','VN'],['DAD','Da Nang','Da Nang','VN'],
-    ['REP','Siem Reap','Angkor','KH'],['PNH','Phnom Penh','Phnom Penh','KH'],
+    ['PNH','Phnom Penh','Phnom Penh','KH'],
     ['DEL','Delhi','Indira Gandhi','IN'],['BOM','Mumbai','Chhatrapati Shivaji','IN'],
     ['BLR','Bengaluru','Kempegowda','IN'],['MAA','Chennai','Chennai Intl','IN'],
     ['HYD','Hyderabad','Rajiv Gandhi','IN'],['CCU','Kolkata','Netaji Subhas','IN'],
@@ -191,7 +191,12 @@
     ['KBP','Kyiv','Boryspil','UA','Ukrainian airspace has been closed to civil aviation since February 2022.','KRK,WAW,RZE,KIV'],
     ['IEV','Kyiv','Zhuliany','UA','Ukrainian airspace has been closed to civil aviation since February 2022.','KRK,WAW,RZE,KIV'],
     ['LWO','Lviv','Danylo Halytskyi','UA','Ukrainian airspace has been closed to civil aviation since February 2022.','KRK,RZE,WAW'],
-    ['ODS','Odesa','Odesa Intl','UA','Ukrainian airspace has been closed to civil aviation since February 2022.','KRK,WAW,KIV']
+    ['ODS','Odesa','Odesa Intl','UA','Ukrainian airspace has been closed to civil aviation since February 2022.','KRK,WAW,KIV'],
+    /* Angkor closed on 15 October 2023 and Siem Reap moved to SAI, 45km east.
+     * REP is still the code everyone has in their head and still what people
+     * type, so it has to resolve -- it was listed as open, which meant it was
+     * accepted as somebody's origin and then quietly returned nothing. */
+    ['REP','Siem Reap','Angkor','KH','Angkor closed in October 2023. Siem Reap now flies from SAI, 45km east.','SAI']
   ];
 
   /* Cities with several airports. Typing "new york" and being made to choose

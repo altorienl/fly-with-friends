@@ -274,6 +274,48 @@ console.log('\n-- somebody who already lives at the destination --');
     eq('an empty party is not local', box.locals().length, 0);
 }());
 
+console.log('\n-- airports that exist but cannot be flown from --');
+(function () {
+    /* A closed airport is not a missing one. People type the code they have in
+     * their head, so it has to resolve -- and then say why, and where to go
+     * instead. Marking one open is the dangerous failure: compute() filters on
+     * .closed, so an airport wrongly listed as open is silently accepted as
+     * somebody's origin and then returns nothing, with the blame landing on
+     * the search rather than on the airport. */
+    var closed = AIRPORTS.LIST.filter(function (a) { return a.closed; });
+    check('there are closed airports to check', closed.length > 0);
+
+    closed.forEach(function (a) {
+        check(a.code + ' says why it is closed',
+              typeof a.note === 'string' && a.note.length > 10, a.note);
+        check(a.code + ' names somewhere to fly from instead',
+              Array.isArray(a.alternates) && a.alternates.length > 0);
+        (a.alternates || []).forEach(function (alt) {
+            var o = AIRPORTS.get(alt);
+            check(a.code + ' sends people to ' + alt + ', which is real and open',
+                  !!o && !o.closed, alt + ' = ' + JSON.stringify(o));
+        });
+    });
+
+    /* Every code appears once. Moving an airport into the closed list without
+     * taking it out of the open one leaves two records and whichever is read
+     * last wins, which is how a closed airport reads as open. */
+    var seen = {}, dupes = [];
+    AIRPORTS.LIST.forEach(function (a) {
+        if (seen[a.code]) dupes.push(a.code);
+        seen[a.code] = 1;
+    });
+    check('no airport is listed twice', dupes.length === 0, dupes.join(' '));
+
+    /* Angkor closed in October 2023 and Siem Reap moved to SAI. It was listed
+     * as open, so REP was accepted as an origin and quietly found nothing. */
+    var rep = AIRPORTS.get('REP');
+    check('REP resolves rather than 404ing on somebody', !!rep);
+    check('...and is marked closed', !!rep && rep.closed === true);
+    check('...and points at SAI', !!rep && (rep.alternates || []).indexOf('SAI') !== -1);
+    check('SAI itself is open', !AIRPORTS.get('SAI').closed);
+}());
+
 console.log('\n' + (fail ? 'FAILED ' + fail + ' of ' + (pass + fail)
                          : 'ALL ' + pass + ' CHECKS PASSED'));
 process.exitCode = fail ? 1 : 0;
