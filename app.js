@@ -4615,7 +4615,14 @@ function travellerCard(id, i) {
         + '<div class="trav-book">'
         + tripBookLinks(origin, state.q.dest, state.q.dep, state.q.ret || null,
                         t.seats, chosen, t.name).map(function (lk) {
-            return '<a class="btn primary" style="display:block;text-align:center;'
+            /* .btn, not .btn primary. This link has been styled back down to
+             * a secondary control in CSS for a while -- transparent fill,
+             * hairline border, ink label -- but it still claimed the primary
+             * class, so every rule that wanted to reach it had to out-specify
+             * .btn.primary, and the two comments in index.html apologising for
+             * that are both about this string. It is secondary; it says so
+             * now, and it picks up the secondary type rank for free. */
+            return '<a class="btn" style="display:block;text-align:center;'
                 + 'text-decoration:none" href="' + esc(lk.url)
                 + '" target="_blank" rel="noopener">' + esc(lk.label) + ' &rarr;</a>';
         }).join('')
@@ -7493,7 +7500,12 @@ function renderCal() {
         + body
         + '<div class="cal-foot">' + (hint ? '<span class="cal-hint">' + esc(hint) + '</span>' : '')
         + '<span class="cal-acts">' + (state.q.dep ? '<button class="cal-clear" data-cal="clear">Clear</button>' : '')
-        + '<button class="btn primary" data-cal="done">Done</button></span></div>';
+        /* Secondary. Done dismisses a picker; the primary action on step 2 is
+         * the button that moves the flow on, and that one sits about fifteen
+         * pixels below this one. Two filled buttons that close together means
+         * neither is the primary -- the same complaint .cal-clear above was
+         * already rewritten for, one level up. */
+        + '<button class="btn" data-cal="done">Done</button></span></div>';
 }
 
 /* Arrow-key navigation has to be able to cross a month edge, which means

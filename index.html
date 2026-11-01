@@ -118,6 +118,9 @@
     --good: #11684a;
     --warn: #8a5516;
     --bad: #a32e1d;
+    /* The pressed/raised face of --chosen. A near-black button cannot answer a
+       pointer by getting darker, so it lifts instead. White on it is 13.65:1. */
+    --chosen-hi: #322d25;
     --scrim: rgba(27,24,19,0.45);
     --accent-dim: rgba(255, 174, 0, 0.22);
     --bad-dim: rgba(163, 46, 29, 0.15);
@@ -137,6 +140,28 @@
     --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
     --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
     --ease: cubic-bezier(.2,.8,.2,1);
+
+    /* The page gutter, stated once.
+       Three rules have to agree on this number: .container sets it, .brand
+       matches it so the masthead and the page share a left edge, and .res-head
+       negates it to bleed its own background out to the screen edges. They did
+       not agree. The 420px breakpoint moved .container to 16px and left
+       .res-head's -20px where it was, so on every phone narrower than 420 the
+       results header hung 4px past both edges and the whole page scrolled
+       sideways -- measured at 390, scrollWidth 394 against clientWidth 390.
+       Two authorities for one number, which is the same fault the theme block
+       above was written to stop. There is one now.
+
+       --gut is the floor; --pad-l and --pad-r are the whole expression, so a
+       rule that wants to cancel the page inset negates the same property the
+       page inset was set from rather than retyping a max() that has to match.
+       That is what actually failed here: both sides were correct expressions
+       and they simply stopped being the same one. Keep the full expression in
+       the token -- do not inline max(var(--gut), env(...)) at a call site, or
+       the drift is back. */
+    --gut: 20px;
+    --pad-l: max(var(--gut), env(safe-area-inset-left));
+    --pad-r: max(var(--gut), env(safe-area-inset-right));
 
     /* No webfont. The audience is iPhone, so the system face is SF Pro:
        already on the device, optically sized (SF Text below 20px, SF Display
@@ -371,9 +396,9 @@ a { color: var(--accent); }
     background: var(--bg);
     padding:
         calc(env(safe-area-inset-top) + 8px)
-        max(20px, env(safe-area-inset-right), calc((100% - 640px) / 2))
+        max(var(--pad-r), calc((100% - 640px) / 2))
         8px
-        max(20px, env(safe-area-inset-left), calc((100% - 640px) / 2));
+        max(var(--pad-l), calc((100% - 640px) / 2));
 }
 .brand-left { position: relative; display: flex; align-items: center; gap: 12px; min-width: 0; }
 .home-btn { position: absolute; inset: -10px -12px; background: none; border: 0; border-radius: var(--r-md);
@@ -447,17 +472,26 @@ a { color: var(--accent); }
 .gear:active { transform: scale(.94); }
 .gear .ini { font-size: var(--t-2); font-weight: 600; color: var(--on-party); }
 
-/* Takes the side and bottom insets body gave up. */
+/* Takes the side and bottom insets body gave up.
+   The bottom is --s7 plus the inset rather than a bare 56px: the narrow
+   override used to say 48px flat, which dropped the home-indicator clearance
+   on exactly the phones that have one. One expression now, and it is four
+   pixels tighter above the fold than the old wide value. */
 .container {
     max-width: 640px; margin: 0 auto;
-    padding: 8px max(20px, env(safe-area-inset-right))
-             calc(56px + env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+    padding: var(--s2) var(--pad-r)
+             calc(var(--s7) + env(safe-area-inset-bottom)) var(--pad-l);
 }
 
 /* ---------------- step rail ---------------- */
-.rail { display: flex; align-items: center; gap: 8px; margin: 12px 0 24px; }
+.rail { display: flex; align-items: center; gap: var(--s2); margin: var(--s3) 0 var(--s5); }
 .rail .seg { position: relative; height: 3px; flex: 1 1 0; border-radius: 2px; background: var(--edge); overflow: hidden; }
-.rail .seg::after { content: ''; position: absolute; inset: 0 auto 0 0; width: 0; background: var(--brand-line); transition: width .36s var(--ease); }
+/* Ink, not gold. Progress is structure, not brand, and by step 3 this was
+   three filled amber bars across the top of the page competing with the mark
+   that is supposed to be the only one. Against --edge the charcoal is also
+   the higher-contrast fill, so the bar states how far along you are more
+   plainly than it did. */
+.rail .seg::after { content: ''; position: absolute; inset: 0 auto 0 0; width: 0; background: var(--text); transition: width .36s var(--ease); }
 .rail .seg.done::after { width: 100%; }
 .rail .lbl { font-size: var(--t-2); color: var(--faint); white-space: nowrap; margin-left: 4px; font-weight: 500; }
 
@@ -482,12 +516,17 @@ a { color: var(--accent); }
 .stepping-back #s1, .stepping-back #s2, .stepping-back #s3, .stepping-back #s4 { animation-name: stepBack; }
 @keyframes stepFwd  { from { opacity: 0; transform: translate3d(16px, 0, 0); } to { opacity: 1; transform: none; } }
 @keyframes stepBack { from { opacity: 0; transform: translate3d(-16px, 0, 0); } to { opacity: 1; transform: none; } }
-.step-head { margin-bottom: 20px; }
+/* 20px was the one gap in the step flow that was not on the spacing scale,
+   and it is the gap between a step's question and its answer -- so the only
+   rhythm a reader actually sees on these three screens was set by a number
+   the scale does not contain. --s5 is the step the rail already puts below
+   itself, which makes the two gaps above the field the same gap. */
+.step-head { margin-bottom: var(--s5); }
 .step-head h2 { font-size: var(--t-6); font-weight: 600; letter-spacing: var(--tr-6); line-height: var(--lh-tight); }
 .step-head p { font-size: var(--t-3); color: var(--muted); line-height: var(--lh-text); margin-top: 8px; }
 
-.field { position: relative; margin-bottom: 16px; }
-.field > .k { display: block; margin-bottom: 8px; }
+.field { position: relative; margin-bottom: var(--s4); }
+.field > .k { display: block; margin-bottom: var(--s2); }
 .inp {
     width: 100%; min-height: 48px; background: var(--card); color: var(--text);
     border: 1px solid var(--edge); border-radius: var(--r-md); padding: 12px 16px;
@@ -505,7 +544,11 @@ a { color: var(--accent); }
    lowercase typing. Tracking drops from 6px (.17em, which read as a
    passcode field) to .08em -- enough to separate three glyphs, no more. */
 .big-inp { text-align: center; font-size: var(--t-6); font-weight: 600; letter-spacing: .08em; text-indent: .08em; min-height: 76px; text-transform: uppercase; }
-.big-inp::placeholder { font-size: var(--t-3); letter-spacing: 0; text-transform: none; opacity: 1; }
+/* 400, the way .party-name::placeholder already states it. Inheriting the
+   field's 600 made an empty field look like a filled one -- a bold word sitting
+   in the largest input in the app reads as the destination you picked, not as
+   the prompt asking for it. */
+.big-inp::placeholder { font-size: var(--t-3); font-weight: 400; letter-spacing: 0; text-transform: none; opacity: 1; }
 .hint { font-size: var(--t-2); color: var(--muted); margin-top: 8px; line-height: var(--lh-text); text-align: center; }
 .hint.bad { color: var(--bad); }
 /* The confirmed airport is not a success message, it is the name of what is in
@@ -539,7 +582,12 @@ a { color: var(--accent); }
 .ac-sub { display: block; font-size: var(--t-2); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ac-flag { font-size: var(--t-2); color: var(--faint); flex-shrink: 0; }
 .ac-item.closed .ac-code { color: var(--bad); }
-.ac-item.metro .ac-code { font-size: var(--t-1); color: var(--brand-ink); background: var(--brand); border-radius: var(--r-pill); width: 22px; height: 22px; display: grid; place-items: center; margin-left: 11px; }
+/* A filled gold disc marking "this is a metro area, not an airport" put one
+ * gold object per matching row into a list that can show six of them, under a
+ * masthead that is supposed to own the only one. It is a classification, so it
+ * is drawn the way .badge draws a classification: a hairline ring and muted
+ * ink. --muted on --card is 8.02:1. */
+.ac-item.metro .ac-code { font-size: var(--t-1); color: var(--muted); background: none; box-shadow: inset 0 0 0 1px var(--edge-2); border-radius: var(--r-pill); width: 22px; height: 22px; display: grid; place-items: center; margin-left: 11px; }
 .ac-item.closed .ac-city { color: var(--muted); }
 /* Not a row you can pick, so it is not shaped like one: no code column, no
  * press state, no 44px target. It exists so that "no matches" and "the
@@ -558,7 +606,13 @@ a { color: var(--accent); }
 .datefield #dateLabel { flex: 1; min-width: 0; }
 .datefield .caret { color: var(--faint); font-size: var(--t-1); }
 .datefield.empty #dateLabel { color: var(--faint); font-weight: 400; }
-.datefield[aria-expanded="true"] { border-color: var(--brand-line); box-shadow: 0 0 0 3px var(--accent-dim); }
+/* Open, not focused. An amber border plus a 3px amber halo was the loudest
+ * object on step 2 and it was spent saying something a 600px calendar hanging
+ * directly off the bottom of the field already says. The field keeps a firm
+ * edge so it still reads as the thing in play; the halo goes. Real keyboard
+ * focus is still drawn by the :focus-visible rules, which is the one state
+ * that has nothing else on screen to announce it. */
+.datefield[aria-expanded="true"] { border-color: var(--edge-2); box-shadow: none; }
 
 .cal {
     margin-top: 10px; background: var(--card); border: 1px solid var(--edge-2);
@@ -586,8 +640,11 @@ a { color: var(--accent); }
  * height is the circle's diameter exactly -- at 34px against a 38px circle the
  * caps missed the circle top and bottom and the range read as a stripe behind
  * the days rather than through them. */
+/* --sel, which is already the token for "this is the selected one" behind
+ * .shift.here, rather than a 22% amber wash. The band and the two circles
+ * that cap it have to be the same decision, and the circles are now ink. */
 .cal-cell.mid::before, .cal-cell.start::before, .cal-cell.end::before {
-    content: ''; position: absolute; inset: 3px 0; background: var(--accent-dim);
+    content: ''; position: absolute; inset: 3px 0; background: var(--sel);
 }
 .cal-cell.start::before { left: 50%; border-radius: var(--r-pill) 0 0 var(--r-pill); }
 .cal-cell.end::before { right: 50%; border-radius: 0 var(--r-pill) var(--r-pill) 0; }
@@ -600,13 +657,24 @@ a { color: var(--accent); }
 /* The circle stays 38px because 44px circles on a 47px column touch. The hit
  * box grows past it instead -- the same trick as .gear and .chip button. */
 .cal-d::after { content: ''; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
-.cal-d.on { background: var(--brand); color: var(--brand-ink); font-weight: 600; }
+/* The same inverse chip .pill.on and .mrow.on use. The app had two different
+ * colours for "chosen" -- charcoal on the Stops pills twelve pixels below,
+ * amber on the two dates -- and a reader has no way to know those mean the
+ * same thing. Two selected days also put two more gold objects on a screen
+ * that already had the mark, the rail and two filled buttons. */
+.cal-d.on { background: var(--chosen); color: var(--chosen-ink); font-weight: 600; }
 .cal-d.today:not(.on) { box-shadow: inset 0 0 0 1px var(--edge-2); }
 .cal-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--edge); }
 .cal-hint { font-size: var(--t-2); color: var(--muted); }
 /* The hint is not rendered once both dates are in, so the actions hold the
  * right edge themselves rather than relying on an empty span to push them. */
-.cal-acts { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.cal-acts { display: flex; align-items: center; gap: var(--s2); margin-left: auto; }
+/* .btn's default face is --card, which is the surface the popover itself is
+ * drawn on, so once Done stopped being filled it was white on white held
+ * together by a hairline. --card-2 is the next surface up the stack and the
+ * fill .btn already answers a hover with, so the button gets a face without
+ * introducing a colour. */
+.cal .btn { background: var(--card-2); }
 /* Amber at 600 next to the amber-filled Done gave the popover two things that
  * both looked like the action. Clear is an escape hatch, so it is set like one:
  * plain muted text, and it is not rendered at all until there is something to
@@ -629,7 +697,7 @@ a { color: var(--accent); }
  * chose. A fill for "where you are" put a second amber block in a popover that
  * already has one, and Done has to be the only thing that looks like the action. */
 .cal-mo.on { box-shadow: inset 0 0 0 1px var(--edge-2); }
-.cal-mo.sel { background: var(--brand); color: var(--brand-ink); font-weight: 600; box-shadow: none; }
+.cal-mo.sel { background: var(--chosen); color: var(--chosen-ink); font-weight: 600; box-shadow: none; }
 .cal-title:focus-visible, .cal-nav:focus-visible, .cal-d:focus-visible, .cal-mo:focus-visible, .cal-clear:focus-visible {
     outline: 2px solid var(--brand-line); outline-offset: 2px;
 }
@@ -723,7 +791,14 @@ a { color: var(--accent); }
 
 /* Ghost text, not a dashed box. Three dashed rectangles reading "+ another
  * airport" were six pieces of chrome for three facts. */
-.add-air { position: relative; min-height: 44px; padding: 0; text-align: left; font-size: var(--t-3); font-weight: 500; color: var(--accent); transition: color .15s; }
+/* Ink, not --accent, for the reason .m-pick is already written down for:
+   "amber that repeats stops meaning the action". This prompt multiplies with
+   the party count exactly the way Choose multiplies with the match count, and
+   an untouched step 3 put three identical gold lines down the page under a
+   gold rail and above a gold button. The note two rules below has been saying
+   so about the fourth one all along. The plus sign, the 500 weight and the
+   44px target are the affordance; the colour was never doing that work. */
+.add-air { position: relative; min-height: 44px; padding: 0; text-align: left; font-size: var(--t-3); font-weight: 500; color: var(--text); transition: color .15s; }
 /* A second airport for one city is a refinement, not the job, so it steps back
  * and leaves the empty row's prompt as the only amber on the line. */
 .add-air.more { font-size: var(--t-2); color: var(--muted); }
@@ -757,9 +832,16 @@ a { color: var(--accent); }
 .add-party { display: block; width: 100%; border-top: 1px solid var(--edge); min-height: 48px; padding: var(--s3) 0; color: var(--muted); }
 
 /* ---------------- buttons ---------------- */
+/* Two ranks, and they are told apart by type rather than by colour alone.
+ * Every button in the app was --t-4 at 600 -- the one that sends the search
+ * and the four that look up one person's itinerary were the same object in
+ * two fills, so on a four-traveller results page there were five identical
+ * 17px/600 slabs and the eye had no way to rank them. The base rank steps
+ * down to --t-3 at 500; .primary keeps the display size and the weight. Both
+ * keep the 48px target, which is the part that has to stay. */
 .btn {
-    border-radius: var(--r-md); min-height: 48px; padding: 12px 20px;
-    font-size: var(--t-4); font-weight: 600;
+    border-radius: var(--r-md); min-height: 48px; padding: var(--s3) var(--s5);
+    font-size: var(--t-3); font-weight: 500;
     border: 1px solid var(--edge); background: var(--card); color: var(--text);
     box-shadow: var(--lift);
     transition: transform .12s var(--ease), border-color .15s, box-shadow .15s;
@@ -772,18 +854,31 @@ a { color: var(--accent); }
  * dimensional object on the screen, so it did not read as the primary action
  * -- it read as being from a different app.
  *
- * It stays the one amber element, which is the rule for this screen. Solid
- * --brand, a slightly darker hairline to hold its edge against cream, and no
- * lift. Everything else about it is unchanged. */
+ * Charcoal, not amber, and that is the whole of the one-amber rule finally
+ * being kept. The rule is that the brand spends its gold on the masthead --
+ * test-map.js states it outright and the map is held to it -- but this button
+ * was spending it a second time on every screen, and the calendar's Done
+ * button a third. Walking the computed styles rather than the stylesheet,
+ * step 2 was carrying five separate amber zones: the mark, two filled rail
+ * segments, the open date field's border and halo, and two filled amber
+ * buttons stacked 15px apart. Gold used six times is not an accent, it is the
+ * page colour, and the screen it produced is the one the gradient got called
+ * childish for.
+ *
+ * --chosen is not a new colour. It is the ink .pill.on and .mrow.on already
+ * use to mean "this is the one", so the primary action and the chosen option
+ * now say the same thing in the same voice, and the gold is left to say one
+ * thing in one place. White on it is 17.68:1. */
 .btn.primary {
-    background: var(--brand); color: var(--brand-ink);
-    border-color: var(--brand-line); box-shadow: none;
+    background: var(--chosen); color: var(--chosen-ink);
+    border-color: var(--chosen); box-shadow: none;
+    font-size: var(--t-4); font-weight: 600;
 }
-.btn.primary:hover { background: var(--brand-top); }
+.btn.primary:hover { background: var(--chosen-hi); border-color: var(--chosen-hi); }
 .btn.primary:disabled { opacity: .45; cursor: default; }
 .btn.ghost { background: transparent; box-shadow: none; border-color: transparent; color: var(--muted); }
 .btn.wide { width: 100%; }
-.nav { display: flex; gap: 12px; margin-top: 24px; align-items: center; }
+.nav { display: flex; gap: var(--s3); margin-top: var(--s5); align-items: center; }
 .nav .btn.primary { flex: 1 1 auto; }
 
 /* ---------------- results ---------------- */
@@ -806,10 +901,15 @@ a { color: var(--accent); }
     position: sticky; top: var(--brand-h, 56px); z-index: 40;
     background: var(--bg);
     padding: var(--s2) 0;
-    margin-left: calc(max(20px, env(safe-area-inset-left)) * -1);
-    margin-right: calc(max(20px, env(safe-area-inset-right)) * -1);
-    padding-left: max(20px, env(safe-area-inset-left));
-    padding-right: max(20px, env(safe-area-inset-right));
+    /* The bleed is the negation of the page inset, so it is written as the
+     * negation of the page inset. Both sides resolve from one property and
+     * cannot drift apart however --gut or the safe-area inset resolves: the
+     * header's border box comes out exactly .container's border box, which is
+     * the condition for no horizontal overflow. Asserted in test-gutter.js. */
+    margin-left: calc(var(--pad-l) * -1);
+    margin-right: calc(var(--pad-r) * -1);
+    padding-left: var(--pad-l);
+    padding-right: var(--pad-r);
     border-bottom: 1px solid transparent;
 }
 /* The rule only appears once it is actually stuck, so the header has no line
@@ -820,7 +920,8 @@ a { color: var(--accent); }
 .icon-btn:active { transform: scale(.97); }
 .res-title { min-width: 0; }
 .res-title .t { font-size: var(--t-4); font-weight: 600; letter-spacing: var(--tr-4); }
-.res-title .s { font-size: var(--t-2); color: var(--muted); margin-top: 4px; }
+.res-title .s { font-size: var(--t-2); color: var(--muted); margin-top: 4px;
+    font-variant-numeric: tabular-nums; }
 
 /* Changing where everyone is going: the city in the title is the control.
  * The dotted rule marks exactly the word that can change and stops at it, so
@@ -918,7 +1019,7 @@ a { color: var(--accent); }
 /* 3px, matching .hop-meta below: the same relationship, a 13px sub-line under
  * a heavier one, and --s1 at 4px loosens the pairing enough to see. */
 .m-s { display: block; font-size: var(--t-2); color: var(--muted); margin-top: 3px;
-    line-height: var(--lh-snug); }
+    line-height: var(--lh-snug); font-variant-numeric: tabular-nums; }
 .m-v { display: block; font-size: var(--t-4); font-weight: 600; letter-spacing: var(--tr-4); }
 .m-e { display: block; font-size: var(--t-2); font-weight: 400; color: var(--muted);
     letter-spacing: 0; margin-top: var(--s1); }
@@ -963,9 +1064,15 @@ a { color: var(--accent); }
     border-radius: var(--r-lg); padding: var(--s4) var(--s4) var(--s2);
     margin-bottom: var(--s6);
 }
+/* Set like .k, because it is one. The note on .k calls 10px caps at 1.1px
+ * tracking "the single worst offender" and says what replaced it: small,
+ * medium-weight, sentence case. This label and .recent-k were the two that
+ * were never converted, so the house style the app settled on had two
+ * survivors of the style it settled away from. Same tokens as every other
+ * field label now, and one fewer size on the results screen. */
 .choices-head {
-    font-size: var(--t-1); font-weight: 500; text-transform: uppercase;
-    letter-spacing: .1em; color: var(--muted); margin-bottom: var(--s2);
+    font-size: var(--t-2); font-weight: 500;
+    color: var(--faint); margin-bottom: var(--s2);
 }
 /* Inside the card the first row needs no rule above it -- the card edge is
  * already the line -- and the last needs none below for the same reason. */
@@ -1016,22 +1123,43 @@ a { color: var(--accent); }
 .hop { display: grid; grid-template-columns: 52px 24px 1fr auto; gap: var(--s3); align-items: center; padding: var(--s2) 0; }
 .hop-dir { font-size: var(--t-2); font-weight: 400; color: var(--faint); }
 .hop-main { min-width: 0; }
-/* An airport pair is one token; it must not break across the arrow. */
-.hop-route { font-size: var(--t-3); font-weight: 600; white-space: nowrap; }
-.hop-meta { font-size: var(--t-2); color: var(--muted); margin-top: 3px; }
+/* An airport pair is one token; it must not break across the arrow.
+ * Tracked .02em because the data is uppercase and the note on the type scale
+ * says capitals get it -- .chip, .ac-code and .sx-code all already do, and
+ * this was the one run of airport codes in the app set solid.
+ * 500, not 600. Inside one traveller the name, the total, the route and the
+ * time were all 600, which is four headings and therefore none: the card had
+ * size for hierarchy and nothing else. The name and the total keep the weight
+ * because they are what you scan the column for; the route and the time step
+ * to 500, which still clears the 400 meta line underneath them. Across the
+ * results screen that is twenty-four fewer bold runs. */
+.hop-route { font-size: var(--t-3); font-weight: 500; letter-spacing: .02em; white-space: nowrap; }
+.hop-meta { font-size: var(--t-2); color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
 .lvl { display: inline-block; font-size: var(--t-2); font-weight: 500; margin-top: 5px; }
 .lvl.low { color: var(--good); }
 .lvl.high { color: var(--warn); }
 .hop-right { text-align: right; white-space: nowrap; }
+/* The one bold thing in the row, and the only one that stays bold. When this
+ * person is on the ground is what the whole app is for, so inside a hop
+ * exactly one fact carries the weight and the route beside it carries the
+ * size. Two 600s in one row is what there was before, and two headings is no
+ * heading. */
 .hop-time { font-size: var(--t-3); font-weight: 600; }
 /* The other end of the flight. Same column as the clustered time, a step
- * quieter, so the pair reads as one block rather than two facts. */
-.hop-other { font-size: var(--t-1); color: var(--muted); margin-top: 2px; }
+ * quieter, so the pair reads as one block rather than two facts.
+ * --t-2, not --t-1. This is a departure time, and --t-1 is the smallest size
+ * in the app: the brief that asks for flight times to be exceptionally
+ * readable had one of the two times on every row set in the type reserved for
+ * badges and captions. At --t-2 it matches the price directly beneath it, so
+ * the right-hand column is two levels (15/13/13) instead of three (15/11/13)
+ * -- quieter and larger at the same time. */
+.hop-other { font-size: var(--t-2); color: var(--muted); margin-top: 2px; }
 .hop-cost { font-size: var(--t-2); color: var(--muted); margin-top: 3px; }
 /* This had no rule at all, so it inherited 16px from the body and nowrap from
    .hop-right and ran straight out of the card. */
 .hop-prem { grid-column: 3 / -1; font-size: var(--t-2); line-height: var(--lh-snug);
-    color: var(--muted); margin-top: 2px; white-space: normal; text-align: right; }
+    color: var(--muted); margin-top: 2px; white-space: normal; text-align: right;
+    font-variant-numeric: tabular-nums; }
 /* No band: the card frame it used to sit inside is gone. And the per-person
  * button is secondary, because five full-width amber buttons on one screen
  * meant none of them was the primary action. Booking still reads as a button --
@@ -1084,7 +1212,7 @@ a { color: var(--accent); }
    that moves on its own while somebody is reading prices is the thing that
    makes an app feel like it is selling to you. Shape and contrast do the same
    job and stay done. Not amber either -- there is one amber thing on the
-   screen and it is the action that leaves it. */
+   screen and it is the mark in the masthead. */
 .opts > summary { display: inline-flex; align-items: center; gap: 6px;
     margin: var(--s3) 0; padding: var(--s2) var(--s3);
     border: 1px solid var(--edge-2); border-radius: var(--r-pill);
@@ -1127,8 +1255,16 @@ a { color: var(--accent); }
 .pills.airlines { display: block; }
 .air-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 .pill.air { display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; }
-.pill.air .air-n { font-size: var(--t-1); font-weight: 500; color: var(--muted); opacity: .75;
-    background: var(--bg); border-radius: 999px; padding: 2px 6px; min-width: 18px; text-align: center; }
+/* --faint, not --muted held down by opacity. The count is meant to be the
+ * quiet half of the chip, and opacity .75 is a way of asking for that which
+ * nothing can measure: it composites the ink toward the surface after the
+ * cascade, so the declared --muted reads as 7.40:1 and the pixels measure
+ * 3.97:1 -- an 11px label failing AA on the one screen that is nothing but
+ * labels. --faint is the token the palette already keeps above 4.5:1 for
+ * exactly this job, and it lands at 5.86:1 with no opacity involved.
+ * Measured on the rendered page, not computed from the stylesheet. */
+.pill.air .air-n { font-size: var(--t-1); font-weight: 500; color: var(--faint);
+    background: var(--bg); border-radius: var(--r-pill); padding: 2px 6px; min-width: 18px; text-align: center; }
 /* Struck through, not just dimmed: "off" has to survive being glanced at. */
 .pill.air.off { color: var(--faint); text-decoration: line-through;
     border-style: dashed; background: transparent; }
@@ -1153,7 +1289,10 @@ a { color: var(--accent); }
 /* The carriers actually flying this route, which is the only part that can
  * change what the filter does today. */
 .qm-list span.here { color: var(--text); font-weight: 600; }
-.qm-f { margin-top: 9px; font-size: var(--t-2); color: var(--muted); opacity: .85; }
+/* Same correction as .air-n above: the quiet step is a token, not an alpha
+ * laid over one. --muted at .85 measures 6.17:1; --faint measures 4.80:1 and
+ * is the value the palette documents as the floor. */
+.qm-f { margin-top: 9px; font-size: var(--t-2); color: var(--faint); }
 
 .filters { padding: 0 0 var(--s5); }
 .filters > * + * { margin-top: var(--s5); }
@@ -1433,7 +1572,11 @@ a { color: var(--accent); }
     margin: 8px auto 20px;
     transition: background .15s, width .2s var(--ease);
 }
-.sheet.dragging .grip { background: var(--brand); width: 48px; }
+/* Ink, not gold -- the last --brand fill in the file, and the scrim behind an
+ * open sheet only takes the masthead's mark down to 55%, so a gold grip was a
+ * second gold object rather than the only one. The grip already grows from 36
+ * to 48 and darkens from --edge-2; neither of those needed a hue to land. */
+.sheet.dragging .grip { background: var(--text); width: 48px; }
 .sheet h2 { font-size: var(--t-5); font-weight: 600; letter-spacing: var(--tr-5); }
 .sheet .sub { font-size: var(--t-3); color: var(--muted); margin: 4px 0 20px; line-height: var(--lh-text); }
 .sheet .grp { margin-bottom: 20px; }
@@ -1504,9 +1647,14 @@ footer .sep { color: var(--faint); margin: 0 8px; }
 /* Android and desktop Chrome can do this in one tap, so there they get a button
  * instead of a set of directions. JS reveals it only if the browser fires
  * beforeinstallprompt. */
+/* Same fill as every other primary action in the app. It was the one filled
+ * amber control left after .btn.primary gave the colour up, and it is the one
+ * that sits directly under a second copy of the amber mark -- so on desktop
+ * this card alone was putting two gold objects on a screen that already had
+ * the masthead's. */
 .install-add {
     grid-column: 1 / -1; min-height: 44px; margin-top: 4px;
-    border-radius: var(--r-md); background: var(--brand); color: var(--brand-ink);
+    border-radius: var(--r-md); background: var(--chosen); color: var(--chosen-ink);
     font-size: var(--t-3); font-weight: 600;
     transition: transform .22s var(--ease);
 }
@@ -1515,11 +1663,17 @@ footer .sep { color: var(--faint); margin: 0 8px; }
 /* Pointer devices only, so a tap on iPhone does not leave a stuck hover state. */
 @media (hover: hover) and (pointer: fine) {
     .btn:hover { background: var(--card-2); border-color: var(--edge-2); }
-    .btn.primary:hover { background: linear-gradient(180deg, var(--brand-top), var(--brand-bot)); border-color: var(--brand-line); }
-    /* Cannot be dropped in favour of .btn:hover: the anchor carries .primary,
-     * and .btn.primary:hover is a three-class selector that outranks it, so
-     * hovering a Book button would flash the amber gradient this rule exists
-     * to keep off the screen. Same values as .btn:hover, stated where they win.
+    /* The gradient that got called childish was still here, reinstated on
+     * hover: .btn.primary was flat, and then a pointer put the saturated
+     * top-to-bottom amber straight back on the one button the comment above
+     * says must not have it. Nobody saw it because the complaint came from a
+     * phone and this query needs a mouse -- but 1280 is a real width and this
+     * is the first thing the desktop does. The lift now comes from
+     * .btn.primary:hover above, in the same colour family as the button. */
+    /* The anchor no longer carries .primary, so this is no longer out-ranking
+     * anything -- it restates .btn:hover next to the rule that sets the
+     * button's resting face, because that face is transparent rather than
+     * --card and the two have to be read together.
      * --edge-2 on --card-2 is 3.08:1 dark / 3.48:1 light. */
     .trav-book .btn:hover { background: var(--card-2); color: var(--text); border-color: var(--edge-2); }
     .btn.ghost:hover { background: transparent; color: var(--text); border-color: var(--edge); }
@@ -1529,7 +1683,10 @@ footer .sep { color: var(--faint); margin: 0 8px; }
     .ac-item:hover { background: var(--card-2); }
     .chip button:hover, .party-x:hover { color: var(--bad); }
     .stepper button:hover:not(:disabled) { background: var(--card-2); color: var(--text); }
-    .add-air:hover { border-color: var(--edge-2); color: var(--text); }
+    /* The label is already --text, so the hover has to be the other direction
+     * to be a hover at all. --accent is the app's link ink and this is the one
+     * place it still reads as a state rather than as a fourth gold object. */
+    .add-air:hover { border-color: var(--edge-2); color: var(--accent); }
     /* the row lifts out of the list rather than flooding edge to edge */
     .mrow:hover:not(.on)::before { background: var(--card-2); }
 }
@@ -1573,13 +1730,25 @@ footer .sep { color: var(--faint); margin: 0 8px; }
     *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 
+/* Narrow phones buy back four pixels a side. One declaration now: .container,
+   .brand and .res-head all read --gut, so the gutter cannot change in one
+   place and stay put in another, which is what put 4px of sideways scroll on
+   every sub-420 screen. */
 @media (max-width: 420px) {
+    :root { --gut: 16px; }
+}
+
+/* The headline keeps the display ramp wherever it fits, and the breakpoint is
+   where it stops fitting rather than where the gutter happens to change.
+   "Everyone lands together" is the longest of the three step headings and
+   measures 316px set at --t-6; the inner column is 328px at a 360 viewport
+   and 288px at 320. So 360 is the line: at and above it the headline is one
+   confident line, below it the step loses more to a two-line wrap than the
+   size buys and it takes one step down the ramp. Measured, not guessed.
+   This used to hang off the 420px gutter query, which put 22px on a 390 phone
+   and 30px on a 430 one -- two handsets a year apart, 36% apart. */
+@media (max-width: 359px) {
     .step-head h2 { font-size: var(--t-5); }
-    .container { padding: 8px 16px 48px; }
-    /* Sides only. A padding shorthand here would wipe the masthead's top
-       inset and drop the clock onto the mark. */
-    .brand { padding-left: max(16px, env(safe-area-inset-left));
-             padding-right: max(16px, env(safe-area-inset-right)); }
 }
 
 /* Trips you looked at before. Quiet by construction: this is the way back to
@@ -1588,7 +1757,14 @@ footer .sep { color: var(--faint); margin: 0 8px; }
  * rows are links rather than buttons because that is what they are -- each
  * one navigates to a real url somebody could also have in their messages. */
 .recent { margin-top: var(--s6); }
-.recent-k { font-size: var(--t-0); text-transform: uppercase; letter-spacing: .08em;
+/* This asked for --t-0 and --mono, neither of which exists -- the mono face
+ * was deleted and the ramp starts at --t-1. An undefined custom property with
+ * no fallback is invalid at computed-value time, so font-size fell back to
+ * inherit and both of these rendered at 15px: a section label and a timestamp
+ * both set LARGER than the 13px trip name they are supposed to be subordinate
+ * to, the label additionally in caps at 1.2px of tracking. Measured in the
+ * browser, not inferred. Same two tokens as every other label and caption. */
+.recent-k { font-size: var(--t-2); font-weight: 500;
     color: var(--faint); margin-bottom: var(--s2); }
 .recent-row { display: flex; align-items: center; justify-content: space-between;
     gap: var(--s3); min-height: 44px; padding: var(--s2) 0; text-decoration: none;
@@ -1596,7 +1772,8 @@ footer .sep { color: var(--faint); margin: 0 8px; }
 .recent-row:last-child { border-bottom: 1px solid var(--edge); }
 .recent-what { font-size: var(--t-2); color: var(--text); min-width: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.recent-when { font-family: var(--mono); font-size: var(--t-0); color: var(--faint);
+.recent-when { font-size: var(--t-1); color: var(--faint);
+    font-variant-numeric: tabular-nums;
     white-space: nowrap; flex-shrink: 0; }
 .recent-row:active { opacity: .6; }
 </style>
@@ -1670,7 +1847,11 @@ footer .sep { color: var(--faint); margin: 0 8px; }
             <p>Friends in different cities, one destination.</p>
         </div>
         <div class="field">
-            <label class="k" for="dest" style="display:block;text-align:center;margin-bottom:8px">Destination</label>
+            <!-- Only the centring is inline. The block display and the 8px
+                 below it are .field > .k's job, and stating them here again
+                 meant the one label on the first screen would quietly ignore
+                 any change made to every other label in the app. -->
+            <label class="k" for="dest" style="text-align:center">Destination</label>
             <input class="inp big-inp" id="dest" placeholder="Cabo or SJD" maxlength="26"
                    autocapitalize="characters" autocomplete="off" enterkeyhint="next"
                    role="combobox" aria-expanded="false" aria-controls="destAc"
