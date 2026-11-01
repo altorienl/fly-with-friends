@@ -795,5 +795,280 @@ await (async () => {
   globalThis.fetch = stub;
 })();
 
+/* ---------------------------------------------- the progress stream
+ *
+ * The searching screen used to be able to say two things -- sent, and
+ * arrived -- because that is all one POST tells a browser. The worker now
+ * reports each traveler's legs as they resolve, over server-sent events,
+ * and the only reason that is safe to add to a shipped endpoint is that it
+ * is opt-in and that nothing which guards money moved to make room for it.
+ *
+ * So most of what is pinned here is what did NOT change: the same KV writes,
+ * the same refusals with the same status codes, the same final payload. */
+await (async () => {
+  console.log('\n10. The progress stream');
+  const { sseFrame, wantsStream } = _internals;
+
+  /* ---- the frame format, which is one line or it is two events ---- */
+  check('a frame carries its event name and payload',
+    sseFrame('leg', { id: 'a' }) === 'event: leg\ndata: {"id":"a"}\n\n',
+    JSON.stringify(sseFrame('leg', { id: 'a' })));
+  /* A raw newline inside the data would end the frame early and the rest
+   * would arrive as a second, nameless event. JSON.stringify escapes it;
+   * this is the check that notices if anything ever stops going through it. */
+  check('a newline inside the payload cannot split the frame',
+    sseFrame('leg', { error: 'line one\nline two' }).split('\n\n').length === 2,
+    JSON.stringify(sseFrame('leg', { error: 'line one\nline two' })));
+  check('the frame ends with exactly one blank line',
+    sseFrame('x', 1).endsWith('\n\n') && !sseFrame('x', 1).endsWith('\n\n\n'));
+
+  const accepts = v => wantsStream(new Request('https://api.test/search',
+    { headers: v === null ? {} : { Accept: v } }));
+  check('no Accept header is not a stream request', accepts(null) === false);
+  check('application/json is not a stream request', accepts('application/json') === false);
+  check('text/event-stream is', accepts('text/event-stream') === true);
+  check('...and so is a list that contains it',
+    accepts('text/event-stream, application/json') === true);
+  check('...case-insensitively, because headers are',
+    accepts('Text/Event-Stream') === true);
+
+  /* ---- a real request, driven through the worker ---- */
+  let writes = 0, calls = 0, legFails = false;
+  const store = new Map();
+  const kv = {
+    async get(k, opt) {
+      const v = store.get(k);
+      if (v === undefined) return null;
+      const wantsJson = opt === 'json' || (opt && opt.type === 'json');
+      return wantsJson ? JSON.parse(v) : v;
+    },
+    async put(k, v) { writes++; store.set(k, v); },
+  };
+  const env = { FWF: kv, SERPAPI_KEY: 'test', ALLOWED_ORIGINS: 'https://app.test' };
+  const keep = globalThis.fetch;
+  let emptyRoutes = false;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('/account.json')) {
+      return { json: async () => ({ this_month_usage: 0, total_searches_left: 1000,
+        searches_per_month: 1000, account_rate_limit_per_hour: 200, this_hour_searches: 0 }) };
+    }
+    if (u.includes('serpapi.com/search.json')) {
+      calls++;
+      /* Every leg refused. SerpApi does not bill for these, so the whole
+       * reservation has to come back -- which is the thing a stream could
+       * plausibly drop on the floor. */
+      if (legFails) throw new Error('provider refused');
+      if (emptyRoutes) return { json: async () => ({ best_flights: [], other_flights: [] }) };
+      const from = new URL(u).searchParams.get('departure_id').split(',')[0];
+      return { json: async () => ({ best_flights: [{ price: 400, total_duration: 300,
+        flights: [{ airline: 'United', flight_number: 'UA 500',
+          departure_airport: { id: from, time: '2027-02-12 08:00' },
+          arrival_airport: { id: 'PIT', time: '2027-02-12 16:00' }, extensions: [] }],
+        extensions: ['1 free checked bag'] }], other_flights: [] }) };
+    }
+    throw new Error('unexpected fetch: ' + u);
+  };
+
+  const post = (body, stream, ip) => new Request('https://api.test/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json', Origin: 'https://app.test',
+      'CF-Connecting-IP': ip || '203.0.113.77',
+      ...(stream ? { Accept: 'text/event-stream, application/json' } : {}),
+    },
+    body: JSON.stringify(body) });
+
+  /* Reads a whole SSE body into { legs, done, fail }. Deliberately NOT the
+   * app's parser: a test that reuses the thing under test cannot catch the
+   * two of them agreeing on something wrong. */
+  const drain = async (res) => {
+    const text = await new Response(res.body).text();
+    const out = { legs: [], done: null, fail: null, raw: text };
+    for (const block of text.split('\n\n')) {
+      if (!block.trim()) continue;
+      const name = (/^event: (.*)$/m.exec(block) || [])[1];
+      const data = JSON.parse((/^data: (.*)$/m.exec(block) || [])[1]);
+      if (name === 'leg') out.legs.push(data);
+      else if (name === 'done') out.done = data;
+      else if (name === 'fail') out.fail = data;
+    }
+    return out;
+  };
+
+  const fresh = () => { store.clear(); writes = 0; calls = 0; legFails = false; emptyRoutes = false; };
+  const ctxOf = () => { const held = []; return { held, waitUntil: p => held.push(p) }; };
+
+  /* One event per traveler per leg, which is NOT one per provider search:
+   * two people from the same city are one search fanned back out to both. */
+  fresh();
+  {
+    const ctx = ctxOf();
+    const res = await worker.fetch(post(rt(party(4)), true), env, ctx);
+    check('a stream request is answered as a stream',
+      (res.headers.get('Content-Type') || '').startsWith('text/event-stream'),
+      res.headers.get('Content-Type'));
+    check('...and is told not to be cached', res.headers.get('Cache-Control') === 'no-store');
+    check('...and asks proxies not to buffer it', res.headers.get('X-Accel-Buffering') === 'no');
+    check('...and keeps the CORS headers every other response has',
+      res.headers.get('Access-Control-Allow-Origin') === '*');
+    const got = await drain(res);
+    check('4 parties round trip emits 8 leg events', got.legs.length === 8,
+      'got ' + got.legs.length);
+    const pairs = new Set(got.legs.map(l => l.id + '/' + l.leg));
+    check('...one for each distinct traveler and leg', pairs.size === 8, [...pairs].join(' '));
+    check('...naming both legs for every traveler',
+      ['p0', 'p1', 'p2', 'p3'].every(id => pairs.has(id + '/outbound') && pairs.has(id + '/return')));
+    check('...each carrying how many itineraries came back',
+      got.legs.every(l => l.found === 1), JSON.stringify(got.legs[0]));
+    check('...and no provider prose, only a closed error vocabulary',
+      got.legs.every(l => l.error === null || l.error === 'none' || l.error === 'failed'));
+    check('the finished payload arrives on the stream',
+      !!(got.done && got.done.trips) && got.done.searches_made === 8,
+      JSON.stringify(got.done && got.done.searches_made));
+    check('...and is the LAST thing on it',
+      got.raw.trimEnd().endsWith(JSON.stringify(got.done)));
+    check('the execution context is held open for the work',
+      ctx.held.length === 1 && typeof ctx.held[0].then === 'function',
+      'held ' + ctx.held.length);
+  }
+
+  /* Two people, one city. The provider is asked once; both travelers still
+   * have to hear about it, or the second row pulses forever. */
+  fresh();
+  {
+    const shared = { dest: ['PIT'], depart: '2027-02-12',
+      travelers: [{ id: 'x', origins: ['SFO'] }, { id: 'y', origins: ['SFO'] }] };
+    const got = await drain(await worker.fetch(post(shared, true), env, ctxOf()));
+    check('two people from one city cost one search', calls === 1, 'got ' + calls);
+    check('...and still get one progress event each', got.legs.length === 2,
+      'got ' + got.legs.length);
+    check('...named for them, not for the route',
+      got.legs.map(l => l.id).sort().join(',') === 'x,y');
+  }
+
+  /* The payload has to be the same document either way, or every caller that
+   * is not the app has quietly been handed a second format. */
+  fresh();
+  {
+    await worker.fetch(post(rt(party(3)), false), env, ctxOf());   // warm the cache
+    const plainBody = await (await worker.fetch(post(rt(party(3)), false), env, ctxOf())).json();
+    const streamed = await drain(await worker.fetch(post(rt(party(3)), true), env, ctxOf()));
+    check('a cached search returns an identical payload streamed or not',
+      JSON.stringify(streamed.done) === JSON.stringify(plainBody),
+      JSON.stringify(streamed.done) + '\n        vs ' + JSON.stringify(plainBody));
+  }
+
+  /* The money guards. Section 9 pins a cold 8-party round trip at 21 KV
+   * writes; asking for progress must not add one. */
+  fresh();
+  {
+    await drain(await worker.fetch(post(rt(party(8)), true), env, ctxOf()));
+    check('a cold 8-party round trip over the stream still costs 21 KV writes',
+      writes === 21, 'got ' + writes);
+    check('...and still bills exactly 16 searches', calls === 16, 'got ' + calls);
+    const month = +(store.get('budget:' + new Date().toISOString().slice(0, 7)) || 0);
+    check('...and still counts 16 against the month', month === 16, 'got ' + month);
+  }
+
+  /* A refusal must keep its status code. This is the reason the worker races
+   * the first leg against the whole handler before deciding to stream: a 429
+   * arriving as a 200 with bad news inside it would be read by the app as a
+   * successful search that found nothing. */
+  fresh();
+  store.set('budget:' + new Date().toISOString().slice(0, 7), '990');
+  {
+    const res = await worker.fetch(post(rt(party(8)), true), env, ctxOf());
+    check('an exhausted month refuses with 429 even when a stream was asked for',
+      res.status === 429, 'got ' + res.status);
+    check('...as JSON, not as an event',
+      (res.headers.get('Content-Type') || '').includes('application/json'));
+    const body = await res.json();
+    check('...carrying the same error the app already knows how to show',
+      /allowance/.test(body.error) && body.exhausted === 'month', JSON.stringify(body));
+    check('...having spent nothing', calls === 0, 'got ' + calls);
+  }
+  fresh();
+  {
+    const res = await worker.fetch(post({ dest: ['PIT'], depart: '2027-02-12',
+      travelers: [{ id: 'a', origins: ['SFO'] }] }, true), env, ctxOf());
+    check('a malformed request refuses with 400 even when a stream was asked for',
+      res.status === 400, 'got ' + res.status);
+  }
+
+  /* The reservation is taken before the provider is called and refunded for
+   * whatever was never billed. A reader that hangs up mid-stream must not
+   * change either number -- that is what the execution context is held for,
+   * and it is the one way a stream could quietly cost somebody their month. */
+  fresh();
+  legFails = true;
+  {
+    const ctx = ctxOf();
+    const res = await worker.fetch(post(rt(party(4)), true), env, ctx);
+    const reader = res.body.getReader();
+    await reader.read();
+    await reader.cancel();                      // the tab closed
+    await Promise.all(ctx.held);                // what Cloudflare would keep alive
+    const month = +(store.get('budget:' + new Date().toISOString().slice(0, 7)) || 0);
+    const day = +(store.get('budget:' + new Date().toISOString().slice(0, 10)) || 0);
+    check('a reader that hangs up still gets the whole reservation refunded',
+      month === 0, 'month counter is ' + month);
+    check('...on the daily counter too', day === 0, 'day counter is ' + day);
+    check('...and the searches it had already started were not abandoned',
+      calls === 8, 'got ' + calls);
+  }
+
+  /* And the same failure with a reader that stays: a refused leg is reported
+   * as a failure rather than as an empty route, and the refund is the same. */
+  fresh();
+  legFails = true;
+  {
+    const got = await drain(await worker.fetch(post(party(3), true), env, ctxOf()));
+    check('a leg the provider refused is reported as failed, not as empty',
+      got.legs.length === 3 && got.legs.every(l => l.error === 'failed'),
+      JSON.stringify(got.legs));
+    check('...and the payload still arrives', got.done !== null);
+    check('...billing nothing', got.done.searches_made === 0, 'got ' + got.done.searches_made);
+    const month = +(store.get('budget:' + new Date().toISOString().slice(0, 7)) || 0);
+    check('...and leaving the month where it started', month === 0, 'got ' + month);
+  }
+
+  /* A route with no service is an answer, and a different one. */
+  fresh();
+  emptyRoutes = true;
+  {
+    const got = await drain(await worker.fetch(post(party(2), true), env, ctxOf()));
+    check('a route with no flights is reported as none, not as failed',
+      got.legs.length === 2 && got.legs.every(l => l.error === 'none' && l.found === 0),
+      JSON.stringify(got.legs));
+  }
+
+  /* The old shape, unchanged, for every caller that never asks. */
+  fresh();
+  {
+    const res = await worker.fetch(post(rt(party(3)), false), env, ctxOf());
+    check('a caller that does not ask still gets one JSON body',
+      (res.headers.get('Content-Type') || '').includes('application/json'),
+      res.headers.get('Content-Type'));
+    const body = await res.json();
+    check('...with every leg in it', Object.keys(body.trips.query.outbound).length === 3
+      && Object.keys(body.trips.query.return).length === 3);
+    check('...and six searches billed', body.searches_made === 6, 'got ' + body.searches_made);
+  }
+
+  /* fetch(request, env) with two arguments is how every other suite in this
+   * file calls the worker, and how a lot of harnesses call a Worker. The
+   * streaming path reads ctx, so it has to tolerate not getting one. */
+  fresh();
+  {
+    const got = await drain(await worker.fetch(post(rt(party(2)), true), env));
+    check('a missing execution context does not break the stream',
+      got.legs.length === 4 && got.done !== null,
+      got.legs.length + ' legs, done=' + (got.done !== null));
+  }
+
+  globalThis.fetch = keep;
+})();
+
 console.log('\n' + (fail === 0 ? 'ALL ' + pass + ' CHECKS PASSED' : pass + ' passed, ' + fail + ' FAILED'));
 process.exit(fail === 0 ? 0 : 1);

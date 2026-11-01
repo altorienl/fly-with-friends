@@ -1205,6 +1205,57 @@ function validate() {
 
 /* -------------------------------------------------------------- search */
 
+/* One POST, two possible shapes of answer, one shape of return value.
+ *
+ * A worker that understands the Accept header sends server-sent events: one
+ * per traveler per leg as it resolves, then the finished payload. Anything
+ * else -- an older deployment, a browser with no streams, a proxy that
+ * buffered the whole response before passing it on -- sends the single JSON
+ * body this app has always read. Both end up as { ok, body }, so everything
+ * downstream of here is the code that was already there, and the progress
+ * callback is simply never called in the second case.
+ *
+ * `onLeg` is an enrichment, never a dependency: the screen is complete and
+ * correct without a single event, which is what makes shipping this against
+ * an unchanged production worker safe. */
+function searchRequest(url, opts, onLeg) {
+    return fetch(url, opts).then(function (r) {
+        var ct = r.headers.get('Content-Type') || '';
+        if (ct.indexOf('text/event-stream') < 0 || !r.body || !r.body.getReader) {
+            return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+        }
+        var reader = r.body.getReader(), dec = new TextDecoder();
+        var buf = '', done = null, failed = null;
+        return (function pump() {
+            return reader.read().then(function (res) {
+                if (res.value) buf += dec.decode(res.value, { stream: !res.done });
+                var cut = sxFrames(buf);
+                buf = cut.rest;
+                cut.frames.forEach(function (f) {
+                    var d;
+                    /* A frame that will not parse is dropped rather than
+                     * thrown on. Losing one progress event costs a row its
+                     * animation; throwing would cost the group their search. */
+                    try { d = JSON.parse(f.data); } catch (e) { return; }
+                    if (f.event === 'leg') { try { onLeg(d); } catch (e) {} }
+                    else if (f.event === 'done') done = d;
+                    else if (f.event === 'fail') failed = d;
+                });
+                if (!res.done) return pump();
+                if (done) return { ok: true, body: done };
+                /* The connection ended without the payload. Partial results
+                 * are not a trip -- the optimizer needs every traveler to
+                 * build a window -- so this is a failure, and it says which
+                 * kind rather than pretending the service refused. */
+                return { ok: false, body: failed || { error:
+                    'The connection closed before the search finished. '
+                    + 'It may still have counted against this month’s searches, '
+                    + 'so check your connection before trying it again.' } };
+            });
+        }());
+    });
+}
+
 /* Returns a promise that settles once the result (or the failure) has been
  * rendered, so a caller that changed part of the query can put it back when the
  * search did not land. It never rejects: every failure path ends in
@@ -1270,8 +1321,17 @@ function doSearch() {
     var ctl = typeof AbortController === 'function' ? new AbortController() : null;
     var killer = ctl ? setTimeout(function () { ctl.abort(); }, 45000) : null;
     var clearKiller = function () { if (killer) { clearTimeout(killer); killer = null; } };
-    return fetch(API + '/search', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+    return searchRequest(API + '/search', {
+        method: 'POST',
+        /* Accept is how the progress stream is asked for, and it is asked for
+         * on every search. A deployment that has never heard of it answers
+         * with the single JSON body this app has always read, and so does any
+         * proxy that would rather buffer than stream, so there is nothing to
+         * feature-detect and no second code path to keep working. Accept is a
+         * CORS-safelisted header, so adding it does not change what the
+         * preflight has to allow. */
+        headers: { 'Content-Type': 'application/json',
+                   'Accept': 'text/event-stream, application/json' },
         signal: ctl ? ctl.signal : undefined,
         body: JSON.stringify({
             dest: [state.q.dest], depart: state.q.dep, ret: state.q.ret || null,
@@ -1284,9 +1344,14 @@ function doSearch() {
                          }) };
             })
         })
-    }).then(function (r) {
+    }, function (ev) {
+        /* A leg came back. Only reaches the screen while this search is still
+         * the one on screen -- starting a new trip mid-flight must not animate
+         * rows that belong to a group that has been cleared. */
+        if (current()) sxOnLeg(ev);
+    }).then(function (res) {
         clearKiller();
-        return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+        return res;
     }).then(function (res) {
         /* The budget figure is true regardless of who is still waiting for it,
          * so it is taken before the abandonment check -- the allowance was spent
@@ -1381,6 +1446,123 @@ function loadDemo() {
  * seconds read as the group converging, and to do it without claiming a single
  * thing that is not measured. */
 var sxTimer = null, sxStart = 0;
+/* Every leg event the worker has sent for the search in flight, in arrival
+ * order. Kept as the raw list rather than as a running tally so that a
+ * re-render replays it and lands on the same screen -- a counter that is
+ * incremented in an event handler is a counter that is wrong the first time
+ * anything else redraws the rows. */
+var sxSeen = [];
+/* Set only when the response was a live stream. Until the first event arrives
+ * the screen must not claim to know anything per person, because against an
+ * older deployment, or through a proxy that buffered the response, it never
+ * will. */
+var sxStreaming = false;
+
+/* --- BEGIN search progress ----------------------------------------------
+ *
+ * The two pure pieces of the searching screen, fenced so a test can slice
+ * them out of this file and run them with no DOM and no network. Everything
+ * above and below them touches the page; nothing in here does.
+ *
+ * Both exist because the honest version of "per-traveler progress" is harder
+ * than it looks. The worker sends one event per (traveler, leg) as each
+ * provider search resolves, over server-sent events, and two things then have
+ * to be true: the frames have to survive being split across network chunks,
+ * and the fold has to be idempotent, because a redraw replays the whole list.
+ */
+
+/* Pulls whole SSE frames out of a growing buffer and hands back the tail that
+ * is not a frame yet. A chunk boundary falls wherever TCP puts it, which is
+ * routinely in the middle of a JSON payload, so the caller feeds `rest` back
+ * in with the next chunk. */
+function sxFrames(buf) {
+    var s = String(buf == null ? '' : buf).replace(/\r\n/g, '\n');
+    var frames = [];
+    /* lastIndexOf, not split: everything after the final blank line is an
+     * incomplete frame and must be held, not parsed. */
+    var cut = s.lastIndexOf('\n\n');
+    if (cut < 0) return { frames: frames, rest: s };
+    var rest = s.slice(cut + 2);
+    s.slice(0, cut).split('\n\n').forEach(function (block) {
+        var name = 'message', data = [];
+        block.split('\n').forEach(function (line) {
+            if (!line) return;
+            var i = line.indexOf(':');
+            /* Only two field names mean anything, and everything else is
+             * dropped by not matching either. That is also what handles the
+             * comment lines proxies and CDNs inject as keep-alives: a comment
+             * begins with the colon, so its field name is the empty string.
+             * An explicit guard for it was written here first and then
+             * removed -- a mutation that deleted it changed no output, which
+             * is the definition of a line that is not doing anything. */
+            var field = i < 0 ? line : line.slice(0, i);
+            var val = i < 0 ? '' : line.slice(i + 1);
+            /* Exactly one optional leading space is part of the framing, not
+             * part of the value. A second space would be data. */
+            if (val.charAt(0) === ' ') val = val.slice(1);
+            if (field === 'event') name = val;
+            else if (field === 'data') data.push(val);
+        });
+        if (data.length) frames.push({ event: name, data: data.join('\n') });
+    });
+    return { frames: frames, rest: rest };
+}
+
+/* Folds the events received so far into one state per traveler.
+ *
+ * Idempotent on purpose: the same (id, leg) arriving twice counts once, and an
+ * id that is not on the roster counts not at all -- otherwise an event for
+ * somebody who was removed between pressing search and the answer landing
+ * would push the "3 of 6" counter past its own total.
+ *
+ * The failure states are deliberately not made to wait. A traveler whose
+ * departure could not be searched has no trip, whatever the return leg comes
+ * back with, so the row says so the moment it is known rather than holding a
+ * pulsing mark over an answer that is already in. */
+function sxRoll(events, ids, legs) {
+    var per = {}, i;
+    for (i = 0; i < ids.length; i++) per[ids[i]] = { done: 0, bad: null, legs: {} };
+    (events || []).forEach(function (e) {
+        if (!e || !per[e.id]) return;
+        var leg = e.leg === 'return' ? 'return' : 'outbound';
+        if (per[e.id].legs[leg]) return;
+        per[e.id].legs[leg] = e.error || 'ok';
+        per[e.id].done++;
+        /* "failed" outranks "none": not being able to ask is a different
+         * answer from asking and being told there is nothing. */
+        if (e.error === 'failed') per[e.id].bad = 'failed';
+        else if (e.error === 'none' && per[e.id].bad !== 'failed') per[e.id].bad = 'none';
+    });
+    var rows = ids.map(function (id) {
+        var p = per[id], state;
+        if (p.bad) state = p.bad;
+        else if (p.done >= legs) state = 'found';
+        else if (p.done > 0) state = 'partial';
+        else state = 'pending';
+        /* p.done cannot exceed legs: the guard above counts each (id, leg)
+         * once, and there are only `legs` of them. A Math.min was wrapped
+         * round this as well until a mutation proved it unreachable -- two
+         * defenses for one property means neither can be tested. */
+        return { id: id, done: p.done, legs: legs, state: state,
+                 outbound: p.legs.outbound || null, return: p.legs.return || null };
+    });
+    var done = 0;
+    for (i = 0; i < rows.length; i++) done += rows[i].done;
+    return { rows: rows, done: done, total: ids.length * legs };
+}
+
+/* The dates line under the destination.
+ *
+ * A function, and tested, because it shipped wrong: prettyRange already ends
+ * a one-way with " \u00b7 one way", and this screen appended a second one, so
+ * every one-way search read "Jun 2 \u00b7 one way \u00b7 one way" for the whole
+ * wait. One concatenation, in the one place nobody re-reads, on the one trip
+ * shape the example data does not cover. */
+function sxWhenLine(dep, ret) {
+    return dep ? prettyRange(dep, ret) : '';
+}
+
+/* --- END search progress ----------------------------------------------- */
 
 /* A search is billed per party per leg -- four cities round trip is eight, and
  * eight people round trip is sixteen. That is the honest shape of the wait and
@@ -1390,64 +1572,221 @@ function searchCount() {
     return n * (hasReturn() ? 2 : 1);
 }
 
+/* Who is being searched for, in the order the rows are drawn. One list, read
+ * by the rows, the convergence figure and the progress count, so the three
+ * cannot disagree about who is on screen. */
+function sxRoster() {
+    return travelers().filter(function (t) { return t.origins.length; });
+}
+
 function sxTick() {
     var foot = el('sxFoot');
     if (!foot || state.step !== 5) return;
     var secs = Math.max(0, Math.round((Date.now() - sxStart) / 1000));
     var n = searchCount();
+    /* Two different true sentences, and which one is said depends only on
+     * whether the worker is actually reporting. Streaming gives a measured
+     * count of finished searches; without it the only honest figure is how
+     * many were sent, which is what this screen has always said. */
+    var head = sxStreaming
+        ? sxRoll(sxSeen, sxRoster().map(function (t) { return t.id; }),
+                 hasReturn() ? 2 : 1).done + ' of ' + n + ' done'
+        : n + (n === 1 ? ' flight search' : ' flight searches');
     /* The clock is aria-hidden and the two spans are separated by real
      * whitespace. Without the first, a polite live region re-announces the
      * whole foot once a second, which is not reassurance, it is a barrier.
      * Without the second, the computed text ran together as "6 flight
      * searches0s". What a screen reader should hear is the count once, and
      * then the slow note if and when it appears. */
-    foot.innerHTML = '<span>' + n + (n === 1 ? ' flight search' : ' flight searches')
-        + '</span> <span class="sx-el" aria-hidden="true">' + secs + 's</span>'
+    foot.innerHTML = '<span>' + head + '</span>'
+        + ' <span class="sx-el" aria-hidden="true">' + secs + 's</span>'
         + (secs >= 12
             ? '<div class="sx-slow">Still going. Every city is searched for both legs, '
               + 'and a slow connection makes that take a while.</div>'
             : '');
 }
 
+/* --------------------------------------------------- the convergence figure
+ *
+ * Schematic, not geographic. Each traveler enters at the left on their own
+ * line and every line curves into one point on the right, which is the
+ * destination. There are no coordinates in it and no distances: putting a
+ * real map here would be a second, worse answer to a question the results
+ * page already answers properly.
+ *
+ * It carries information rather than decorating the wait. A line that is
+ * still dashed and moving is a search that has not come back; a line that has
+ * gone solid has. That is the same fact the row's mark states, drawn once in
+ * the shape of the thing the group is actually doing, which is why there is
+ * no third element on the screen explaining either of them.
+ */
+var SXC = { pad: 10, w: 300, inset: 10 };
+
+/* How far apart the lines sit. Two people need the room to read as two
+ * routes rather than one thick one; eight would run off the screen at that
+ * spacing, so it tightens as the group grows and the figure settles at about
+ * a hundred points tall either way. */
+function sxcRow(n) { return Math.max(11, Math.min(20, Math.round(84 / Math.max(1, n)))); }
+
+/* Drawn at the width it is displayed at, so the viewBox is a 1:1 map to CSS
+ * pixels. Scaling a viewBox to fit instead would make the hairlines land on
+ * fractional widths and turn the terminus into an ellipse on every screen
+ * that is not exactly 300 points wide, which is all of them. */
+function sxcGeometry(n, w) {
+    var row = sxcRow(n);
+    var h = SXC.pad * 2 + row * Math.max(1, n);
+    /* +0.5 so the terminus sits on the same half-pixel grid as the lines,
+     * and so an odd number of travelers puts the middle one dead straight
+     * into the dot instead of half a pixel under it. */
+    return { h: h, w: w, row: row, cy: h / 2 + 0.5,
+             /* The straight run before the turn is a fraction of the width
+              * rather than a constant, so the figure keeps its proportions
+              * from a 320pt phone to a desktop column. Short, because a long
+              * one turns the figure into parallel lines with a pinch at the
+              * end -- it has to spend most of its width actually converging
+              * or it is not a picture of anything. */
+             lead: Math.round(w * 0.2), dot: w - SXC.inset };
+}
+
+function renderConverge(roster) {
+    var box = el('sxConverge');
+    if (!box) return;
+    var n = roster.length;
+    var g = sxcGeometry(n, Math.max(240, Math.round(box.clientWidth || SXC.w)));
+    /* The height is written once, here, before anything animates. Nothing the
+     * animation touches -- dash offset, dash pattern, opacity -- can change
+     * the size of a box, so the rows below never move. */
+    var paths = roster.map(function (t, i) {
+        /* Half-pixel offsets, so a 1.25px stroke straddles a pixel boundary
+         * evenly instead of landing grey on both sides of one. */
+        var y = SXC.pad + g.row * i + g.row / 2 + 0.5;
+        var d = 'M1 ' + y + ' H' + g.lead
+              + ' C' + (g.lead + Math.round(g.w * 0.3)) + ' ' + y
+              + ', ' + (g.dot - Math.round(g.w * 0.26)) + ' ' + g.cy
+              + ', ' + g.dot + ' ' + g.cy;
+        return '<path class="sxc-line" data-sxc="' + esc(t.id) + '" d="' + d
+             + '" stroke="' + esc(t.color) + '" style="animation-delay:'
+             + (i * 0.11).toFixed(2) + 's"/>';
+    }).join('');
+    box.setAttribute('viewBox', '0 0 ' + g.w + ' ' + g.h);
+    box.setAttribute('height', g.h);
+    box.style.height = g.h + 'px';
+    box.innerHTML = paths
+        + '<circle class="sxc-end" cx="' + g.dot + '" cy="' + g.cy + '" r="3.5"/>';
+}
+
+/* ------------------------------------------------------------- the rows */
+
+var SX_WORD = { found: ['Found', ''], none: ['No flights', 'quiet'], failed: ['Failed', 'bad'] };
+
+function sxMark(row) {
+    var w = SX_WORD[row.state];
+    if (w) return '<span class="sx-state ' + w[1] + '">' + w[0] + '</span>';
+    var bars = '';
+    for (var i = 0; i < row.legs; i++) {
+        /* The outbound is the first mark and the return is the second, so a
+         * round trip half in reads as half in. One way gets a single wide
+         * mark rather than one narrow one and a gap. */
+        var leg = i === 0 ? row.outbound : row.return;
+        /* No per-leg phase offset. Two marks pulsing out of step read as one
+         * being further along than the other, which is exactly the claim
+         * this screen is not allowed to make. Rows are staggered against
+         * each other instead -- see the delay set on each row's lines. */
+        bars += '<span class="sx-leg' + (leg ? ' on' : '') + '"></span>';
+    }
+    return bars;
+}
+
+function sxRowHtml(t, i, row) {
+    var ids = state.q.parties.map(function (p) { return p.id; });
+    var k = ids.indexOf(t.id), p = state.q.parties[k] || {};
+    /* Names are optional and most people never type one, so the common case
+     * must read well without them. partyLabel() would say "Flight 1", which
+     * on a screen about cities converging is worse than the city sitting
+     * right underneath it -- so an unnamed row is headed by where it is
+     * leaving from, which is also how step 3 now reads it back. */
+    var first = AIRPORTS.get(t.origins[0]);
+    var heading = (p.name || '').trim() || (first ? first.city : t.origins[0]);
+    var from = t.origins.join(' · ') + (t.seats > 1 ? ' · ' + t.seats + ' seats' : '');
+    /* The stagger lives on the row, not on the marks, so rewriting a mark
+     * when a leg lands does not restart that row's phase. */
+    return '<div class="sx-row' + (row.state === 'pending' ? '' : ' settled')
+         + '" data-sx="' + esc(t.id) + '" style="--sx-delay:'
+         + (i * 0.13).toFixed(2) + 's">'
+        + '<div class="ava" aria-hidden="true" style="background:' + partyColor(k) + '">'
+        + esc(partyInitials(p, k)) + '</div>'
+        + '<div class="sx-main"><div class="sx-name">' + esc(heading) + '</div>'
+        + '<div class="sx-from">' + esc(from) + '</div></div>'
+        + '<div class="sx-mark' + (row.legs > 1 ? ' two' : '') + '">' + sxMark(row) + '</div></div>';
+}
+
 function renderSearching() {
     var a = AIRPORTS.get(state.q.dest);
     el('sxDest').textContent = a ? a.city : (state.q.dest || '');
     el('sxCode').textContent = a ? a.code : '';
-    el('sxWhen').textContent = state.q.dep
-        ? prettyRange(state.q.dep, state.q.ret) + (hasReturn() ? '' : ' · one way')
-        : '';
+    el('sxWhen').textContent = sxWhenLine(state.q.dep, state.q.ret);
 
-    var ids = state.q.parties.map(function (p) { return p.id; });
-    el('sxRows').innerHTML = travelers()
-        .filter(function (t) { return t.origins.length; })
-        .map(function (t, i) {
-            var k = ids.indexOf(t.id), p = state.q.parties[k] || {};
-            /* Names are optional and most people never type one, so the common
-             * case must read well without them. partyLabel() would say
-             * "Flight 1", which on a screen about cities converging is worse
-             * than the city sitting right underneath it -- so an unnamed row is
-             * headed by where it is leaving from, which is also how step 3 now
-             * reads it back ("SFO  San Francisco"). */
-            var first = AIRPORTS.get(t.origins[0]);
-            var heading = (p.name || '').trim()
-                || (first ? first.city : t.origins[0]);
-            return '<div class="sx-row">'
-                + '<div class="ava" aria-hidden="true" style="background:' + partyColor(k) + '">'
-                + esc(partyInitials(p, k)) + '</div>'
-                + '<div class="sx-main"><div class="sx-name">' + esc(heading) + '</div>'
-                + '<div class="sx-from">' + esc(t.origins.join(' · '))
-                + (t.seats > 1 ? ' · ' + t.seats + ' seats' : '') + '</div></div>'
-                /* Staggered so the marks read as a sequence of searches rather
-                 * than one synchronised blink, which looks like a progress bar
-                 * and would be promising progress we cannot see. */
-                + '<div class="sx-wait" style="animation-delay:'
-                + (i * 0.13).toFixed(2) + 's"></div></div>';
-        }).join('');
+    var roster = sxRoster();
+    var roll = sxRoll(sxSeen, roster.map(function (t) { return t.id; }), hasReturn() ? 2 : 1);
+    el('sxRows').innerHTML = roster.map(function (t, i) {
+        return sxRowHtml(t, i, roll.rows[i]);
+    }).join('');
+    renderConverge(roster);
+    roll.rows.forEach(function (r) { sxPaintLine(r); });
+    sxTick();
+}
+
+/* One traveler changed, so one row and one line are rewritten. A full
+ * renderSearching() here would rebuild the figure and restart every dash
+ * animation from zero each time a leg landed, which on an eight-person round
+ * trip is sixteen visible resets of something that is meant to read as
+ * continuous. */
+function sxPaintRow(row) {
+    var node = document.querySelector('.sx-row[data-sx="' + CSS_ESC(row.id) + '"]');
+    if (!node) return;
+    node.classList.toggle('settled', row.state !== 'pending');
+    var mark = node.querySelector('.sx-mark');
+    if (mark) mark.innerHTML = sxMark(row);
+    sxPaintLine(row);
+}
+
+function sxPaintLine(row) {
+    var line = document.querySelector('.sxc-line[data-sxc="' + CSS_ESC(row.id) + '"]');
+    if (!line) return;
+    /* Three looks, and each one is a different fact: still searching, a route
+     * that answered, and a route that did not. */
+    /* Solid means the whole traveler is in, not half of them. A round trip
+     * with the departure back and the return still out is a search that is
+     * still running, and the line says so; the row's two marks are where
+     * half-done is stated, because that is the scale that can carry it. */
+    line.classList.toggle('done', row.state === 'found');
+    line.classList.toggle('dead', row.state === 'none' || row.state === 'failed');
+}
+
+/* Party ids come from the query and can be anything the app has generated, so
+ * they are escaped before going into a selector rather than trusted. */
+function CSS_ESC(s) {
+    if (window.CSS && CSS.escape) return CSS.escape(String(s));
+    return String(s).replace(/["\\]/g, '\\$&');
+}
+
+/* A leg landed. Nothing here waits for anything, and nothing here is on a
+ * timer: the row changes on the frame the fact arrives. */
+function sxOnLeg(ev) {
+    if (state.step !== 5) return;
+    sxStreaming = true;
+    sxSeen.push(ev);
+    var roster = sxRoster();
+    var roll = sxRoll(sxSeen, roster.map(function (t) { return t.id; }), hasReturn() ? 2 : 1);
+    var hit = null;
+    roll.rows.forEach(function (r) { if (r.id === ev.id) hit = r; });
+    if (hit) sxPaintRow(hit);
     sxTick();
 }
 
 function startSearching() {
     sxStart = Date.now();
+    sxSeen = []; sxStreaming = false;
     showStep(5);
     renderSearching();
     if (sxTimer) clearInterval(sxTimer);
@@ -1457,7 +1796,6 @@ function startSearching() {
 function stopSearching() {
     if (sxTimer) { clearInterval(sxTimer); sxTimer = null; }
 }
-
 /* ---------------------------------------------------------------- hash */
 
 /* The link carries the decision as well as the search. Without this, the fifth
