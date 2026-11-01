@@ -5507,31 +5507,50 @@ function paxRow(id, pick, out, gap) {
 /* --- BEGIN timeline scale ------------------------------------------- */
 /* Everything between this marker and the END one below is pure arithmetic
  * over minutes and pixels, and test-dates.js lifts it into a vm by those two
- * strings. Nothing in here may touch the DOM at call time. */
-
-/* Where in the day this is.
+ * strings. Nothing in here may touch the DOM at call time.
  *
- * The axis USED to be the cluster plus 45% padding, so a 55-minute landing
- * window and a 5h38m one were drawn at exactly the same width. The line said
- * nothing: two marks near the middle could be five minutes or five hours
- * apart, and nothing on the card told you which, or whether any of it was the
- * middle of the night. A ruler of hour ticks underneath did not fix it --
- * at cluster zoom the ticks landed on the same times as the people, so the
- * card printed two near-identical rows of times and was rejected for it.
+ * THREE ATTEMPTS, AND WHAT EACH ONE PAID FOR
  *
- * The axis is now the whole day, midnight to midnight. Position on the line IS
- * time of day, so every card in the app shares one scale and the landing card
- * and the leaving card can be read against each other without doing arithmetic
- * in your head. The ticks become 6am / 12pm / 6pm, which no arrival time can
- * duplicate, and they are evenly spaced -- regular spacing is what makes a
- * reader take a row of times as a scale rather than as more data.
+ * 1. The line was the cluster plus 45% padding, and carried no labels. A
+ *    55-minute arrival window and a 5h38m one were drawn at exactly the same
+ *    width, so position on the line meant nothing at all.
+ * 2. Hour ticks hung under that cluster-scaled line. At cluster zoom a tick
+ *    landed on the same time as a person, so the card printed two
+ *    near-identical rows of times a few pixels apart, one of them a copy of
+ *    the other. Rejected on sight.
+ * 3. The whole day, midnight to midnight, ticked at 6am / 12pm / 6pm. Honest,
+ *    legible, and far too coarse: 37 minutes is seven pixels of a day, so one
+ *    minute apart and forty minutes apart drew as the same picture.
  *
- * Three things follow from day scale, and each has a function below:
- * a day is long, so the ends need an inset or an 11:58pm avatar is sliced in
- * half by the clip (PLOT_LO, edgeShift); a day is long, so 11:10am and 11:15am
- * are a pixel apart and have to become one mark (mergeMarks, rangeLabel); and
- * a leg can cross midnight, so the window is a whole number of days
- * (dayWindow). */
+ * So the line is adaptive, and it is labeled.
+ *
+ * THE WINDOW
+ *
+ * Always four equal steps of one clock-friendly step length, and the step is
+ * the smallest on the ladder that holds the group. A minute apart gets a
+ * four-minute line, forty minutes gets an hour, seven hours gets eight.
+ *
+ * Four steps rather than "as many as fit" is the load-bearing choice. It puts
+ * the three interior ticks at the same three pixels on every card in the app,
+ * so the arrival card and the departure card differ in their labels and in
+ * nothing else, and the two scales can be compared by reading straight down
+ * the column they form. Adaptive zoom costs you the shared axis; fixed tick
+ * geometry is what is bought back with the change.
+ *
+ * SCALE LABELS, AND THE RULE THAT RETIRES ATTEMPT 2
+ *
+ * Above the rule every label is a clock time: a colon, and am or pm. Below it
+ * every label is a duration: digits and one letter, no colon, no suffix. The
+ * two alphabets do not intersect, so a scale label cannot be read as
+ * somebody's arrival time however far the line is zoomed in. That is a
+ * property of the format and not of the data, which is the only kind of
+ * guarantee worth having here.
+ *
+ * It is also how a reader knows the zoom. "15m 30m 45m" is an hour of clock
+ * across the card; "2h 4h 6h" is eight hours across the same pixels. A tight
+ * group drawn across the whole card cannot be mistaken for a scattered one,
+ * because the scale under it states the width of the card in minutes.
+ */
 
 var DAY = 1440;
 
@@ -5539,7 +5558,7 @@ var DAY = 1440;
  * 0/100 because a mark is a 34px avatar with a time under it and the box
  * clips its overflow. 6% is 19px on a 390px phone and 15px on a 320px one,
  * against a 17px half-avatar -- so the inset carries a lone avatar nearly on
- * its own, and edgeShift only has to catch stacked faces and long labels.
+ * its own, and the clamps only have to catch spread faces and long labels.
  * Emitted to CSS as --inset so the rule, its end stops and this arithmetic
  * cannot drift apart. */
 var PLOT_LO = 6, PLOT_HI = 100 - PLOT_LO;
@@ -5548,38 +5567,87 @@ var PLOT_LO = 6, PLOT_HI = 100 - PLOT_LO;
  * is asserted in test-dates.js, because two copies of a number is one copy too
  * many and the one that rots is the one nothing reads.
  *
- * The box is sized from the rows the card actually uses rather than from the
- * deepest case, so the common card -- one row of times -- is 88px instead of
- * the 132px it was. */
+ * One row of times, always: colliding labels merge into the range that covers
+ * them rather than stacking onto a second row, so the box is one height and
+ * the two legs of a trip are two boxes of the same size. */
 var MARK_TOP = 8, AVATAR_PX = 34, DOT_LAP = 10;
-var LABEL_LEAD = 4, LABEL_LINE = 11, ROW_PITCH = 14;
-var AXIS_GAP = 10, RULER_H = 17, BOTTOM_PAD = 3;
+var LABEL_LEAD = 4, LABEL_LINE = 11;
+var AXIS_GAP = 10, RULER_LEAD = 7, RULER_H = 17, BOTTOM_PAD = 3;
 
 /* Mark times are a size up from the ruler: "4:28pm" measures 40.7px at 11px
  * and "11:50am-12:10pm" measures 100.1px, so a shade under 7px a character.
- * Rounded up, because over-estimating a label only costs a row and
- * under-estimating prints one on top of another. Ticks are 10px and carry
- * letters ("Wed" is 21.4px), so they get a little more. */
-var LABEL_CH = 7, TICK_CH = 7.5, LABEL_GAP_PX = 6;
+ * Rounded up, because over-estimating a label only costs a merge and
+ * under-estimating prints one on top of another. Scale labels are 10px, all
+ * digits and one letter, and set in tabular figures: "1m" measures 15.23 and
+ * "12h" 18.84, so 7.5 a character was a shade under and 7.7 is not. */
+var LABEL_CH = 7, TICK_CH = 7.7, LABEL_GAP_PX = 6;
 
-/* The window: whole days, starting at the midnight before the earliest mark.
+/* The ladder of scales, in minutes per step, and four steps to a window.
+ * SCALE_STEPS and not STEPS: app.js is one long IIFE and there is already a
+ * STEPS in it, the four words on the step rail, which a second one silently
+ * replaced -- the rail started labeling itself "1" and no suite noticed,
+ * because this block is sliced into a vm of its own and the rail is not on
+ * the screen the card is on. There is a check for that at the foot of the
+ * timeline section in test-dates.js now.
+ * Every one of them divides a day, so a tick is always a time a clock could
+ * show, and consecutive rungs are never more than a factor of three apart --
+ * a ladder that jumped from an hour to six would draw a 70-minute group on a
+ * line where it was a smudge. */
+var SCALE_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720, DAY];
+var SPANS = 4;
+
+/* How much zoom the card will give up to keep a traveler who cannot make the
+ * window on the picture. One rung, which is never worse than a factor of
+ * three, and is the difference between a straggler being drawn just outside
+ * the group and not being drawn at all. */
+var ZOOM_GIVE = 1;
+
+/* A step holds the group when the group, snapped out to that step's own
+ * boundaries, is no wider than the four steps of the window. Snapped, because
+ * the window has to start on a step boundary for the tick labels to come out
+ * as whole numbers. */
+function stepHolds(lo, hi, step) {
+    return Math.ceil(hi / step) * step - Math.floor(lo / step) * step <= SPANS * step;
+}
+
+/* The smallest rung that holds the group. Past the top of the ladder the step
+ * is a whole number of days, which only a leg spanning most of a week can
+ * reach. */
+function scaleStep(lo, hi) {
+    for (var i = 0; i < SCALE_STEPS.length; i++) if (stepHolds(lo, hi, SCALE_STEPS[i])) return SCALE_STEPS[i];
+    var s = DAY * Math.max(1, Math.ceil((hi - lo) / (SPANS * DAY)));
+    while (!stepHolds(lo, hi, s)) s += DAY;
+    return s;
+}
+
+/* The window: four steps, aligned to the step, placed to center the group.
  *
- * Whole days are the whole point -- a window that began at the first arrival
- * would put every card back on its own scale. A return that leaves at 9pm and
- * lands after midnight gets a second day rather than a wrapped line. */
-function dayWindow(times) {
+ * Any aligned start between `earliest` and `latest` contains the group; the
+ * one nearest to centering it is chosen, so a card is not systematically
+ * weighted to one end. Alignment wins ties, which is why a group can sit a
+ * little off center -- a window that started wherever the first arrival
+ * happened to be would put every card on a scale of its own and make the
+ * tick labels unreadable fractions. */
+function fitWindow(times) {
     var lo = Infinity, hi = -Infinity;
     for (var i = 0; i < times.length; i++) {
         if (times[i] < lo) lo = times[i];
         if (times[i] > hi) hi = times[i];
     }
     if (!isFinite(lo)) return null;
-    var from = Math.floor(lo / DAY) * DAY, to = from + DAY;
-    /* Strictly past, not "at". A mark on the stroke of midnight is the right
-     * hand end of the day it closes; giving it a second day would draw
-     * twenty-four hours of nothing in order to say the same thing. */
-    while (hi > to) to += DAY;
-    return { from: from, to: to, days: (to - from) / DAY };
+    var step = scaleStep(lo, hi), width = SPANS * step;
+    var latest = Math.floor(lo / step) * step;
+    var earliest = Math.ceil(hi / step) * step - width;
+    var want = Math.round(((lo + hi) / 2 - width / 2) / step) * step;
+    var from = Math.min(latest, Math.max(earliest, want));
+    return { from: from, to: from + width, step: step };
+}
+
+/* Which rung of the ladder a step is, counting past the top in whole days,
+ * so two windows can be compared by how far apart their zooms are. */
+function rung(step) {
+    var i = SCALE_STEPS.indexOf(step);
+    return i >= 0 ? i : SCALE_STEPS.length - 2 + step / DAY;
 }
 
 /* Time of day to a position on the line. The one function every card has to
@@ -5588,34 +5656,30 @@ function plotPct(m, from, to) {
     return PLOT_LO + (m - from) / ((to - from) || 1) * (PLOT_HI - PLOT_LO);
 }
 
-/* An avatar is 34px. Two marks closer together than that are two faces in the
- * same place, and at day scale that is the normal case rather than the edge
- * one: 34px of a 285px plot is about 170 minutes, so an entire landing cluster
- * collapses to a single mark. That is the true picture -- the group did land
- * in one sliver of the day, and the span rule on the axis still draws exactly
- * how wide that sliver is.
- *
- * The distance is measured from the FIRST member of the group, not the
- * previous one, so a straggle of marks 30px apart cannot chain into one pile
- * covering half the day. A merged mark never represents more of the clock than
- * one avatar covers. */
-var MERGE_PX = AVATAR_PX;
+/* One unit for all three scale labels, taken from the step, so the row reads
+ * as one number growing rather than as three unrelated quantities. 12h, 24h
+ * and 36h rather than 12h, 1d and 1d12h. */
+function stepUnit(step) { return step < 60 ? 'm' : step < DAY ? 'h' : 'd'; }
 
-function mergeMarks(keys, from, to, axisPx) {
-    var pxPerMin = (PLOT_HI - PLOT_LO) / 100 * axisPx / ((to - from) || 1);
-    var out = [];
-    for (var i = 0; i < keys.length; i++) {
-        var g = out[out.length - 1];
-        if (g && (keys[i] - g.lo) * pxPerMin < MERGE_PX) { g.hi = keys[i]; g.keys.push(keys[i]); }
-        else out.push({ lo: keys[i], hi: keys[i], keys: [keys[i]] });
+function scaleLabel(mins, unit) {
+    return (mins / (unit === 'm' ? 1 : unit === 'h' ? 60 : DAY)) + unit;
+}
+
+/* The scale: three ticks at the quarter points, labeled with how much time
+ * the line has covered by the time it reaches them.
+ *
+ * Elapsed time, not clock time. The ticks are at the same three pixels on
+ * every card, so the labels are the only thing that moves -- and because a
+ * duration has no colon and no am/pm, no reader is ever going to mistake one
+ * for an arrival time, which is the mistake that killed the second attempt at
+ * this card. */
+function scaleTicks(from, step) {
+    if (!(step > 0)) return [];
+    var unit = stepUnit(step), ticks = [];
+    for (var k = 1; k < SPANS; k++) {
+        ticks.push({ m: from + k * step, label: scaleLabel(k * step, unit) });
     }
-    for (var j = 0; j < out.length; j++) {
-        /* Drawn at the middle of what it covers. The pile is one avatar wide
-         * and so is the range under it, so the middle is the only placement
-         * that does not systematically lie about one end. */
-        out[j].m = (out[j].lo + out[j].hi) / 2;
-    }
-    return out;
+    return ticks;
 }
 
 /* "4:28-5:05pm", not "4:28pm - 5:05pm". The suffix is shared whenever both
@@ -5630,101 +5694,183 @@ function rangeLabel(lo, hi) {
     return (a.slice(-2) === b.slice(-2) ? a.slice(0, -2) : a) + '-' + b;
 }
 
-/* On the hour the minutes are noise: "6am" reads faster than "6:00am". */
-function tickLabel(m) {
-    var d = new Date(m * 60000), h = d.getUTCHours(), mm = d.getUTCMinutes();
-    if (SET.time24) return (h < 10 ? '0' + h : h) + ':' + (mm < 10 ? '0' + mm : mm);
-    if (mm !== 0) return clock(m);
-    return (h % 12 === 0 ? 12 : h % 12) + (h < 12 ? 'am' : 'pm');
-}
-
-/* The only word the timeline is allowed, and only once the window is longer
- * than a day -- at which point which side of the break a mark sits on is the
- * entire question. */
-var WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-function dayLabel(m) { return WEEKDAYS[new Date(m * 60000).getUTCDay()]; }
-
-/* 6am / 12pm / 6pm on a single day. They are not there to be read off -- they
- * are there so the eye can see that the line is a day and that the faces sit
- * in the afternoon of it. Three of them, evenly spaced, and none of them a
- * time any flight on the card could also be.
- *
- * Longer windows thin to noon, and past three days to the midnights alone,
- * because a tick every six hours across four days is a texture rather than a
- * scale. The window's own two midnights are not ticks: they are the end stops
- * on the rule, drawn in CSS, and labelling both ends "12am" would spend two
- * words saying what the shape already says. */
-function dayTicks(from, to) {
-    if (!(to > from)) return [];
-    var days = Math.round((to - from) / DAY);
-    var step = days <= 1 ? 360 : days <= 3 ? 720 : DAY;
-    var ticks = [];
-    for (var m = from + step; m < to; m += step) {
-        var isDay = m % DAY === 0;
-        ticks.push({ m: m, day: isDay, label: isDay ? dayLabel(m) : tickLabel(m) });
-    }
-    return ticks;
-}
-
 /* Nudges a drawing back inside the box, and reports how far it had to move.
  * The inset carries a lone avatar; this catches the two cases it cannot -- a
- * stack of three faces at 11pm, and a range label, which at 100px is wider
- * than the inset at either end.
+ * row of faces that reaches an end of the line, and a range label, which at
+ * 100px is wider than the inset at either end.
  *
- * Only the drawing moves. The mark stays anchored at its own left:%, and the
- * dots and the label are shifted within it, which is worth saying out loud
- * because it is the one place on this card where the ink and the clock
- * disagree. A face sliced in half by the clip is the worse of the two. */
-/* Whole pixels, and always rounded the way that moves the drawing further
- * in. Rounding to nearest left a stack of eight faces with half a pixel of
+ * Whole pixels, and always rounded the way that moves the drawing further in.
+ * Rounding to nearest left a row of eight faces with half a pixel of
  * clearance on a 320px phone, which is a guarantee only until the next
  * sub-pixel layout change. */
 var EDGE_PAD = 2;
-function edgeShift(centrePx, halfPx, axisPx) {
-    if (centrePx - halfPx < EDGE_PAD) return Math.ceil(EDGE_PAD - centrePx + halfPx);
-    if (centrePx + halfPx > axisPx - EDGE_PAD) return -Math.ceil(centrePx + halfPx - axisPx + EDGE_PAD);
+function edgeShift(centerPx, halfPx, axisPx) {
+    if (centerPx - halfPx < EDGE_PAD) return Math.ceil(EDGE_PAD - centerPx + halfPx);
+    if (centerPx + halfPx > axisPx - EDGE_PAD) return -Math.ceil(centerPx + halfPx - axisPx + EDGE_PAD);
     return 0;
 }
 
-/* How wide a stack of n faces is drawn, from the CSS: 34px each, lapped 10px.
- * Eight of them is 202px, which is most of the plot -- see the note in
- * timeline() about what that costs. */
-function pileWidth(n) { return AVATAR_PX + (n - 1) * (AVATAR_PX - DOT_LAP); }
-
-/* Which row each time label sits in, or -1 for "do not print it".
+/* THE FACES
  *
- * Greedy, first row that fits, measured against each label's own width and
- * against the position it will actually be drawn at -- packing the unshifted
- * boxes would let two labels that have both been pulled in off the same edge
- * land on the same row and print over each other.
+ * One face per traveler, never a facepile standing in for a group. The brief
+ * was that a reader should be able to tell who is who without reading
+ * overlapping circles, and most of that is won by the adaptive window: a
+ * 37-minute cluster that was one pile of three on a day axis is three faces
+ * 57 and 119 pixels apart on an hour.
  *
- * Three rows is still the ceiling, but merging means the common card needs
- * one. Rows now sit above the axis, so an unused row costs nothing: the box
- * is sized from the rows that were used. */
-var LABEL_ROWS = 3;
+ * What is left is travelers close enough that their circles would still
+ * collide at full zoom. Those are pushed apart only as far as they have to
+ * be, and the push is bounded -- see faceSep. Where a face has been pushed,
+ * its true time is still marked, at full resolution, by its own dot on the
+ * rule below it: the row of faces says who, and the row of dots says when.
+ * That is the same bargain the facepile always struck, with the correction
+ * made per person rather than once for the whole group. */
 
-function labelRows(marks, axisPx) {
-    var rowRight = [];
-    return marks.map(function (mk) {
-        var half = String(mk.label).length * LABEL_CH / 2;
-        var centre = mk.pct / 100 * axisPx;
-        centre += edgeShift(centre, half, axisPx);
-        var row = 0;
-        while (row < rowRight.length && centre - half < rowRight[row] + LABEL_GAP_PX) row++;
-        if (row >= LABEL_ROWS) return -1;
-        rowRight[row] = centre + half;
-        return row;
+/* Air between two circles before either is allowed to lap the other. The 2px
+ * ring each face wears is painted outside the 34px circle, so 2px of gap is
+ * the point at which two rings meet. */
+var FACE_GAP = 2;
+
+/* How far a face may be shoved off its own time before the shove is doing
+ * more damage than the overlap it is fixing. */
+var MAX_SHIFT = 12;
+
+/* The separation a run of k faces is laid out at, given how much of the clock
+ * they really cover.
+ *
+ * Open: 36px, circles apart, every initial readable. Closed: 24px, the old
+ * facepile lap, which is where a group that is genuinely simultaneous ends up
+ * -- eight people on one flight draw as the same 202px pile they always did,
+ * because fanning them across the card would say they were spread when they
+ * are not. In between, the run is allowed to open out as far as its own
+ * spread plus MAX_SHIFT at each end, and no further. */
+function faceSep(k, spreadPx, openPx) {
+    if (k < 2) return openPx;
+    var want = (spreadPx + 2 * MAX_SHIFT) / (k - 1);
+    return Math.max(AVATAR_PX - DOT_LAP, Math.min(openPx, want));
+}
+
+/* The widest separation the box can carry for n faces. A row of eight at 36px
+ * is 286px and a 320px phone only has 254px of card, so the open separation
+ * is capped by the room rather than by taste. */
+function openSep(n, axisPx) {
+    if (n < 2) return AVATAR_PX + FACE_GAP;
+    return Math.min(AVATAR_PX + FACE_GAP,
+                    (axisPx - 2 * EDGE_PAD - AVATAR_PX) / (n - 1));
+}
+
+/* Where the faces are actually drawn.
+ *
+ * Pool adjacent violators: the smallest move, in the least-squares sense,
+ * that leaves every neighboring pair at least `sep` apart and leaves the
+ * order alone. Runs that had to be pooled are then re-opened at their own
+ * separation from faceSep, around their own mean, which only ever narrows a
+ * run and so cannot reintroduce a collision with its neighbors. Finally the
+ * whole row is slid back inside the box if an end of it hangs out.
+ *
+ * `xs` must be sorted ascending; it always is, because it comes from a
+ * monotone function of times that were sorted first. */
+function spreadFaces(xs, sep, axisPx) {
+    var n = xs.length;
+    if (!n) return [];
+    var blocks = [], i;
+    for (i = 0; i < n; i++) {
+        blocks.push({ sum: xs[i] - i * sep, n: 1 });
+        while (blocks.length > 1) {
+            var a = blocks[blocks.length - 2], b = blocks[blocks.length - 1];
+            if (a.sum / a.n <= b.sum / b.n) break;
+            blocks.pop();
+            a.sum += b.sum; a.n += b.n;
+        }
+    }
+    var out = [], k = 0;
+    for (i = 0; i < blocks.length; i++) {
+        var base = blocks[i].sum / blocks[i].n, first = k;
+        for (var t = 0; t < blocks[i].n; t++) { out.push(base + k * sep); k++; }
+        if (blocks[i].n > 1) {
+            /* Re-open this run at the separation its own spread earns. */
+            var last = k - 1;
+            var tight = faceSep(blocks[i].n, xs[last] - xs[first], sep);
+            var mid = (out[first] + out[last]) / 2;
+            for (var j = first; j <= last; j++) {
+                out[j] = mid + (j - first - (blocks[i].n - 1) / 2) * tight;
+            }
+        }
+    }
+    /* And then inside the box, with the two ends of the card treated as the
+     * walls they are: push right off the left wall, then pull left off the
+     * right one, each pass carrying its neighbors along by the separation
+     * they already have.
+     *
+     * Sliding the whole row as one piece is not enough -- two tight groups at
+     * opposite ends of the plot open out to more than the card holds, and a
+     * rigid slide can only fix one end of that. Squeezing the row instead
+     * would eat the real gap in the middle, which is the one distance on the
+     * card that was never a fiction. This eats the fiction and leaves the
+     * fact: a pair's own separation gives first.
+     *
+     * It always converges, because no pair is required to be further apart
+     * than `sep` and openSep sized `sep` so that (n-1) of them plus a face
+     * fit between the walls. */
+    var half = AVATAR_PX / 2, lo = EDGE_PAD + half, hi = axisPx - EDGE_PAD - half;
+    var need = [];
+    for (i = 1; i < n; i++) need.push(Math.min(out[i] - out[i - 1], sep));
+    out[0] = Math.max(out[0], lo);
+    for (i = 1; i < n; i++) out[i] = Math.max(out[i], out[i - 1] + need[i - 1]);
+    out[n - 1] = Math.min(out[n - 1], hi);
+    for (i = n - 2; i >= 0; i--) out[i] = Math.min(out[i], out[i + 1] - need[i]);
+    return out;
+}
+
+/* THE LABELS
+ *
+ * One time under one face, until two of them will not both fit -- at which
+ * point they become the one range that covers both, rather than a second row
+ * of times. Merging rather than stacking is what keeps the card at a single
+ * height and keeps the word count down; it also means a label never has to be
+ * dropped, which the three-row packer this replaces did as a last resort.
+ *
+ * The test is run at the position a label will actually be drawn at, after
+ * the edge clamp, because two labels both pulled in off the same end would
+ * otherwise be packed as though they were still outside. Merging restarts the
+ * sweep, because a merged label is wider than either of its halves and may
+ * now reach its other neighbor. */
+function labelHalf(lo, hi) { return rangeLabel(lo, hi).length * LABEL_CH / 2; }
+
+function labelAt(g, axisPx) {
+    var half = labelHalf(g.lo, g.hi), center = (g.x0 + g.x1) / 2;
+    return { center: center + edgeShift(center, half, axisPx), half: half };
+}
+
+function packLabels(marks, axisPx) {
+    var g = marks.map(function (mk) {
+        return { x0: mk.x, x1: mk.x, lo: mk.m, hi: mk.m };
+    });
+    var merged = true;
+    while (merged && g.length > 1) {
+        merged = false;
+        for (var i = 0; i + 1 < g.length; i++) {
+            var a = labelAt(g[i], axisPx), b = labelAt(g[i + 1], axisPx);
+            if (a.center + a.half + LABEL_GAP_PX > b.center - b.half) {
+                g[i] = { x0: g[i].x0, x1: g[i + 1].x1, lo: g[i].lo, hi: g[i + 1].hi };
+                g.splice(i + 1, 1);
+                merged = true;
+                break;
+            }
+        }
+    }
+    return g.map(function (b) {
+        var p = labelAt(b, axisPx);
+        return { label: rangeLabel(b.lo, b.hi), center: p.center, half: p.half,
+                 lo: b.lo, hi: b.hi };
     });
 }
 
-/* The height of the box and the height of the rule inside it, from the number
- * of label rows actually printed. Returned together because the ruler hangs
- * off the axis and the clip is set from the ruler. */
-function timelineBox(rows) {
-    var deepest = MARK_TOP + AVATAR_PX
-        + (rows > 0 ? LABEL_LEAD + (rows - 1) * ROW_PITCH + LABEL_LINE : 0);
-    var axis = deepest + AXIS_GAP;
-    return { axis: axis, height: axis + 1 + RULER_H + BOTTOM_PAD };
+/* The height of the box and the height of the rule inside it. One row of
+ * times means one height, which is the whole reason the labels merge. */
+function timelineBox() {
+    var axis = MARK_TOP + AVATAR_PX + LABEL_LEAD + LABEL_LINE + AXIS_GAP;
+    return { axis: axis, height: axis + RULER_LEAD + RULER_H + BOTTOM_PAD };
 }
 
 /* Measured, not assumed. The card is 254px wide on a 320px phone, 324px on a
@@ -5742,22 +5888,27 @@ function timelineBoxPx() {
     var inner = m.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
     return Math.max(inner - 34, 160);
 }
-/* How wide to draw the group's window.
+
+/* THE RULE
  *
- * Drawn honestly against a whole day, a five-minute window is about one pixel
- * on a one-pixel rule. That does not read as a tight group, it reads as a
- * rendering fault -- a smudge, or something that failed to paint. Rendered
- * both ways side by side, the fix is a floor equal to the bar's own height:
- * at the floor it bottoms out as a round dot, visibly a point somebody placed
- * rather than a dash, and the pill radius does the rest.
+ * A dot on the line at every arrival time, and a bar joining the first to the
+ * last. The bar is the claim that everybody is inside it; the dots are where
+ * each of them actually is, at the full resolution of the line, whatever the
+ * faces above had to do to stay legible.
  *
- * What that costs is the distinction between five minutes and thirty-seven,
- * which is a distinction this card already prints in words directly above. */
-var SPAN_H_PX = 6;
+ * The old bar had a floor equal to its own 6px height, so that a five-minute
+ * window on a day axis bottomed out as a deliberate round dot instead of a
+ * one-pixel smear. On an adaptive window that case has moved: a tight group
+ * is no longer tiny, it fills the card, and the only window still narrower
+ * than its own ink is a group that is genuinely simultaneous. So the floor
+ * moves off the bar and onto the dot -- the bar may not be drawn narrower
+ * than one dot, which means everybody on one flight draws as exactly one dot
+ * with no stub showing from under it. */
+var DOT_PX = 10, SPAN_H_PX = 3;
 
 function spanWidthPct(leftPct, rightPct, axisPx) {
     if (!(axisPx > 0)) return 0;
-    var floorPct = SPAN_H_PX / axisPx * 100;
+    var floorPct = DOT_PX / axisPx * 100;
     return Math.max(rightPct - leftPct, floorPct);
 }
 
@@ -6117,96 +6268,129 @@ function fitProjection(points, opts) {
  * deliberate choice into what looks like a failed match spanning eleven hours.
  * Where the way home IS one departure -- asked for, or free -- the rule is
  * drawn, because then it is telling the truth and the leg should read like the
- * outbound. The faces always tell the truth about the times.
+ * outbound. The dots on the rule are drawn either way: they are each
+ * traveler's own time and not a claim about the group.
  *
- * What this picture gives up, stated plainly: a stack of eight faces is 202px
- * wide and the half-hour it stands for is 6px, so on a full group the faces
- * overstate their own width on the clock by a long way. The span rule under
- * them is the correction -- it is drawn from the first arrival to the last and
- * nothing else, so the stack says who and the rule says when. */
+ * What this picture gives up, stated plainly. The window is the group's own,
+ * so the arrival card and the departure card are at different zooms and their
+ * span rules are not comparable by length. What is comparable is the scale:
+ * the three ticks sit at the same three pixels on both cards, so the two rows
+ * of labels form a column and "15m 30m 45m" over "2h 4h 6h" is the whole
+ * story, read straight down. The headline above each card states the same
+ * gap in words. */
 function timeline(picks, included, excluded, band) {
     var idxOf = function (id) { return state.q.parties.map(function (p) { return p.id; }).indexOf(id); };
 
-    var groups = {}, times = [];
+    var people = [];
     included.forEach(function (id) {
-        var m = picks[id].option.clusterMin;
-        times.push(m);
-        (groups[m] = groups[m] || []).push({ id: id, dim: false });
+        people.push({ id: id, m: picks[id].option.clusterMin, dim: false });
     });
+    var spanTimes = people.map(function (p) { return p.m; });
     /* A leg nobody can make still has people on it, and a card with a heading
-     * and no picture under it reads as a rendering fault. The day is taken
-     * from where they would have landed. */
-    var spanTimes = times.slice();
-    if (!times.length) {
-        (excluded || []).forEach(function (x) { if (x.nearest) times.push(x.nearest.clusterMin); });
+     * and no picture under it reads as a rendering fault. The window is taken
+     * from where they would have arrived. */
+    var seed = spanTimes.slice();
+    if (!seed.length) {
+        (excluded || []).forEach(function (x) { if (x.nearest) seed.push(x.nearest.clusterMin); });
     }
-    var win = dayWindow(times);
+    var win = fitWindow(seed);
     if (!win) return '';
+
+    /* Somebody who cannot make the window is still worth drawing where they
+     * would have arrived -- but the window belongs to the group, and
+     * stretching it to reach a traveler who is hours out would spend the
+     * whole card's resolution on the one person who is not in the plan. So
+     * the stretch is bought at a fixed price: one rung of the ladder. A
+     * straggler fifteen minutes past the group is drawn, and the card zooms
+     * out one step to hold them; one six hours past is left off, and the note
+     * under the card names them instead. */
+    var near = [];
+    (excluded || []).forEach(function (x) { if (x.nearest) near.push(x.nearest.clusterMin); });
+    if (near.length && seed.length) {
+        var wider = fitWindow(seed.concat(near));
+        if (wider && rung(wider.step) - rung(win.step) <= ZOOM_GIVE) win = wider;
+    }
 
     (excluded || []).forEach(function (x) {
         if (!x.nearest) return;
         var m = x.nearest.clusterMin;
         if (m < win.from || m > win.to) return;
-        if (!groups[m]) groups[m] = [];
-        if (!groups[m].some(function (g) { return g.id === x.id; })) groups[m].push({ id: x.id, dim: true });
+        if (people.some(function (p) { return p.id === x.id; })) return;
+        people.push({ id: x.id, m: m, dim: true });
     });
+    people.sort(function (a, b) { return a.m - b.m; });
 
     var axisPx = timelineBoxPx();
-    var keys = Object.keys(groups).map(Number).sort(function (a, b) { return a - b; });
-    var marks = mergeMarks(keys, win.from, win.to, axisPx).map(function (g) {
-        var people = [];
-        g.keys.forEach(function (k) { people = people.concat(groups[k]); });
-        return { pct: plotPct(g.m, win.from, win.to), label: rangeLabel(g.lo, g.hi), people: people };
+    var at = function (m) { return plotPct(m, win.from, win.to); };
+    var truePx = people.map(function (p) { return at(p.m) / 100 * axisPx; });
+    var drawn = spreadFaces(truePx, openSep(people.length, axisPx), axisPx);
+
+    /* One stop per time, not per traveler: two people on one flight are at one
+     * place on the clock, and two dots there would draw the same fact twice. */
+    var stops = [];
+    people.forEach(function (p, i) {
+        var last = stops[stops.length - 1];
+        if (last && last.m === p.m) { last.xs.push(drawn[i]); last.who.push(p); }
+        else stops.push({ m: p.m, xs: [drawn[i]], who: [p] });
     });
 
-    var rows = labelRows(marks, axisPx);
-    var used = rows.reduce(function (n, r) { return r + 1 > n ? r + 1 : n; }, 0);
-    var box = timelineBox(used);
-
+    var box = timelineBox();
     var html = '<div class="timeline" style="height:' + box.height + 'px;--axis:' + box.axis
         + 'px;--inset:' + PLOT_LO + '%">'
         + '<div class="tl-axis"></div>';
 
     if (band !== false && spanTimes.length) {
-        var l = plotPct(Math.min.apply(null, spanTimes), win.from, win.to);
-        var r = plotPct(Math.max.apply(null, spanTimes), win.from, win.to);
+        var l = at(Math.min.apply(null, spanTimes)), r = at(Math.max.apply(null, spanTimes));
         html += '<div class="tl-span" style="left:' + l + '%;width:'
             + spanWidthPct(l, r, axisPx) + '%"></div>';
     }
 
-    marks.forEach(function (mk, mi) {
-        var centre = mk.pct / 100 * axisPx;
-        var dShift = edgeShift(centre, pileWidth(mk.people.length) / 2, axisPx);
-        var tShift = edgeShift(centre, mk.label.length * LABEL_CH / 2, axisPx);
-        var dots = mk.people.map(function (g) {
-            var i = idxOf(g.id);
-            var style = g.dim ? 'background:var(--edge);color:var(--muted)' : 'background:' + partyColor(i < 0 ? 0 : i);
-            return '<div class="tl-dot" style="' + style + '">'
-                + esc(partyInitials(state.q.parties[i] || { name: name(g.id) }, i < 0 ? 0 : i)) + '</div>';
-        }).join('');
-        html += '<div class="tl-mark" style="left:' + mk.pct + '%">'
-            + '<div class="tl-dots"' + (dShift ? ' style="transform:translateX(' + dShift + 'px)"' : '')
-            + '>' + dots + '</div>'
-            + (rows[mi] >= 0
-                ? '<div class="tl-t mono r' + rows[mi] + '"'
-                  + (tShift ? ' style="transform:translateX(' + tShift + 'px)"' : '')
-                  + '>' + esc(mk.label) + '</div>'
-                : '')
-            + '</div>';
+    stops.forEach(function (s) {
+        var dim = s.who.every(function (p) { return p.dim; });
+        /* Ink where a time belongs to more than one party, the same way the
+         * map draws a route two travelers share: a dot in one of their two
+         * colors is a dot with the wrong name on it. */
+        var k = idxOf(s.who[0].id);
+        var fill = dim ? 'var(--edge)' : s.who.length > 1 ? 'var(--text)'
+            : partyColor(k < 0 ? 0 : k);
+        html += '<div class="tl-pt" style="left:' + at(s.m) + '%;background:' + fill + '"></div>';
     });
 
-    var ticks = dayTicks(win.from, win.to);
-    if (ticks.length) {
-        html += '<div class="tl-ruler" aria-hidden="true">'
-            + ticks.map(function (t) {
-                var p = plotPct(t.m, win.from, win.to);
-                var sh = edgeShift(p / 100 * axisPx, String(t.label).length * TICK_CH / 2, axisPx);
-                return '<div class="tl-rt' + (t.day ? ' day' : '') + '" style="left:' + p + '%">'
-                    + '<i></i><span' + (sh ? ' style="transform:translateX(' + sh + 'px)"' : '') + '>'
-                    + esc(t.label) + '</span></div>';
-            }).join('')
-            + '</div>';
+    /* Emitted latest first, so the earliest arrival paints on top wherever two
+     * faces had to lap -- the order an iOS facepile uses. */
+    for (var i = people.length - 1; i >= 0; i--) {
+        var p = people[i], pi = idxOf(p.id);
+        var style = p.dim ? 'background:var(--edge);color:var(--muted)'
+                          : 'background:' + partyColor(pi < 0 ? 0 : pi);
+        var shift = drawn[i] - truePx[i];
+        html += '<div class="tl-mark" style="left:' + at(p.m) + '%'
+            + (Math.abs(shift) > 0.01 ? ';margin-left:' + shift.toFixed(2) + 'px' : '') + '">'
+            + '<div class="tl-dot" style="' + style + '">'
+            + esc(partyInitials(state.q.parties[pi] || { name: name(p.id) }, pi < 0 ? 0 : pi))
+            + '</div></div>';
     }
+
+    packLabels(stops.map(function (s) {
+        var sum = 0;
+        for (var j = 0; j < s.xs.length; j++) sum += s.xs[j];
+        return { m: s.m, x: sum / s.xs.length };
+    }), axisPx).forEach(function (lb) {
+        var basePct = at((lb.lo + lb.hi) / 2);
+        var sh = lb.center - basePct / 100 * axisPx;
+        html += '<div class="tl-t mono" style="left:' + basePct + '%'
+            + (Math.abs(sh) > 0.01 ? ';margin-left:' + sh.toFixed(2) + 'px' : '') + '">'
+            + esc(lb.label) + '</div>';
+    });
+
+    html += '<div class="tl-ruler" aria-hidden="true">'
+        + scaleTicks(win.from, win.step).map(function (t) {
+            var pc = at(t.m);
+            var sh = edgeShift(pc / 100 * axisPx, t.label.length * TICK_CH / 2, axisPx);
+            return '<div class="tl-rt" style="left:' + pc + '%">'
+                + '<i></i><span' + (sh ? ' style="transform:translateX(' + sh + 'px)"' : '') + '>'
+                + esc(t.label) + '</span></div>';
+        }).join('')
+        + '</div>';
 
     return html + '</div>';
 }
@@ -6446,10 +6630,10 @@ function fmHeight(pts, w, padX, padY) {
 
 /* Origins landing within one marker of each other are one marker.
  *
- * Straight out of mergeMarks, for the same reason: SFO, OAK and SJC are the
- * same pixel at country scale, and three rings drawn on top of each other are
- * not three people, they are a smudge. They become one node carrying a
- * facepile, exactly the way the timeline draws a landing cluster.
+ * The same reason the timeline laps a simultaneous group rather than fanning
+ * it across the card: SFO, OAK and SJC are the same pixel at country scale,
+ * and three rings drawn on top of each other are not three people, they are a
+ * smudge. They become one node carrying a facepile.
  *
  * Distance is measured from the FIRST member of a group and never from the
  * last, so a straggle of airports cannot chain into one node spanning half the
@@ -6815,10 +6999,10 @@ function fmPlaceLabels(nodes, hub, segs, w, h) {
 
 /* How wide a marker really is once the people on it are drawn.
  *
- * One person is the circle. Two or three are a facepile, laid out the way
- * .tl-dots lays one out -- overlapped by FM_LAP of a diameter, centered on the
- * node -- so the thing a route has to miss is a capsule, and its half-length
- * is what counts as the radius for clearance. */
+ * One person is the circle. Two or three are a facepile, laid out the way the
+ * timeline laps a simultaneous group -- overlapped by FM_LAP of a diameter,
+ * centered on the node -- so the thing a route has to miss is a capsule, and
+ * its half-length is what counts as the radius for clearance. */
 var FM_LAP = 0.3, FM_PILE_MAX = 3;
 
 function fmPileR(count, r) {
@@ -7173,8 +7357,8 @@ function fmSvg(lay, opts) {
     });
 
     /* People on top, because a face is never the thing that should be
-     * covered. A node carrying more than one person is a facepile, overlapped
-     * the way .tl-dots overlaps, earliest on top. */
+     * covered. A node carrying more than one person is a facepile, earliest
+     * on top, the same order the timeline paints a lapped group in. */
     lay.nodes.forEach(function (n) {
         var ppl = n.people.slice(0, FM_PILE_MAX);
         var span = (ppl.length - 1) * (n.r * 2) * (1 - FM_LAP);
