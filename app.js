@@ -5398,6 +5398,355 @@ function spanWidthPct(leftPct, rightPct, axisPx) {
 
 /* --- END timeline scale --------------------------------------------- */
 
+/* --- BEGIN map geometry --------------------------------------------- */
+/* Everything between this marker and the END one below is spherical
+ * trigonometry over latitude, longitude and a unit box, and test-geo.js lifts
+ * it into a vm by those two strings. Nothing in here may touch the DOM at call
+ * time, and nothing in here reads airports-geo.js -- it is handed points.
+ *
+ * This exists because a map of a group converging on one city is the easiest
+ * thing in the app to draw beautifully and wrongly. The mockup it replaces
+ * carried the caption "Conceptual visualization", which is an honest label on
+ * a dishonest picture, and the rule here is the same rule as everywhere else:
+ * if it is on the screen it is true. Three things have to be true for that.
+ *
+ * One: the line between two cities is a great circle, not a straight line in
+ * latitude and longitude. JFK to LHR drawn straight passes south of Ireland;
+ * the flight actually crosses Newfoundland and the southern tip of Greenland,
+ * about 600km north of the straight line at the middle. Oslo to Anchorage is
+ * worse -- the straight line sits at 60 degrees north the whole way and the
+ * real route goes over 83, which is not a refinement, it is a different
+ * continent.
+ *
+ * Two: the projection. See fitProjection.
+ *
+ * Three: the antimeridian. Tokyo is at 140 east and Los Angeles at 118 west,
+ * and the difference of those two numbers is 258 degrees going the wrong way
+ * round the planet. Subtract them naively and the map draws a line from Japan
+ * west across Asia, Europe, the Atlantic and the whole United States to reach
+ * an airport that is 101 degrees away over an empty ocean. Every function
+ * below that touches longitude goes through wrapLon or lonCenter for exactly
+ * this reason, and the table has real airports on both sides of the line:
+ * TVU in Fiji is at 179.88 west and MFJ, 200km from it, is at 179.95 east. */
+
+var D2R = Math.PI / 180, R2D = 180 / Math.PI;
+
+/* Mean Earth radius, IUGG. The app quotes no distance to better than a
+ * kilometre, so the difference between this and a WGS84 ellipsoid -- about
+ * 0.3% worst case, under 20km on a transatlantic -- is below anything it
+ * prints or draws. Stated rather than assumed, because the one way a distance
+ * function fails silently is by being right in the wrong units. */
+var EARTH_KM = 6371.0088;
+
+/* Mercator goes to infinity at the poles, so it is cut where every web map
+ * cuts it. This never bites on real data: the northernmost airport in the
+ * table is LYR at 78.25 and the southernmost is USH at -54.84. It is here so
+ * that a caller who passes a pole gets a finite number instead of a NaN that
+ * reaches an SVG attribute and silently deletes the shape. */
+var MERC_MAX_LAT = 85.0511287798066;
+
+/* Longitude folded into [-180, 180). The modulo is written twice because
+ * JavaScript's % keeps the sign of the left operand, so (-200) % 360 is -200
+ * and not 160. */
+function wrapLon(deg) {
+    var x = (deg + 180) % 360;
+    if (x < 0) x += 360;
+    return x - 180;
+}
+
+/* Latitude and longitude to a point on the unit sphere, and back. Everything
+ * that is hard about this problem -- the shortest path, the antimeridian, the
+ * poles -- stops being hard in three dimensions, where a great circle is just
+ * a rotation and there is no seam anywhere on the sphere to cross. The seam is
+ * a property of the map, not of the Earth, so it is dealt with once, in the
+ * projection, instead of in every piece of geometry. */
+function toVec(p) {
+    var la = p.lat * D2R, lo = p.lon * D2R, c = Math.cos(la);
+    return [c * Math.cos(lo), c * Math.sin(lo), Math.sin(la)];
+}
+
+function fromVec(v) {
+    return { lat: Math.atan2(v[2], Math.sqrt(v[0] * v[0] + v[1] * v[1])) * R2D,
+             lon: Math.atan2(v[1], v[0]) * R2D };
+}
+
+/* The true shortest path between two points, as n points along it.
+ *
+ * Slerp on the unit sphere: the arc from a to b is swept at constant angular
+ * speed, which is the same thing as saying the points come out evenly spaced
+ * in kilometers rather than evenly spaced in longitude. Evenly spaced in
+ * longitude is what an interpolation in lat/lon gives you, and it is wrong in
+ * both position and spacing -- it bunches the samples up at the ends of a
+ * polar route, which is exactly where the curve needs them.
+ *
+ * Longitudes come back folded to [-180, 180), so a Pacific path really does
+ * step from 179.6 to -179.8. That is the honest value for the point and it is
+ * the projection's job to draw it continuously; see fit.path below. Callers
+ * walking the points for anything other than drawing should expect it. */
+function greatCircle(a, b, n) {
+    var steps = Math.max(2, Math.round(n) || 0);
+    var u = toVec(a), v = toVec(b), out = [], i, t;
+    var dot = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    if (dot > 1) dot = 1; else if (dot < -1) dot = -1;
+    var w = Math.acos(dot);
+
+    if (w < 1e-9) {
+        /* Same airport, or two codes at one field once rounded. There is no
+         * arc; repeating the point keeps the caller's array length promise. */
+        for (i = 0; i < steps; i++) out.push({ lat: a.lat, lon: a.lon });
+        return out;
+    }
+
+    if (Math.PI - w < 1e-9) {
+        /* Antipodal. Every great circle through a passes through b, so the
+         * shortest path is not unique and slerp divides by sin(pi) = 0. Pick
+         * one plane deliberately rather than returning NaN: cross a with
+         * whichever axis it is least parallel to. No pair in the table is
+         * antipodal, so this branch is a guard, not a feature. */
+        var k = Math.abs(u[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+        var p = [u[1] * k[2] - u[2] * k[1],
+                 u[2] * k[0] - u[0] * k[2],
+                 u[0] * k[1] - u[1] * k[0]];
+        var m = Math.sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+        for (i = 0; i < steps; i++) {
+            t = i / (steps - 1) * Math.PI;
+            var cs = Math.cos(t), sn = Math.sin(t) / m;
+            out.push(fromVec([cs * u[0] + sn * p[0],
+                              cs * u[1] + sn * p[1],
+                              cs * u[2] + sn * p[2]]));
+        }
+    } else {
+        var s = Math.sin(w);
+        for (i = 0; i < steps; i++) {
+            t = i / (steps - 1);
+            var ca = Math.sin((1 - t) * w) / s, cb = Math.sin(t * w) / s;
+            out.push(fromVec([ca * u[0] + cb * v[0],
+                              ca * u[1] + cb * v[1],
+                              ca * u[2] + cb * v[2]]));
+        }
+    }
+
+    /* The ends are snapped back to the inputs. Round-tripping through the
+     * sphere loses about 1e-13 of a degree, which is nothing on a map and is
+     * not nothing when the end of a path and the marker that sits on it are
+     * drawn from two numbers that no longer match. */
+    out[0] = { lat: a.lat, lon: a.lon };
+    out[steps - 1] = { lat: b.lat, lon: b.lon };
+    return out;
+}
+
+/* Great-circle distance in kilometers, by the haversine formula.
+ *
+ * Haversine rather than the spherical law of cosines because the law of
+ * cosines loses precision on short arcs -- an acos of something very close to
+ * 1 -- and short arcs are the common case here: a group converging from three
+ * cities in one country. It needs no antimeridian handling of its own, since
+ * it only ever uses sin of half the longitude difference and that is the same
+ * number whether you went 0.17 degrees east or 359.83 west. */
+function gcDistanceKm(a, b) {
+    var p1 = a.lat * D2R, p2 = b.lat * D2R;
+    var dp = (b.lat - a.lat) * D2R, dl = (b.lon - a.lon) * D2R;
+    var sp = Math.sin(dp / 2), sl = Math.sin(dl / 2);
+    var h = sp * sp + Math.cos(p1) * Math.cos(p2) * sl * sl;
+    return 2 * EARTH_KM * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/* The one longitude the map should be centered on, as the middle of the
+ * SHORTEST arc of the globe that contains every airport in play.
+ *
+ * Found by its complement: sort the longitudes round the circle, take the
+ * widest empty gap between neighbours, and the airports live in everything
+ * that gap is not. For a US group the widest gap is the Pacific and Eurasia
+ * together and the answer is the middle of North America. For Tokyo and Los
+ * Angeles the widest gap is the 258 degrees running west from Japan, so the
+ * arc that holds them is the 101 degrees of Pacific between them and the
+ * centre is 169 west -- which is what stops the map drawing them apart.
+ *
+ * Mean longitude would not do this. The mean of 140 and -118 is 11 east,
+ * somewhere in Libya, with the two airports at opposite edges of the world. */
+function lonCenter(lons) {
+    var s = [], i;
+    for (i = 0; i < lons.length; i++) s.push(wrapLon(lons[i]));
+    s.sort(function (x, y) { return x - y; });
+    if (!s.length) return 0;
+    if (s.length === 1) return s[0];
+
+    var gap = -1, at = 0;
+    for (i = 0; i < s.length; i++) {
+        var next = (i === s.length - 1) ? s[0] + 360 : s[i + 1];
+        if (next - s[i] > gap) { gap = next - s[i]; at = i; }
+    }
+    var lo = s[(at + 1) % s.length], hi = s[at];
+    if (hi < lo) hi += 360;
+    return wrapLon((lo + hi) / 2);
+}
+
+/* Mercator's vertical axis, in the same radians as its horizontal one. */
+function mercY(lat) {
+    var p = Math.max(-MERC_MAX_LAT, Math.min(MERC_MAX_LAT, lat)) * D2R;
+    return Math.log(Math.tan(Math.PI / 4 + p / 2));
+}
+
+/* A projection fitted to exactly the airports in play, into a box that is a
+ * unit square unless the caller asks for pixels.
+ *
+ * MERCATOR, and the reason is that it is conformal: it gets ANGLES right
+ * everywhere, so a cluster of cities keeps the shape it has on the ground and
+ * a reader who knows what their part of the world looks like recognizes it.
+ *
+ * The simpler option is equirectangular -- x is longitude, y is latitude, two
+ * lines of code. It is wrong by a factor of 1/cos(latitude) in the horizontal,
+ * and that is not a subtlety at the latitudes this app serves. At 51 north a
+ * degree of longitude is 63% of a degree of latitude on the ground and London
+ * comes out 1.6 times too wide. At 60 north, which is Oslo, Stockholm,
+ * Helsinki and Anchorage, it is exactly double. At 78, which is LYR, it is 4.8
+ * times, and the Svalbard archipelago is drawn as a smear. A group in the
+ * Nordics would get a map that is visibly the wrong shape, and the only way to
+ * know would be to already know.
+ *
+ * What Mercator costs, stated plainly, is area: it is the projection that
+ * makes Greenland the size of Africa. That costs nothing here because this
+ * draws points and arcs and never fills a region, so nothing on it is read as
+ * an area in the first place. It costs one thing that is NOT free, and the
+ * component that draws this has to honor it: any basemap underneath must be
+ * Mercator too. Drop a plate-carree world SVG behind these coordinates and
+ * every airport sits in the wrong country, worst at the latitudes where
+ * Mercator was chosen to help.
+ *
+ * The third candidate was azimuthal equidistant centered on the destination,
+ * where every route is a straight radial line and every distance from the
+ * destination is true to scale -- genuinely the right projection for "everyone
+ * converging on one city". It was not taken because it needs a destination to
+ * exist before it can be drawn, and because the picture it makes is not one
+ * anybody recognizes as a map. Worth reconsidering if the map ever becomes
+ * a figure about distance rather than a picture of a trip.
+ *
+ * The fit is UNIFORM in both axes and centered in the box. Normalizing x and y
+ * independently to fill the box would stretch the picture and throw away the
+ * one property Mercator was chosen for, so a wide group leaves space above and
+ * below and a tall one leaves space either side. The caller gets aspect back
+ * and can pick a box that wastes less of it.
+ *
+ * FIT ON WHAT YOU ARE GOING TO DRAW, which means the route samples and not
+ * only the airports. It is one extra concat and it is the difference between
+ * a picture that fits and one that does not, because a route can leave the
+ * box that its own two endpoints fitted into. Tokyo and Los Angeles meeting
+ * in London is the case: the tight arc through those three airports runs east
+ * from Tokyo across the Pacific and the Atlantic, 219 degrees of it, and
+ * leaves Asia out -- but the Tokyo to London flight goes over Asia, so it
+ * exits the frame. Hand the sampled points to the fit as well and the box
+ * becomes the 258 degrees that actually has everything in it, Tokyo at one
+ * edge, Los Angeles at the other, London in between and both routes inside.
+ *
+ *     var legs = origins.map(function (o) { return greatCircle(o, dest, 48); });
+ *     var fit  = fitProjection([].concat.apply(origins.concat([dest]), legs),
+ *                              { width: 300, height: 180, pad: 14 });
+ *
+ * points: [{lat, lon}, ...]  -- everything the picture has to contain
+ * opts:   { width: 1, height: 1, pad: 0 }  -- box size and inset, same units
+ */
+function fitProjection(points, opts) {
+    var o = opts || {};
+    var W = o.width > 0 ? o.width : 1;
+    var H = o.height > 0 ? o.height : 1;
+    var pad = o.pad > 0 ? o.pad : 0;
+
+    var pts = [], i, p;
+    for (i = 0; i < (points || []).length; i++) {
+        p = points[i];
+        if (p && isFinite(p.lat) && isFinite(p.lon)) pts.push(p);
+    }
+
+    var lons = [];
+    for (i = 0; i < pts.length; i++) lons.push(pts[i].lon);
+    var lon0 = lonCenter(lons);
+
+    /* Every longitude pulled into the half-turn centered on lon0, so the set is
+     * contiguous in x before anything is measured. Without this the bounding
+     * box of Tokyo and Los Angeles is 258 degrees wide and the fit zooms out
+     * to show a planet nobody is flying over. */
+    var x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    var n0 = Infinity, n1 = -Infinity;
+    for (i = 0; i < pts.length; i++) {
+        var ux = (lon0 + wrapLon(pts[i].lon - lon0)) * D2R, uy = mercY(pts[i].lat);
+        if (ux < x0) x0 = ux; if (ux > x1) x1 = ux;
+        if (uy < y0) y0 = uy; if (uy > y1) y1 = uy;
+        if (pts[i].lat < n0) n0 = pts[i].lat;
+        if (pts[i].lat > n1) n1 = pts[i].lat;
+    }
+    if (!pts.length) { x0 = x1 = y0 = y1 = 0; n0 = n1 = 0; }
+
+    var spanX = x1 - x0, spanY = y1 - y0;
+    var availW = Math.max(0, W - 2 * pad), availH = Math.max(0, H - 2 * pad);
+
+    /* One scale for both axes, set by whichever one runs out of box first. */
+    var k = Infinity;
+    if (spanX > 0) k = Math.min(k, availW / spanX);
+    if (spanY > 0) k = Math.min(k, availH / spanY);
+    /* Nobody, or everybody at one airport. There is no scale that means
+     * anything, so the scale is zero and the single point lands dead centre --
+     * a dot in the middle of the box, which is the true picture of a group who
+     * are all already in the same city. */
+    if (!isFinite(k)) k = 0;
+
+    var ox = (W - k * spanX) / 2 - k * x0;
+    var oy = (H - k * spanY) / 2 + k * y1;
+
+    function at(lonDeg, lat) {
+        return { x: k * lonDeg * D2R + ox, y: oy - k * mercY(lat) };
+    }
+
+    /* A single point: a marker. Folded into the window round lon0, so an
+     * airport the fit never saw still lands somewhere sensible relative to the
+     * ones it did. */
+    function project(p) {
+        return at(lon0 + wrapLon(p.lon - lon0), p.lat);
+    }
+
+    /* A polyline: a route. Each longitude is unwrapped against the PREVIOUS
+     * one rather than against lon0, taking whichever of east or west is the
+     * shorter step. That is what keeps a Pacific path in one piece: the
+     * samples step 179.6, -179.8, -179.2, and folding each one into a fixed
+     * window would send the third of those the whole way back across the map
+     * and draw a horizontal line through everything.
+     *
+     * The consequence to know about: a path is drawn continuously even where
+     * that takes it outside the box, which is the honest answer -- a route
+     * that leaves the frame should leave it, not teleport across it. Fitting
+     * on the route samples as well as the airports, as the note above says to,
+     * is what stops that arising. */
+    function path(list) {
+        var out = [], prev = null, j;
+        for (j = 0; j < (list || []).length; j++) {
+            var ul = prev === null ? lon0 + wrapLon(list[j].lon - lon0)
+                                   : prev + wrapLon(list[j].lon - prev);
+            prev = ul;
+            out.push(at(ul, list[j].lat));
+        }
+        return out;
+    }
+
+    return {
+        project: project,
+        path: path,
+        /* Everything below is for sizing the box and for tests; drawing only
+         * needs project and path. */
+        lon0: lon0,
+        scale: k,
+        spanX: spanX,
+        spanY: spanY,
+        aspect: spanY > 0 ? spanX / spanY : null,
+        /* west and east are UNWRAPPED, so west is always less than east and
+         * either may fall outside [-180, 180]. Tokyo and Los Angeles come
+         * back as -219.61 to -118.41, a 101 degree box, rather than as the
+         * 258 degree one that reading them as plain longitudes would give. */
+        bounds: { north: n1, south: n0,
+                  west: x0 * R2D, east: x1 * R2D },
+        width: W, height: H, pad: pad
+    };
+}
+/* --- END map geometry ----------------------------------------------- */
+
 /* band=false on a leg that is not a shared departure. The span rule says
  * "everyone is inside this"; drawn across an unclustered return it turned a
  * deliberate choice into what looks like a failed match spanning eleven hours.
