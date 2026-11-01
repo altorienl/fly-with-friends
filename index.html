@@ -1498,6 +1498,24 @@ footer .sep { color: var(--faint); margin: 0 8px; }
     .brand { padding-left: max(16px, env(safe-area-inset-left));
              padding-right: max(16px, env(safe-area-inset-right)); }
 }
+
+/* Trips you looked at before. Quiet by construction: this is the way back to
+ * something you already have, not a second thing to choose between, so it
+ * sits below the button and carries no price, no count and no artwork. The
+ * rows are links rather than buttons because that is what they are -- each
+ * one navigates to a real url somebody could also have in their messages. */
+.recent { margin-top: var(--s6); }
+.recent-k { font-size: var(--t-0); text-transform: uppercase; letter-spacing: .08em;
+    color: var(--faint); margin-bottom: var(--s2); }
+.recent-row { display: flex; align-items: center; justify-content: space-between;
+    gap: var(--s3); min-height: 44px; padding: var(--s2) 0; text-decoration: none;
+    color: inherit; border-top: 1px solid var(--edge); }
+.recent-row:last-child { border-bottom: 1px solid var(--edge); }
+.recent-what { font-size: var(--t-2); color: var(--text); min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-when { font-family: var(--mono); font-size: var(--t-0); color: var(--faint);
+    white-space: nowrap; flex-shrink: 0; }
+.recent-row:active { opacity: .6; }
 </style>
 </head>
 <body>
@@ -1580,6 +1598,10 @@ footer .sep { color: var(--faint); margin: 0 8px; }
         <div class="nav">
             <button class="btn primary wide" id="to2">Next: when</button>
         </div>
+        <!-- Filled by renderRecent(), and absent entirely on a first visit:
+             an empty "no recent trips" state would be a row of furniture
+             explaining that there is nothing to see. -->
+        <div class="recent hidden" id="recent"></div>
     </section>
 
     <!-- step 2 -->

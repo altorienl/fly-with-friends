@@ -1563,6 +1563,7 @@ function saveTrip() {
         if (j && j.id) {
             TRIP_ID = j.id;
             history.replaceState(null, '', basePath() + '?t=' + j.id);
+            rememberTrip();
             /* The trip only becomes a document people can write to at this
              * moment, so this is where the roster control appears. */
             if (state.step === 4) render();
@@ -3208,6 +3209,82 @@ function trackStick() {
     }, { passive: true });
 }
 
+/* ------------------------------------------------------------- recents
+
+ * Trips you looked at before.
+ *
+ * Booking a group trip is not one sitting. People search, send it round, and
+ * come back over several days while everyone makes up their mind -- and until
+ * now the app forgot everything the moment the tab closed, so the way back in
+ * was a link in somebody's messages or nothing at all.
+ *
+ * Only the id and a one-line summary are kept. Every search is already saved
+ * server-side the moment it finishes, so re-opening costs one cached read and
+ * no search at all; storing the 150KB document here as well would buy offline
+ * access and cost the quota it takes to blow out localStorage.
+ *
+ * Thirty days because that is the server's TTL on a trip. Past it the id is
+ * gone and the row would be a button that goes nowhere, so it is dropped on
+ * read rather than left to fail in front of somebody. */
+var RECENT_LS = 'fwf_recent', RECENT_MAX = 4, RECENT_DAYS = 30;
+
+function recentList() {
+    var a = [];
+    try { a = JSON.parse(localStorage.getItem(RECENT_LS) || '[]'); } catch (e) { return []; }
+    if (!Array.isArray(a)) return [];
+    var cut = Date.now() - RECENT_DAYS * 86400000;
+    return a.filter(function (r) {
+        return r && typeof r.id === 'string' && r.id && typeof r.at === 'number' && r.at > cut;
+    }).sort(function (x, y) { return y.at - x.at; }).slice(0, RECENT_MAX);
+}
+
+function rememberTrip() {
+    if (!TRIP_ID || !DATA || DATA.sample || !state.q || !state.q.dest) return;
+    var a = AIRPORTS.get(state.q.dest);
+    var row = {
+        id: TRIP_ID, at: Date.now(),
+        dest: a ? a.code : String(state.q.dest).slice(0, 3).toUpperCase(),
+        dep: state.q.dep, ret: state.q.ret || null,
+        n: (state.q.parties || []).length
+    };
+    var list = recentList().filter(function (r) { return r.id !== row.id; });
+    list.unshift(row);
+    /* setItem throws when the origin is full. Dropping the oldest and trying
+     * again loses the least useful row instead of the whole history. */
+    list = list.slice(0, RECENT_MAX);
+    while (list.length) {
+        try { localStorage.setItem(RECENT_LS, JSON.stringify(list)); return; } catch (e) { list.pop(); }
+    }
+    try { localStorage.removeItem(RECENT_LS); } catch (e) {}
+}
+
+/* Deliberately vague past a week. "17 days ago" is a number nobody needs and
+ * the fares are long stale by then anyway -- what the row has to answer is
+ * "is this the one I was looking at", not "exactly when". */
+function agoText(ts) {
+    var d = Math.floor((Date.now() - ts) / 86400000);
+    if (d <= 0) return 'today';
+    if (d === 1) return 'yesterday';
+    if (d < 7) return d + ' days ago';
+    if (d < 14) return 'last week';
+    return Math.floor(d / 7) + ' weeks ago';
+}
+
+function renderRecent() {
+    var host = el('recent');
+    if (!host) return;
+    var list = state.step === 1 ? recentList() : [];
+    if (!list.length) { host.classList.add('hidden'); host.innerHTML = ''; return; }
+    host.classList.remove('hidden');
+    host.innerHTML = '<div class="recent-k">Recent</div>'
+        + list.map(function (r) {
+            return '<a class="recent-row" href="' + esc(basePath() + '?t=' + r.id) + '">'
+                + '<span class="recent-what">' + esc(r.dest) + ' &middot; '
+                + esc(prettyRange(r.dep, r.ret)) + '</span>'
+                + '<span class="recent-when">' + esc(agoText(r.at)) + '</span></a>';
+        }).join('');
+}
+
 function render() {
     /* Cleared every pass: the memo is keyed by leg and party, but the option
      * sets it summarises change whenever a filter does. */
@@ -3230,6 +3307,7 @@ function render() {
     el('go').setAttribute('aria-busy', state.busy ? 'true' : 'false');
     el('go').classList.toggle('busy', state.busy);
     renderFooter();
+    renderRecent();
     if (state.step !== 4) return;
     if (!C) { showStep(3); return; }
     /* The selected match is what the plan is printed from, so its quoted total
@@ -6203,6 +6281,7 @@ if (sharedId) {
         DATA = res.body.data;
         fillForm(); renderParties();
         showStep(4); render();
+        rememberTrip();
         /* A second, tiny request. The document is large and immutable so it is
          * cached hard at the edge; the roster is small and changes, so it is
          * never cached. Asking for them together would force one of those two to
