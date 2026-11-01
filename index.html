@@ -1204,7 +1204,11 @@ a { color: var(--accent); }
    black on a hairline, which is precisely the fact the card exists to state,
    and it is the correction to a stack of faces that is drawn wider than the
    minutes it stands for. */
-.tl-span { position: absolute; top: calc(var(--axis, 67px) - 1px); height: 3px;
+/* 6px, and the floor in spanWidthPct is the same 6 -- at the floor the bar is
+   as wide as it is tall, so it bottoms out as a round dot rather than a dash.
+   Change one and change the other; test-dates.js asserts they match. Centred
+   on the rule, so a tight window sits ON the day rather than under it. */
+.tl-span { position: absolute; top: calc(var(--axis, 67px) - 2.5px); height: 6px;
     background: var(--text); border-radius: var(--r-pill); }
 
 /* The people. Faces at 34px are people; the time belongs directly under the

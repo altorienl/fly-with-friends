@@ -521,6 +521,12 @@ console.log('\n-- the stylesheet and the layout arithmetic agree --');
     eq('the rule is inset by PLOT_LO at both ends',
        num(/\.tl-axis \{ position: absolute; left: var\(--inset, ([\d.]+)%\); right: var\(--inset, ([\d.]+)%\)/,
            '.tl-axis inset'), ctx.PLOT_LO);
+    /* The floor and the bar's height are the same number on purpose -- at the
+     * floor the bar is as wide as it is tall, so with the pill radius it
+     * bottoms out as a round dot rather than a dash. If the CSS height drifts
+     * off SPAN_H_PX a five-minute window silently goes back to being a smear. */
+    eq('.tl-span is SPAN_H_PX tall',
+       num(/\.tl-span \{[^}]*height: ([\d.]+)px/, '.tl-span height'), ctx.SPAN_H_PX);
     check('the rule is placed off --axis rather than off a hard-coded top',
           /\.tl-axis \{[^}]*top: var\(--axis/.test(css));
     check('...as is the scale hung under it',
@@ -604,6 +610,36 @@ console.log('\n-- time labels do not print over each other --');
     /* Dropping beats overlapping, and only once there is nowhere left. */
     eq('a label is dropped only when all three rows are full',
        rows([[40], [41], [42], [43]]).filter(function (r) { return r < 0; }).length, 1);
+})();
+
+console.log('\n-- the window never draws as a smear --');
+(function () {
+    var axis = 285;                       /* one day at 390px, measured */
+    var floorPct = ctx.SPAN_H_PX / axis * 100;
+    var pct = function (mins) { return mins / 1440 * 100; };
+
+    /* Five minutes against a whole day is about a pixel on a one-pixel rule.
+     * Drawn honestly it reads as a rendering fault, not as a tight group. */
+    var tiny = ctx.spanWidthPct(50, 50 + pct(5), axis);
+    check('a five-minute window is floored, not drawn at its true width',
+          tiny === floorPct && tiny * axis / 100 >= ctx.SPAN_H_PX - 0.001,
+          'drew ' + (tiny * axis / 100).toFixed(2) + 'px');
+    eq('...and the floor is square, so it bottoms out as a dot',
+       Math.round(floorPct * axis / 100), ctx.SPAN_H_PX);
+
+    /* The correction must not reach anything a reader could mistake for real.
+     * 7h17m is the return leg on the live trip and has to be its true width. */
+    var real = ctx.spanWidthPct(50, 50 + pct(437), axis);
+    check('a seven-hour window keeps its true width',
+          Math.abs(real - pct(437)) < 1e-9, 'drew ' + real.toFixed(3) + '%');
+    check('the floor only bites below six pixels',
+          ctx.spanWidthPct(50, 50 + floorPct * 1.01, axis) > floorPct);
+
+    /* Degenerate inputs must not produce NaN in a style attribute, which
+     * silently drops the bar rather than failing anywhere visible. */
+    eq('a zero-width axis cannot emit NaN', ctx.spanWidthPct(10, 20, 0), 0);
+    check('everyone on one flight still draws the dot',
+          ctx.spanWidthPct(42, 42, axis) === floorPct);
 })();
 
 console.log('\n' + (fail ? 'FAILED ' + fail + ' of ' + (pass + fail)

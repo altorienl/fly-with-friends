@@ -5377,6 +5377,25 @@ function timelineBoxPx() {
     var inner = m.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
     return Math.max(inner - 34, 160);
 }
+/* How wide to draw the group's window.
+ *
+ * Drawn honestly against a whole day, a five-minute window is about one pixel
+ * on a one-pixel rule. That does not read as a tight group, it reads as a
+ * rendering fault -- a smudge, or something that failed to paint. Rendered
+ * both ways side by side, the fix is a floor equal to the bar's own height:
+ * at the floor it bottoms out as a round dot, visibly a point somebody placed
+ * rather than a dash, and the pill radius does the rest.
+ *
+ * What that costs is the distinction between five minutes and thirty-seven,
+ * which is a distinction this card already prints in words directly above. */
+var SPAN_H_PX = 6;
+
+function spanWidthPct(leftPct, rightPct, axisPx) {
+    if (!(axisPx > 0)) return 0;
+    var floorPct = SPAN_H_PX / axisPx * 100;
+    return Math.max(rightPct - leftPct, floorPct);
+}
+
 /* --- END timeline scale --------------------------------------------- */
 
 /* band=false on a leg that is not a shared departure. The span rule says
@@ -5438,7 +5457,7 @@ function timeline(picks, included, excluded, band) {
         var l = plotPct(Math.min.apply(null, spanTimes), win.from, win.to);
         var r = plotPct(Math.max.apply(null, spanTimes), win.from, win.to);
         html += '<div class="tl-span" style="left:' + l + '%;width:'
-            + Math.max(r - l, 3 / axisPx * 100) + '%"></div>';
+            + spanWidthPct(l, r, axisPx) + '%"></div>';
     }
 
     marks.forEach(function (mk, mi) {
