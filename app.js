@@ -4485,13 +4485,26 @@ function tripBookLinks(origin, dest, dep, ret, seats, options, name) {
      * cannot dead-end here is the search: a round trip pinned across two
      * carriers is exactly the thing Google refuses. It opens on the route and
      * the dates with both flights in the list. */
-    return [{ label: 'Find ' + name + '\u2019s trip', exact: false,
-              /* Said out loud on the card, because "Find" next to somebody
-               * else's "Book" reads as a worse button rather than a different
-               * destination. It opens the route and the dates with both of
-               * these flights in the list; it cannot open them pinned,
-               * because Google will not sell this pair as one round trip. */
-              why: 'Two airlines, so this opens a search',
+    /* The note is only true when two airlines are actually the reason.
+     *
+     * This exit is reached two ways: a genuinely mixed-carrier trip, and a
+     * trip on one airline that simply cannot be pinned because the payload
+     * carries no segments to pin. Hard-coding the airline sentence here put
+     * "Two airlines" on all four cards of the demo trip, every one of them
+     * United or Delta both ways -- a false statement, which is the exact
+     * thing the note was added to prevent.
+     *
+     * Counted from the segments rather than asked of oneCarrierThroughout,
+     * because that returns true for an option with no segments at all: every
+     * over an empty list is true, which is how a one-airline trip claimed to
+     * be two. No carriers visible means no claim. */
+    var carriers = {};
+    opts.forEach(function (o) {
+        (o.segs || []).forEach(function (sg) { if (sg && sg.carrier) carriers[sg.carrier] = 1; });
+    });
+    var why = Object.keys(carriers).length > 1
+        ? 'Two airlines, so this opens a search' : null;
+    return [{ label: 'Find ' + name + '\u2019s trip', exact: false, why: why,
               url: tripSearchUrl(origin, dest, dep, ret, seats) }];
 }
 
@@ -4739,12 +4752,24 @@ function returnNote(b, allIn) {
 
 function windowStrip(leg, b, label) {
     if (!b) return '';
-    /* "Leaving together" printed over flights eleven hours apart is a lie, so
-     * the heading follows what the leg actually did rather than what was asked
-     * for. Kept here with the rest of the return's copy: the word and the
-     * computation behind it have to move together. */
+    /* The heading is the caller's, and it is computed from the spread.
+     *
+     * This used to recompute it here from returnChoice().how -- the threshold
+     * that was SOLVED FOR, not the spread that came out -- and overwrite
+     * whatever it was handed. So the saved trip printed "Leaving together"
+     * over "7h 17m apart", 437 minutes under a word whose own definition
+     * caps at 90, with the contradiction two lines apart on the same card.
+     * It also made the caller's ternary dead code and meant one of its three
+     * headings could never render at all.
+     *
+     * The outbound had no check of any kind: "Landing together" was a
+     * constant. Filtering down to one airline produced "Landing together"
+     * over "14h 39m apart".
+     *
+     * Both call sites now decide, both from together(), which is the same
+     * function the word means. `loose` stays because the controls below read
+     * it, but it no longer touches the heading. */
     var loose = leg === 'return' && returnChoice(b.ctx).how !== 'together';
-    if (leg === 'return') label = loose ? 'Flying home' : 'Leaving together';
     var prevLeg = state.leg, prevC = C;
     state.leg = leg; C = b.ctx;
 
@@ -5007,7 +5032,11 @@ function renderPlanView() {
      * section is still announced to screen readers by #planView's aria-label. */
     var html = '';
 
-    html += windowStrip('outbound', TRIP.legOut, 'Landing together');
+    /* Earned by the spread, exactly as the return's is. "Flying in" is the
+     * neutral counterpart to "Flying home": a group that could not be landed
+     * together still landed, and the figure beneath says how far apart. */
+    html += windowStrip('outbound', TRIP.legOut,
+        together(TRIP.legOut.spread) ? 'Landing together' : 'Flying in');
     /* The heading reports the outcome, not the setting.
      *
      * "Leaving together" over flights eleven hours apart is a lie, so it is

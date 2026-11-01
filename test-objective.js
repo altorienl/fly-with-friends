@@ -23,14 +23,31 @@ var LIVE = FIX.scenarios.bzn, DEN = FIX.scenarios.den;
 var harness = fs.readFileSync(path.join(ROOT, 'test-return.js'), 'utf8');
 var cut = harness.indexOf('function text(html)');
 if (cut < 0) throw new Error('test-return.js no longer exposes the harness this reuses');
-var head = harness.slice(0, cut)
-    .replace("'recommendedIn', 'blankQuery', 'migrateQuery'];",
-             "'recommendedIn', 'blankQuery', 'migrateQuery', 'tripScore', 'latenessOf',\n"
-             + "               'matchOf', 'tripMatches', 'coherentReturn', 'returnThOf', 'shadowOf'];")
-    .replace("+ ',clearMemo:function(){returnTh={};}'",
+/* This suite borrows test-return.js's loader and patches it by string
+ * replacement, which means every target below is a landmark in another file.
+ * Adding one name to that file's EXPORTS list once made the first of these
+ * match nothing: String.replace returns the subject unchanged when the
+ * needle is absent, so the patch vanished, shadowOf was never exported, and
+ * the failure surfaced as "T.shadowOf is not a function" twenty checks in.
+ * Every patch now has to land, and says which one did not. */
+function patch(src, from, to, what) {
+    if (src.indexOf(from) < 0) {
+        console.error('FAIL: the ' + what + ' landmark is gone from test-return.js.\n'
+            + '      Looked for: ' + from);
+        process.exit(1);
+    }
+    return src.replace(from, to);
+}
+var head = harness.slice(0, cut);
+head = patch(head, "'migrateQuery',",
+             "'migrateQuery', 'tripScore', 'latenessOf',\n"
+             + "               'matchOf', 'tripMatches', 'coherentReturn', 'returnThOf', 'shadowOf',",
+             'EXPORTS');
+head = patch(head, "+ ',clearMemo:function(){returnTh={};COHERENT_MEMO={};}'",
              "+ ',clearMemo:function(){returnTh={};MATCHES=null;PICKED_PLAN=null;OUT_PICKS=null;}'"
              + "+ ',set C(v){C=v;},get C(){return C;}'"
-             + "+ ',set PICKED_PLAN(v){PICKED_PLAN=v;},get PICKED_PLAN(){return PICKED_PLAN;}'");
+             + "+ ',set PICKED_PLAN(v){PICKED_PLAN=v;},get PICKED_PLAN(){return PICKED_PLAN;}'",
+             'clearMemo');
 var ctxBox = {};
 (new Function('module', 'exports', 'require', '__dirname', '__filename',
               head + '\nmodule.exports = { FWF: FWF, T: T };'))

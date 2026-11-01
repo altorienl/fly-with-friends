@@ -50,7 +50,11 @@ function makeEl(id) {
  * shipped file carries no test hooks. */
 var EXPORTS = ['compute', 'legBreakdown', 'tripLadder', 'tripBest', 'windowStrip', 'returnNote',
                'returnWays', 'returnChoice', 'returnThOf', 'regretOf', 'worthIt', 'worthItHome',
-               'recommendedIn', 'blankQuery', 'migrateQuery'];
+               'recommendedIn', 'blankQuery', 'migrateQuery',
+               /* The function the word 'together' means. Exported so the
+                * heading test can assert the word against the same rule the
+                * screen uses, rather than against a 90 typed in here. */
+               'together'];
 
 function load() {
     var nodes = {};
@@ -196,9 +200,26 @@ console.log('\n-- what the screen says, in each of the three states --');
 ].forEach(function (cse) {
     seat(DEMO, sample.trips['pit-feb'], cse[1]);
     var b = T.legBreakdown('return');
-    var html = T.windowStrip('return', b), t = text(html);
+    /* The heading comes from the caller, exactly as it does on the screen.
+     * This used to call windowStrip with no label at all and let it invent
+     * one, which is how the shipped card printed "Leaving together" over
+     * "7h 17m apart": the function recomputed the word from the threshold it
+     * had solved for rather than from the spread that came out. */
+    var head = T.together(b.spread) ? 'Leaving together' : 'Flying home';
+    var html = T.windowStrip('return', b, head), t = text(html);
     check('clusterReturn=' + cse[0] + ': heading is "' + cse[2] + '"',
-          t.indexOf(cse[2]) === 0, t.slice(0, 80));
+          t.indexOf(cse[2]) === 0, t.slice(0, 80) + '  (spread ' + b.spread + 'm)');
+    /* The bug itself, stated directly: windowStrip must print the heading it
+     * is given and must not recompute one. It used to overwrite the
+     * argument from returnChoice().how -- the threshold solved for, not the
+     * spread that came out -- which is how a 7h 17m return was headed
+     * "Leaving together". A sentinel cannot be reached by any rule the
+     * function might reintroduce, so this cannot pass by coincidence. */
+    var sentinel = 'Zzz Sentinel Heading';
+    check('clusterReturn=' + cse[0] + ': the strip prints the heading it is handed',
+          text(T.windowStrip('return', T.legBreakdown('return'), sentinel))
+              .indexOf(sentinel) === 0,
+          text(T.windowStrip('return', T.legBreakdown('return'), sentinel)).slice(0, 40));
     check('clusterReturn=' + cse[0] + ': the alternative carries its price',
           t.indexOf(cse[3]) > -1, t);
     eq('clusterReturn=' + cse[0] + ': and the button moves to the other state',

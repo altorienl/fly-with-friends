@@ -97,6 +97,43 @@ var inlined = decls.split('\n').filter(function (l) {
 if (inlined.length) console.log('      offenders: ' + inlined.join(' | '));
 ck('max(var(--gut), env(...)) appears only in the token definitions', inlined.length === 0);
 
+/* ---------------------------------------- every token has to exist
+ *
+ * A custom property that is never declared is invalid at computed-value
+ * time, and the declaration is simply dropped -- so `font-size: var(--t-0)`
+ * does not fall back to a sensible size, it falls back to INHERITED. That
+ * failure is silent, survives every suite, and renders as text at the wrong
+ * size that looks deliberate.
+ *
+ * It has now happened three times, in three different branches, all with
+ * --t-0 on a ramp whose smallest rung is --t-1: twice in the recents list
+ * and once on the booking note, where a caption rendered at 15px, the same
+ * size as the button it was explaining. Each was found by eye. This finds
+ * the next one.
+ *
+ * A var() WITH a fallback is fine and deliberate -- several tokens are set
+ * from JS at runtime and carry a fallback for the first paint -- so only an
+ * undeclared name used with no fallback is a failure. */
+(function () {
+    var declared = {};
+    (css.match(/(--[a-zA-Z0-9-]+)\s*:/g) || []).forEach(function (m) {
+        declared[m.replace(/\s*:$/, '')] = 1;
+    });
+    /* var(--name) with nothing after the name: no comma, so no fallback. */
+    var bare = {};
+    (css.match(/var\(\s*(--[a-zA-Z0-9-]+)\s*\)/g) || []).forEach(function (m) {
+        bare[m.replace(/var\(\s*/, '').replace(/\s*\)$/, '')] = 1;
+    });
+    var missing = Object.keys(bare).filter(function (n) { return !declared[n]; });
+    ck('every token used without a fallback is declared somewhere: '
+       + (missing.length ? missing.join(' ') : 'all of them'), missing.length === 0);
+
+    /* The specific name that has caused all three, pinned so a future ramp
+     * edit cannot quietly reintroduce the gap at the bottom. */
+    ck('the type ramp starts at --t-1 and nothing asks for --t-0',
+       !/var\(\s*--t-0\s*[),]/.test(css));
+}());
+
 console.log('\n' + (fail ? 'FAILED ' + fail + ' of ' + (pass + fail)
                          : 'ALL ' + pass + ' CHECKS PASSED'));
 process.exitCode = fail ? 1 : 0;
