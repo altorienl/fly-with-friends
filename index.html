@@ -1166,24 +1166,68 @@ a { color: var(--accent); }
 .filters .pills { margin-top: 12px; }
 .free { font-size: var(--t-2); color: var(--good); margin-top: 12px; line-height: var(--lh-text); }
 
-/* The strip is the evidence for the headline above it, so it is drawn at a size
-   you can read rather than as a thin band of marks: avatars at 34px are people,
-   and the first arrival to the last is a 3px rule on the axis -- the window,
-   measured, with visible air either side. The rule sits below the avatars, not
-   behind them, because behind five clustered faces it would be invisible. */
-/* Taller by the height of the ruler, which sits below the staggered mark
- * times rather than competing with them. */
-/* 132 = the lowest a third-row mark time can reach (101px) + a 14px gap +
- * the 17px ruler. Sized from the deepest case, not the common one, because
- * the overflow is clipped and a clipped label is invisible rather than
- * untidy. */
-.timeline { position: relative; height: 132px; margin-bottom: var(--s5); overflow: hidden; }
-/* The scale. Quiet on purpose -- it is context for the dots above it, and the
- * moment it reads as loudly as the landing times it is competing with them. */
-/* bottom:3, not 0. At 0 the last line of text ends exactly on the clip edge,
- * which survives on this machine and is one rounding error from losing its
- * descenders on another. */
-.tl-ruler { position: absolute; left: 0; right: 0; bottom: 3px; height: 17px; }
+/* The signature picture, and the one thing no flight site can draw: where in
+   the day the whole group lands.
+
+   The line IS the day, midnight to midnight, inset at both ends so a 34px face
+   at 11:58pm is not sliced off by the clip. Every card in the app is drawn on
+   that one scale, so the landing card and the leaving card can be held against
+   each other instead of each being a picture of itself. --inset and --axis are
+   written by timeline(); the pixel numbers below are the same ones its layout
+   constants use, and test-dates.js asserts that the two copies still agree.
+
+   Three zones, top to bottom, and the order is the argument: the people and
+   their times, then the rule they stand on, then the day's own scale hung
+   under it. The scale is subordinate to the rule it measures rather than a
+   second row of times competing with the first -- which is what a ruler of
+   quarter-hour ticks under a cluster-scaled axis turned into. */
+/* The height and --axis are written per card by timeline(). The literals
+   here are the one-row case, which is what every card that is not a
+   straggle comes out as; test-dates.js checks them against timelineBox(1). */
+.timeline { position: relative; height: 88px; margin-bottom: var(--s3); overflow: hidden; }
+
+/* The day. It stops where the day stops: a rule run to the edges of the box
+   would claim more clock than the plot holds. The two end stops are midnight
+   and midnight, drawn rather than labelled -- "12am ... 12am" is two words
+   spent saying what the shape already says. */
+.tl-axis { position: absolute; left: var(--inset, 6%); right: var(--inset, 6%);
+    top: var(--axis, 67px); height: 1px; background: var(--edge-2); }
+.tl-axis::before, .tl-axis::after { content: ''; position: absolute; top: -4px;
+    width: 1px; height: 9px; background: var(--edge-2); }
+.tl-axis::before { left: 0; }
+.tl-axis::after { right: 0; }
+
+/* Was .tl-band, an --accent-dim panel behind the dots: amber spent on a
+   background, and at that opacity it read as a rendering fault rather than as
+   a window. Ink, not tint, and the width is the claim -- first arrival to
+   last, nothing else. At day scale on a tight group it is a few pixels of
+   black on a hairline, which is precisely the fact the card exists to state,
+   and it is the correction to a stack of faces that is drawn wider than the
+   minutes it stands for. */
+.tl-span { position: absolute; top: calc(var(--axis, 67px) - 1px); height: 3px;
+    background: var(--text); border-radius: var(--r-pill); }
+
+/* The people. Faces at 34px are people; the time belongs directly under the
+   face it describes, above the rule, so the pair reads as one object. */
+.tl-mark { position: absolute; top: 8px; transform: translateX(-50%); text-align: center; }
+/* rtl so the earliest arrival paints on top, like an iOS facepile */
+.tl-dots { display: flex; justify-content: center; direction: rtl; }
+/* The 2px ring separates stacked faces from each other. It was --bg, the page
+   cream, on a card that is always white -- so every avatar wore a cream halo
+   to solve a problem it only has against its neighbour. */
+.tl-dot { position: relative; direction: ltr; width: 34px; height: 34px; border-radius: var(--r-pill); display: grid; place-items: center; font-size: var(--t-2); font-weight: 600; color: var(--on-party); box-shadow: 0 0 0 2px var(--card); }
+.tl-dots .tl-dot + .tl-dot { margin-right: -10px; }
+/* LABEL_LEAD, then ROW_PITCH a row. Three rows is still the ceiling, but
+   merging means the ordinary card needs one, and the box is sized from the
+   rows that were used rather than from the worst case. */
+.tl-t { font-size: var(--t-1); line-height: 1; color: var(--muted); margin-top: 4px; white-space: nowrap; }
+.tl-t.r1 { margin-top: 18px; }
+.tl-t.r2 { margin-top: 32px; }
+
+/* The scale, hung off the rule rather than floated at the foot of the card, so
+   a tick belongs to the line it is ticking. Quiet on purpose: the moment it
+   reads as loudly as the landing times it is competing with them. */
+.tl-ruler { position: absolute; left: 0; right: 0; top: calc(var(--axis, 67px) + 1px); height: 17px; }
 /* font-size and line-height sit on the tick itself, not only on the label.
  * An inline label's line box is sized by its PARENT's strut, so with the
  * parent still inheriting 15px/1.5 each tick measured 25px inside an 18px
@@ -1191,25 +1235,14 @@ a { color: var(--accent); }
  * Block label, matched strut: 4px tick + 3px gap + 10px text = 17px. */
 .tl-rt { position: absolute; top: 0; transform: translateX(-50%); text-align: center;
     font-size: 10px; line-height: 1; }
-.tl-rt i { display: block; width: 1px; height: 4px; margin: 0 auto 3px;
-    background: var(--edge); }
-.tl-rt span { display: block; font-family: var(--mono); font-size: 10px;
-    line-height: 1; color: var(--faint); white-space: nowrap; }
-.tl-axis { position: absolute; left: 0; right: 0; top: 58px; height: 1px; background: var(--edge); }
-/* Was .tl-band, an --accent-dim panel behind the dots: amber spent on a
-   background, and at that opacity it read as a rendering fault rather than as
-   a window. Ink, not tint, and the width is the claim. */
-.tl-span { position: absolute; top: 57px; height: 3px; background: var(--text); border-radius: var(--r-pill); }
-.tl-mark { position: absolute; top: var(--s4); transform: translateX(-50%); text-align: center; }
-/* rtl so the earliest arrival paints on top, like an iOS facepile */
-.tl-dots { display: flex; justify-content: center; direction: rtl; }
-.tl-dot { position: relative; direction: ltr; width: 34px; height: 34px; border-radius: var(--r-pill); display: grid; place-items: center; font-size: var(--t-2); font-weight: 600; color: var(--on-party); box-shadow: 0 0 0 2px var(--bg); }
-.tl-dots .tl-dot + .tl-dot { margin-right: -10px; }
-.tl-t { font-size: var(--t-1); line-height: 1; color: var(--muted); margin-top: var(--s4); white-space: nowrap; }
-/* Three rows, assigned in JS by what actually fits. A fourth would reach the
- * ruler, so timeline() drops the label instead and lets the dot stand. */
-.tl-t.r1 { margin-top: calc(var(--s4) + var(--s3)); }
-.tl-t.r2 { margin-top: calc(var(--s4) + var(--s3) * 2); }
+.tl-rt i { display: block; width: 1px; height: 4px; margin: 0 auto 3px; background: var(--edge-2); }
+/* A midnight inside the window is a day break, not an hour: taller, darker and
+   straddling the rule like the end stops it matches. The negative top margin
+   is exactly the extra height, so the label under it stays on the same line as
+   every other tick label. */
+.tl-rt.day i { height: 9px; margin-top: -5px; }
+.tl-rt span { display: block; font-size: 10px; line-height: 1; color: var(--faint);
+    white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 .pax { display: grid; grid-template-columns: 32px 24px 1fr auto; gap: 12px; align-items: center; padding: 12px 16px; border: 1px solid var(--edge); border-radius: var(--r-md); background: var(--card); margin-bottom: 8px; box-shadow: var(--lift); }
 .pax.out { border-style: dashed; opacity: .8; }
