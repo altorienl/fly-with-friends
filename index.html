@@ -1173,15 +1173,28 @@ a { color: var(--accent); }
    behind them, because behind five clustered faces it would be invisible. */
 /* Taller by the height of the ruler, which sits below the staggered mark
  * times rather than competing with them. */
-.timeline { position: relative; height: 130px; margin-bottom: var(--s5); overflow: hidden; }
+/* 132 = the lowest a third-row mark time can reach (101px) + a 14px gap +
+ * the 17px ruler. Sized from the deepest case, not the common one, because
+ * the overflow is clipped and a clipped label is invisible rather than
+ * untidy. */
+.timeline { position: relative; height: 132px; margin-bottom: var(--s5); overflow: hidden; }
 /* The scale. Quiet on purpose -- it is context for the dots above it, and the
  * moment it reads as loudly as the landing times it is competing with them. */
-.tl-ruler { position: absolute; left: 0; right: 0; bottom: 0; height: 18px; }
-.tl-rt { position: absolute; transform: translateX(-50%); text-align: center; }
+/* bottom:3, not 0. At 0 the last line of text ends exactly on the clip edge,
+ * which survives on this machine and is one rounding error from losing its
+ * descenders on another. */
+.tl-ruler { position: absolute; left: 0; right: 0; bottom: 3px; height: 17px; }
+/* font-size and line-height sit on the tick itself, not only on the label.
+ * An inline label's line box is sized by its PARENT's strut, so with the
+ * parent still inheriting 15px/1.5 each tick measured 25px inside an 18px
+ * box and the bottom 7px of every label was cut off by .timeline's clip.
+ * Block label, matched strut: 4px tick + 3px gap + 10px text = 17px. */
+.tl-rt { position: absolute; top: 0; transform: translateX(-50%); text-align: center;
+    font-size: 10px; line-height: 1; }
 .tl-rt i { display: block; width: 1px; height: 4px; margin: 0 auto 3px;
     background: var(--edge); }
-.tl-rt span { font-family: var(--mono); font-size: 10px; line-height: 1;
-    color: var(--faint); white-space: nowrap; }
+.tl-rt span { display: block; font-family: var(--mono); font-size: 10px;
+    line-height: 1; color: var(--faint); white-space: nowrap; }
 .tl-axis { position: absolute; left: 0; right: 0; top: 58px; height: 1px; background: var(--edge); }
 /* Was .tl-band, an --accent-dim panel behind the dots: amber spent on a
    background, and at that opacity it read as a rendering fault rather than as
