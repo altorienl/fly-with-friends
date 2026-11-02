@@ -2433,20 +2433,31 @@ function dayEndsOn(date) {
  * seats and parties rather than taken at the worst traveller: two people
  * landing at 1am is twice the problem one is, and unlike spread -- which is a
  * property of the group -- lateness is suffered individually. */
-function latenessOf(ctx, picks, leg) {
-    var ref = dayEndsOn(leg === 'return' ? state.q.ret : state.q.dep);
-    if (ref == null || !picks) return 0;
-    var scale = leg === 'return' ? LATE_HOME_FACTOR : 1;
+function lateRefOf(leg) {
+    return dayEndsOn(leg === 'return' ? state.q.ret : state.q.dep);
+}
+
+/* What ONE option costs ONE party, so a coordinated swap can be priced
+ * without rebuilding a plan. Split out of latenessOf rather than copied:
+ * two readings of the small hours would let the refinement below optimize a
+ * lateness the objective does not charge. */
+function lateOne(ctx, option, id, leg, ref) {
+    if (ref == null || !option || option.arriveMin == null) return 0;
     var night = ref + (NIGHT_FROM - DAY_ENDS);
+    var at = option.arriveMin;
+    var evening = Math.max(0, Math.min(at, night) - ref);
+    var overnight = Math.max(0, at - night);
+    var per = Math.min(LATE_CAP, LATE_PER_MIN * evening + NIGHT_PER_MIN * overnight);
+    return seatsFor(ctx, id) * (leg === 'return' ? LATE_HOME_FACTOR : 1) * per;
+}
+
+function latenessOf(ctx, picks, leg) {
+    var ref = lateRefOf(leg);
+    if (ref == null || !picks) return 0;
     var sum = 0;
     ctx.ids.forEach(function (id) {
         var p = picks[id];
-        if (!p || !p.option || p.option.arriveMin == null) return;
-        var at = p.option.arriveMin;
-        var evening = Math.max(0, Math.min(at, night) - ref);
-        var overnight = Math.max(0, at - night);
-        var per = Math.min(LATE_CAP, LATE_PER_MIN * evening + NIGHT_PER_MIN * overnight);
-        sum += seatsFor(ctx, id) * scale * per;
+        if (p && p.option) sum += lateOne(ctx, p.option, id, leg, ref);
     });
     return sum;
 }
@@ -2898,12 +2909,372 @@ function legWindowFor(profileId, ctx, balancedTh) {
     return balancedTh != null ? balancedTh : freeTighten(ctx, ctx.costFn);
 }
 
+/* ---------------------------------------------------- coordinated moves
+ *
+ * The window decides which flight each person gets under MONEY alone --
+ * minCostAtWindow takes a cost function and nothing else -- so four of the
+ * five terms in tripScore never reach the flights. They rank the rungs and
+ * then stand aside while the rung is filled in.
+ *
+ * Repairing that one traveler at a time gets most of the way and then stops
+ * dead, and it stops for a provable reason rather than a tuning one. Measured
+ * by exhaustive enumeration over 1,193 generated groups: of the plans a
+ * single-swap walk cannot improve, 38 of 39 are STRICT local minima of the
+ * full objective -- no one person's change of flight helps, from any start,
+ * ever. The argmin is reached only by several people moving at once.
+ *
+ * The real search this was written for is that shape exactly. Three people
+ * out of ORD, MSY and DTW into BZN land 00:18, 00:26 and 00:26 for $555, and
+ * the plan the app's own objective rates $418 better puts all three on the
+ * ground between 10:30 and 11:33 for $45 more. No individual swap gets there:
+ * whoever moves first into daylight is alone, eats the whole spread penalty,
+ * and is rejected. All three have to move together or none of them can.
+ *
+ * So the move is wider than one person. This sweeps every SUBSET of k
+ * travelers and every combination of options for them, holding everybody
+ * else still, and takes any combination the objective rates better. k runs
+ * 1, 2, 3 and resets to 1 after a hit, because a coordinated move usually
+ * leaves a cheap single swap tidy-up behind it. At three travelers k=3 is
+ * the whole space, so the sweep is exhaustive and the answer is the argmin.
+ *
+ * Two properties make this safe to ship:
+ *
+ *   It starts from the plan the app recommends TODAY and only ever takes a
+ *   strict improvement, so a group can get better or stay where it is and
+ *   cannot get worse. Asserted per group against brute force, not argued.
+ *
+ *   It never touches money. Every option it considers is already in
+ *   prep.options, and picks[id].cost is written by repriceMoney from
+ *   ctx.costFn, so what reaches a screen is the real fare either way. The
+ *   shadow terms live in w below and stop at the argmin, which is the same
+ *   discipline shadowOf() and coherentReturn() already follow.
+ */
+
+/* Per-option coordinates the sweep scores on, built once per leg. Money and
+ * lateness add up over the group, regret is the worst single traveler's, and
+ * the window is a range over the lot -- so a candidate combination is
+ * arithmetic over these rather than a re-solve. */
+function koptTerms(ctx, leg) {
+    var ref = lateRefOf(leg), base = ctx.ownBest || {}, terms = {};
+    ctx.ids.forEach(function (id) {
+        var b = base[id];
+        terms[id] = (ctx.prep.options[id] || []).map(function (o) {
+            /* The same reading regretOf() takes: measured against this party's
+             * OWN best, and a party with no own best contributes nothing --
+             * which is what a zero does against a worst-of that floors at
+             * zero. Keeping the two definitions in step matters, because a
+             * sweep optimizing a different regret to the one tripScore reads
+             * would hand back plans that score worse than where it started. */
+            var ds = b ? (o.stops == null ? 99 : o.stops) - (b.stops == null ? 99 : b.stops) : 0;
+            var dm = (b && o.duration_minutes != null && b.mins != null)
+                ? o.duration_minutes - b.mins : 0;
+            return { o: o, t: o.clusterMin, ds: ds, dm: dm,
+                     w: ctx.costFn(o, id) + lateOne(ctx, o, id, leg, ref) };
+        });
+    });
+    return terms;
+}
+
+/* tripScore's terms over one leg of one assignment, where pick[i] is an index
+ * into terms[ids[i]]. Not a second objective: this is the outbound half of
+ * tripScore written so it can be evaluated incrementally, and the enumerator
+ * holds the result to tripScore on the shipped path. */
+function koptScore(ids, terms, pick) {
+    var w = 0, lo = Infinity, hi = -Infinity, ds = 0, dm = 0;
+    for (var i = 0; i < ids.length; i++) {
+        var e = terms[ids[i]][pick[i]];
+        w += e.w;
+        if (e.t < lo) lo = e.t;
+        if (e.t > hi) hi = e.t;
+        if (e.ds > ds) ds = e.ds;
+        if (e.dm > dm) dm = e.dm;
+    }
+    return w + SPREAD_PER_MIN * (hi - lo) + EASE_PER_STOP * ds + EASE_PER_MIN * dm;
+}
+
+/* How wide a coordinated move a group can afford, and how much work the
+ * descent may do in total. Both are counted in COMBINATIONS, never in
+ * milliseconds: a budget in time makes the recommendation depend on how busy
+ * the phone is, and two people opening the same link would see different
+ * trips.
+ *
+ * One pass at k costs C(n,k) subsets times about K^k combinations each, and
+ * that is a cliff rather than a slope. Measured on this machine at eight
+ * travelers with twenty options apiece: k=2 is 11,200 combinations and
+ * +0.6ms, k=3 is 448,000 and +13.5ms, k=4 is 11,200,000 and +193ms. A fixed
+ * k has to choose between those two ends for every group at once -- pin it
+ * at 3 and a four-party group gives up an exhaustive sweep it could have had
+ * for 160,000 combinations, pin it at 4 and an eight-party group spends a
+ * fifth of a second in the one render somebody is waiting on.
+ *
+ * So the budget is the dial and k falls out of it. Two budgets, because the
+ * two cases buy different things:
+ *
+ *   KOPT_EXACT_BUDGET is the whole space. Under it the sweep is exhaustive
+ *   and what comes back is the argmin of the leg rather than a local
+ *   minimum, which is the answer and not an approximation of it. 20,000
+ *   combinations is about 3ms at the measured 6 million a second -- a deep
+ *   recursion is the slow kind of combination -- and it covers every 3- and
+ *   4-party shape real captured data produces: the BZN subsets run 300 to
+ *   2,700 combinations after the option prunes.
+ *
+ *   KOPT_PASS_BUDGET is one sweep at one k, where the moves are shallow and
+ *   run about 100 million a second. 500,000 keeps k=3 available at eight
+ *   parties with twenty options apiece, which is the widest group the app
+ *   allows, and costs 13ms there.
+ *
+ * The real seven-party BZN search has 96,768 combinations and so takes the
+ * second path. Sweeping it whole costs 16ms to confirm a plan that is
+ * already the argmin; three-at-a-time reaches the same answer in 1.
+ *
+ * KOPT_BUDGET bounds the whole descent rather than one pass, so the worst
+ * case is a number rather than a hope. */
+var KOPT_EXACT_BUDGET = 20000;
+var KOPT_PASS_BUDGET = 500000;
+var KOPT_BUDGET = 2000000;
+/* A ceiling the measurement tools pin to isolate one neighborhood -- 0 for
+ * the sweep switched off, 2 for pairs only. At its default it never binds,
+ * because APP.maxParties is 8 and no group can have a wider move than that. */
+var KOPT_MAX_K = 8;
+
+/* The widest coordinated move worth paying for when the whole space will not
+ * fit. Three, measured: 2-opt leaves the BZN family stranded at midnight,
+ * and 4-opt over a group of eight is 11,200,000 combinations spent mostly on
+ * groups that were already optimal. */
+var KOPT_WIDE_K = 3;
+
+/* Which neighborhoods this group is swept over, in order, as a LIST -- not a
+ * ceiling to count up to.
+ *
+ * Two answers rather than one slope, because they are different answers and
+ * not two settings of the same one. When every combination fits the budget,
+ * k=n sweeps the lot and what comes back is the argmin of the leg, which is
+ * the answer and not an approximation of it. When it does not fit, no k
+ * makes the sweep exact and the question becomes how wide a move to buy.
+ *
+ * A list rather than a ceiling because C(n,k) * K^k peaks in the MIDDLE:
+ * counting 1,2,...,n up to a 96,768-combination full sweep of the real
+ * seven-party BZN group pays 1,300,000 combinations at k=4 on the way past.
+ * Measured at 60ms to arrive somewhere the single sweep reaches in 2.
+ *
+ * The whole-space test uses the exact product rather than K^n, because
+ * option lists are uneven -- the real capture runs 3 to 8 a party after the
+ * prunes -- and 8^7 against the true 96,768 is the difference between
+ * affording a sweep and not. */
+function koptNeighborhoods(ids, terms) {
+    var n = ids.length, K = 1, whole = 1;
+    for (var i = 0; i < n; i++) {
+        var len = terms[ids[i]].length;
+        if (len > K) K = len;
+        whole *= len;
+    }
+    if (whole <= KOPT_EXACT_BUDGET && n <= KOPT_MAX_K) return [n];
+    var ks = [], top = Math.min(n, KOPT_WIDE_K, KOPT_MAX_K);
+    for (var k = 1; k <= top; k++) {
+        var subsets = 1;
+        for (var j = 0; j < k; j++) subsets = subsets * (n - j) / (j + 1);
+        /* Single swaps are always affordable and are what the wider moves
+         * tidy up behind, so k=1 is never budgeted away. */
+        if (k === 1 || Math.round(subsets) * Math.pow(K, k) <= KOPT_PASS_BUDGET) ks.push(k);
+    }
+    return ks;
+}
+
+/* What the last sweep did. Read by tools/ only -- nothing at render time
+ * looks at it and nothing downstream branches on it. */
+var koptTrace = { k: 0, moves: 0, leaves: 0, gain: 0 };
+
+/* Best combination for one subset of travelers, everybody else held at the
+ * aggregates passed in. Returns null unless it beats `limit` strictly, so the
+ * caller can only ever move downhill.
+ *
+ * rest.lo/rest.hi arrive as +/-Infinity when the subset is the whole group,
+ * which is the k=3 case at three travelers; the members fill them in on the
+ * way down and the range term comes out right without a special case. */
+function koptSubset(ids, terms, members, rest, limit, budget) {
+    var m = members.length, choice = new Array(m), best = null, score = limit, leaves = 0;
+    (function rec(d, w, lo, hi, ds, dm) {
+        if (leaves > budget) return;
+        if (d === m) {
+            leaves++;
+            var s = w + SPREAD_PER_MIN * (hi - lo) + EASE_PER_STOP * ds + EASE_PER_MIN * dm;
+            if (s < score - 1e-9) { score = s; best = choice.slice(); }
+            return;
+        }
+        var list = terms[ids[members[d]]];
+        for (var j = 0; j < list.length; j++) {
+            var e = list[j];
+            choice[d] = j;
+            rec(d + 1, w + e.w, e.t < lo ? e.t : lo, e.t > hi ? e.t : hi,
+                e.ds > ds ? e.ds : ds, e.dm > dm ? e.dm : dm);
+        }
+    }(0, rest.w, rest.lo, rest.hi, rest.ds, rest.dm));
+    koptTrace.leaves += leaves;
+    return best ? { pick: best, score: score, leaves: leaves } : { leaves: leaves };
+}
+
+/* Everybody outside the subset, summarized, plus the cheapest the subset
+ * could conceivably be. The bound is a real one: adding travelers back can
+ * only widen the range and only raise a worst-of, and each of them costs at
+ * least their own cheapest w -- so a subset whose bound already loses cannot
+ * win, and three deep that prune is most of the running time. */
+function koptRest(ids, terms, pick, members, minW) {
+    var rest = { w: 0, lo: Infinity, hi: -Infinity, ds: 0, dm: 0 }, floor = 0;
+    for (var i = 0; i < ids.length; i++) {
+        if (members.indexOf(i) > -1) { floor += minW[i]; continue; }
+        var e = terms[ids[i]][pick[i]];
+        rest.w += e.w;
+        if (e.t < rest.lo) rest.lo = e.t;
+        if (e.t > rest.hi) rest.hi = e.t;
+        if (e.ds > rest.ds) rest.ds = e.ds;
+        if (e.dm > rest.dm) rest.dm = e.dm;
+    }
+    var span = rest.hi > rest.lo ? rest.hi - rest.lo : 0;
+    rest.bound = rest.w + floor + SPREAD_PER_MIN * span
+        + EASE_PER_STOP * rest.ds + EASE_PER_MIN * rest.dm;
+    return rest;
+}
+
+/* Every subset of size k, as index arrays into ids. */
+function koptCombos(n, k) {
+    var out = [], idx = [];
+    (function rec(start) {
+        if (idx.length === k) { out.push(idx.slice()); return; }
+        for (var i = start; i <= n - (k - idx.length); i++) { idx.push(i); rec(i + 1); idx.pop(); }
+    }(0));
+    return out;
+}
+
+/* The descent. Variable neighborhood: widen k only when the narrower sweep
+ * is exhausted, and drop back to 1 the moment anything moves, because a
+ * coordinated move changes what the single swaps are worth. */
+function koptDescend(ids, terms, pick, ks, budget) {
+    var n = ids.length, score = koptScore(ids, terms, pick);
+    var spent = 0, moves = 0, start = score;
+    var minW = ids.map(function (id) {
+        var list = terms[id], lo = Infinity;
+        for (var j = 0; j < list.length; j++) if (list[j].w < lo) lo = list[j].w;
+        return lo;
+    });
+    var at = 0;
+    while (at < ks.length && spent < budget) {
+        var k = ks[at], moved = false;
+        var subsets = koptCombos(n, k);
+        for (var s = 0; s < subsets.length && spent < budget; s++) {
+            var members = subsets[s];
+            var rest = koptRest(ids, terms, pick, members, minW);
+            if (rest.bound >= score - 1e-9) continue;
+            var hit = koptSubset(ids, terms, members, rest, score, budget - spent);
+            spent += hit.leaves;
+            if (!hit.pick) continue;
+            for (var d = 0; d < members.length; d++) pick[members[d]] = hit.pick[d];
+            score = hit.score; moved = true; moves++;
+        }
+        /* A sweep over EVERY traveler has returned the argmin of the leg.
+         * There is nothing left for a second pass to find, and confirming it
+         * costs exactly as much as the first pass did. */
+        if (k === n) break;
+        at = moved ? 0 : at + 1;
+    }
+    koptTrace.k = ks.length ? ks[ks.length - 1] : 0;
+    koptTrace.moves += moves; koptTrace.gain += start - score;
+    return { pick: pick, score: score, improved: score < start - 1e-9 };
+}
+
+/* The refinement, in the shape repriceMoney() returns so every consumer below
+ * is unaffected.
+ *
+ * Complete groups only. A subset plan's `included` list is defined by the
+ * window it was solved at, and moving somebody outside that window would
+ * leave the excluded party's "nearest, 40m out" caption describing a window
+ * the plan no longer sits in. The subset path needs its own answer and this
+ * is not it. */
+function koptRefine(ctx, plan, leg) {
+    if (!plan || !plan.picks || !ctx.prep || !ctx.prep.complete) return null;
+    if (ctx.ids.length < 2) return null;
+    var terms = koptTerms(ctx, leg || ctx.leg);
+    var pick = [], ok = true;
+    ctx.ids.forEach(function (id, i) {
+        if (!ok) return;
+        var got = plan.picks[id] && plan.picks[id].option, at = -1;
+        for (var j = 0; got && j < terms[id].length; j++) if (terms[id][j].o === got) { at = j; break; }
+        if (at < 0) { ok = false; return; }
+        pick[i] = at;
+    });
+    if (!ok) return null;
+    var out = koptDescend(ctx.ids, terms, pick,
+        koptNeighborhoods(ctx.ids, terms), KOPT_BUDGET);
+    if (!out.improved) return null;
+    var picks = {};
+    ctx.ids.forEach(function (id, i) {
+        var o = terms[id][out.pick[i]].o;
+        picks[id] = { option: o, cost: ctx.costFn(o, id) };
+    });
+    return repriceMoney(ctx, { picks: picks, included: ctx.ids.slice(), excluded: [] });
+}
+
+/* The whole trip's score for an outbound plan, the way tripLadder() builds a
+ * row: the way home is chosen AGAINST this outbound, so two outbounds are not
+ * comparable on their own halves alone.
+ *
+ * Only called to settle whether a refinement is worth taking on a round trip.
+ * On a one-way the leg score above IS the trip score and this never runs. */
+function koptTripScore(ctx, plan) {
+    var row = { total: plan.cost, worst: plan.spread,
+                regret: regretOf(ctx, plan.picks),
+                late: latenessOf(ctx, plan.picks, ctx.leg) };
+    if (hasReturn()) {
+        var rc = compute('return');
+        if (!rc || !rc.prep || !rc.prep.complete) return tripScore(row);
+        var keep = OUT_PICKS;
+        OUT_PICKS = plan.picks;
+        var rr = coherentReturn(rc, returnThOf(rc))
+              || FWF.minCostAtWindow(rc.prep, returnThOf(rc), rc.costFn);
+        OUT_PICKS = keep;
+        if (!rr) return null;
+        row.total += rr.cost;
+        row.late += latenessOf(rc, rr.picks, 'return');
+        var g = regretOf(rc, rr.picks);
+        if (g.stops > row.regret.stops) row.regret.stops = g.stops;
+        if (g.mins > row.regret.mins) row.regret.mins = g.mins;
+    }
+    return tripScore(row);
+}
+
+/* Take the refinement only if the WHOLE trip is better for it.
+ *
+ * The leg sweep cannot see the way home, and the way home is chosen against
+ * the outbound -- so an outbound that is $40 better on its own leg can hand
+ * coherentReturn() a worse set of loops to close and lose more than it
+ * gained. Without this guard that is a group made worse, which is the one
+ * thing this change is not allowed to do. One extra return solve, on round
+ * trips, only when the sweep found something. */
+function koptBetter(ctx, plan) {
+    var refined = koptRefine(ctx, plan, ctx.leg);
+    if (!refined) return plan;
+    if (!hasReturn()) return refined;
+    var was = koptTripScore(ctx, plan), now = koptTripScore(ctx, refined);
+    if (was == null || now == null) return plan;
+    return now < was - 1e-9 ? refined : plan;
+}
+
 function legPlanFor(profileId, ctx, balancedTh) {
     var th = legWindowFor(profileId, ctx, balancedTh);
     var shadow = shadowOf(ctx, profileId === 'easiest' ? 'ease' : 'money');
     var r = solveAt(ctx, th, shadow);
     if (!r) return null;
-    return { plan: repriceMoney(ctx, r), th: th };
+    var plan = repriceMoney(ctx, r);
+    /* Balanced only, and the restriction is not caution -- it is what the
+     * other three names MEAN. Cheapest is the money argmin, Closest is the
+     * tightest window the group can physically achieve, and Easiest is the
+     * argmin of the ease shadow; a sweep under tripScore would walk each of
+     * them off its own promise and leave three cards whose captions no
+     * longer describe them. Balanced is the one card that claims to be the
+     * best trade, which is exactly what tripScore measures, so it is the one
+     * card the sweep belongs on -- and it is the card matchList marks as the
+     * recommendation, so it is the answer the group actually gets. */
+    if (profileId === 'balanced') plan = koptBetter(ctx, plan);
+    return { plan: plan, th: th };
 }
 
 /* The same roll-up tripLadder() does for a threshold row, for a set of per-leg
@@ -3364,9 +3735,11 @@ function whyBits(m, list) {
     return bits;
 }
 
-function matchWhy(m, ms) {
-    if (m.why) return m.why;
-    var list = (ms && ms.length) ? ms : [m];
+/* The caption before the last resort below: the differences, plus time in
+ * the air when the differences do not separate this row from another. Split
+ * out so matchWhy can ask what ANOTHER row would print without recursing
+ * into itself once per row on the screen. */
+function whyLine(m, list) {
     var bits = whyBits(m, list);
     /* A caption another row on the same screen also carries has told nobody
      * anything -- it has put two rows at different prices under one sentence,
@@ -3397,8 +3770,58 @@ function matchWhy(m, ms) {
     /* Nothing varied at all is the same problem with one row left: say it in
      * time in the air. Something always differs -- two matches that differ in
      * nothing were collapsed into one. */
-    if ((clash || beaten || !bits.length) && m.mins != null) {
-        bits.push(FWF.fmtGap(m.mins) + ' in the air');
+    var air = (clash || beaten || !bits.length) && m.mins != null;
+    if (air) bits.push(FWF.fmtGap(m.mins) + ' in the air');
+    return { bits: bits, air: air };
+}
+
+/* How many of this plan's travelers land after the day is over, and which
+ * one when it is only the one. DAY_ENDS rather than a number of this
+ * caption's own: it is the hour latenessOf() starts charging for, so the
+ * clause states the fact the objective is actually buying.
+ *
+ * Against the departure date in epoch minutes, not against the time of day,
+ * so a 00:26 landing reads as the overrun it is rather than as half past
+ * midnight being early. */
+function nightfallOf(m) {
+    var ref = dayEndsOn(state.q && state.q.dep);
+    if (ref == null || !m.picks) return null;
+    var n = 0, who = null;
+    for (var id in m.picks) {
+        var o = m.picks[id] && m.picks[id].option;
+        if (o && o.arriveMin != null && o.arriveMin > ref) { n++; who = id; }
+    }
+    return { n: n, who: who, at: FWF.fmtClock(DAY_ENDS, SET && SET.time24) };
+}
+
+function matchWhy(m, ms) {
+    if (m.why) return m.why;
+    var list = (ms && ms.length) ? ms : [m];
+    var line = whyLine(m, list), bits = line.bits;
+    /* Two rows can tie on flying time as well, and then the air-time clause
+     * is the same sentence printed twice with the defect it was added to
+     * fix. What differs underneath is WHEN people are on the ground, which
+     * the objective prices and the caption had no way to say. Measured at
+     * seed 48: two plans 12h 2m apart, everybody nonstop and 24h 2m in the
+     * air, one putting four people down after five o'clock and the other
+     * three, $24 between them. Before the coordinated sweep the
+     * recommendation could not buy that evening back, so the collision could
+     * not arise; now it can, and a row that spent $24 on somebody's evening
+     * has to be able to say so.
+     *
+     * It REPLACES the air-time clause rather than joining it, because a
+     * number two rows both print decides nothing and a four-clause caption
+     * decides less. */
+    var mine = bits.join(' · ');
+    var twin = list.some(function (o) {
+        return o !== m && whyLine(o, list).bits.join(' · ') === mine;
+    });
+    var fall = twin ? nightfallOf(m) : null;
+    if (fall) {
+        if (line.air) bits.pop();
+        bits.push(!fall.n ? 'everyone lands by ' + fall.at
+            : fall.n === 1 ? name(fall.who) + ' lands after ' + fall.at
+            : fall.n + ' land after ' + fall.at);
     }
     return bits.join(' · ');
 }

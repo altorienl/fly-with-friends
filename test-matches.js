@@ -210,7 +210,22 @@ console.log('\n-- the invariants the names promise, over generated groups --');
     var live = {}, dupe = {}, dom = {}, infeas = {};
     IDS.forEach(function (k) { live[k] = dupe[k] = dom[k] = infeas[k] = 0; });
     var runs = 0, noProfiles = 0, counts = {};
-    var tightFail = [], cheapFail = [], balancedFail = [], shapeFail = [];
+    var tightFail = [], cheapFail = [], balancedFail = [], shapeFail = [], balancedMoved = 0;
+    /* tripScore for one leg's picks, built the way tripLadder() builds a row.
+     * The ladder is the only other place this sum exists, and it has to stay
+     * the same sum or this check compares two objectives. */
+    function legScore(lctx, picks) {
+        var total = 0, times = [];
+        for (var i = 0; i < lctx.ids.length; i++) {
+            var p = picks[lctx.ids[i]];
+            if (!p || !p.option) return Infinity;
+            total += p.cost; times.push(p.option.clusterMin);
+        }
+        return ctx.tripScore({ total: total,
+            worst: Math.max.apply(null, times) - Math.min.apply(null, times),
+            regret: ctx.regretOf(lctx, picks),
+            late: ctx.latenessOf(lctx, picks, lctx.leg) });
+    }
     var perMin = [], tooClose = [];
     var connFixed = 0, easeCost = [];
 
@@ -266,19 +281,35 @@ console.log('\n-- the invariants the names promise, over generated groups --');
             });
         });
 
-        /* Balanced must reproduce the pre-profile recommendation exactly. */
+        /* Balanced must be the pre-profile recommendation, or a strict
+         * improvement on it measured by the app's own objective.
+         *
+         * It had to be that plan EXACTLY, and that was the right assertion
+         * for as long as nothing could do better than what the window handed
+         * back. The coordinated sweep can: it starts from this very plan and
+         * only ever takes a combination tripScore rates lower, so "unchanged
+         * or better" is the property Balanced actually has. Asserting
+         * equality now would assert that the improvement does not happen,
+         * which is a gate going green on the thing it exists to guard.
+         *
+         * Scored in the ONE option set both plans come from, so the two
+         * numbers are on one scale -- regret is measured against each party's
+         * own best, and that moves the moment the option set does. */
         var tl = ctx.tripLadder(), tb = tl && ctx.tripBest(tl);
         if (tb && ba && ba.feasible) {
-            var same = true;
+            var same = true, worse = false;
             m.legs.forEach(function (leg) {
                 var lctx = m.ctxs[leg];
                 var ref = FWF.minCostAtWindow(lctx.prep, tb.th, lctx.costFn);
-                if (!ref) { same = false; return; }
+                if (!ref) { same = false; worse = true; return; }
                 lctx.ids.forEach(function (id) {
                     if (ref.picks[id].option !== ba.plans[leg].picks[id].option) same = false;
                 });
+                if (legScore(lctx, ba.plans[leg].picks)
+                    > legScore(lctx, ref.picks) + 1e-6) worse = true;
             });
-            if (!same) balancedFail.push(s);
+            if (!same) balancedMoved++;
+            if (worse) balancedFail.push(s);
         }
 
         if (ea && ba && ea.feasible && ba.feasible) {
@@ -305,8 +336,10 @@ console.log('\n-- the invariants the names promise, over generated groups --');
           cheapFail.length === 0, 'failed on seeds ' + cheapFail.slice(0, 6).join(','));
     check('every profile\'s reported spread matches its own flights',
           shapeFail.length === 0, shapeFail.slice(0, 4).join(', '));
-    check('balanced still IS the pre-profile recommendation, every group',
+    check('balanced is the pre-profile recommendation or better, every group',
           balancedFail.length === 0, 'failed on seeds ' + balancedFail.slice(0, 6).join(','));
+    console.log('    the coordinated sweep moved balanced off the window plan in '
+        + balancedMoved + ' groups');
 
     /* Distinctness. A profile is allowed to collapse -- "the cheapest is also
      * the balanced pick" is a useful thing to be told -- but a profile that

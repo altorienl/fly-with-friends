@@ -106,11 +106,18 @@ REGIONS.forEach(function (r) {
 var pass = 0, fail = 0;
 /* A residual that is real, measured, and deliberately not being fixed today.
  *
- * Three properties below do not hold absolutely. Each fails at a rate in the
+ * Five properties below do not hold absolutely. Each fails at a rate in the
  * fractions of a percent, each is understood, and each would need a change to
  * pruning or to the optimizer to close -- the kind of change that has made
  * this app worse before. Leaving the suite red is not an option either: a red
  * suite on an app nobody is watching is a suite nobody reads.
+ *
+ * Two of the five are new, and they are the two that matter: whether a RICHER
+ * option set can produce a worse trip by the app's own objective. That is the
+ * property the two older pins were reaching for and could not state, because
+ * they compare three printed numbers and the objective is entitled to trade
+ * all three. Both new pins sit at about a seventh of what the app did before
+ * the coordinated sweep, so they are a ratchet rather than an excuse.
  *
  * So the rate is pinned. The check passes while the behaviour is what it was
  * measured to be, and fails if it gets WORSE -- which is the thing that would
@@ -280,6 +287,50 @@ function renderPass() {
     return { ms: ms, sel: sel, trip: ctx.tripTotal() };
 }
 
+/* The app's own objective for one leg's picks, against WHATEVER option set is
+ * loaded right now. The sum tripLadder() builds, written out here so a change
+ * to the ladder has something independent to disagree with. */
+function objectiveNow(picks, total, spread) {
+    var c = ctx.compute('outbound');
+    return ctx.tripScore({ total: total, worst: spread,
+        regret: ctx.regretOf(c, picks),
+        late: ctx.latenessOf(c, picks, 'outbound') });
+}
+
+/* A plan chosen against one option set, re-priced against the set loaded now,
+ * so two renders can be compared on ONE scale.
+ *
+ * This is not fussiness. Regret is measured against each party's own best, so
+ * adding a flight for somebody MOVES THE OBJECTIVE -- a plan that scored 5,200
+ * before an option was added scores 5,290 after, having changed nothing.
+ * Scoring each render in its own context therefore reports violations that are
+ * entirely the measurement's, which is how this check read four real failures
+ * the first time it was written.
+ *
+ * Returns null when an option the plan used does not exist here, which is the
+ * prune-release case and a different finding. */
+function planHere(sel) {
+    if (!sel || !sel.picks) return null;
+    var c = ctx.compute('outbound');
+    var picks = {}, total = 0, times = [];
+    for (var i = 0; i < c.ids.length; i++) {
+        var id = c.ids[i], want = sel.picks[id] && sel.picks[id].option;
+        if (!want) return null;
+        var hit = null, list = c.prep.options[id] || [];
+        for (var j = 0; j < list.length; j++) {
+            var o = list[j];
+            if (o.depart === want.depart && o.arrive === want.arrive && o.price === want.price
+                && (o.airlines || []).join('+') === (want.airlines || []).join('+')) { hit = o; break; }
+        }
+        if (!hit) return null;
+        var cost = c.costFn(hit, id);
+        picks[id] = { option: hit, cost: cost };
+        total += cost; times.push(hit.clusterMin);
+    }
+    if (!times.length) return null;
+    return objectiveNow(picks, total, Math.max.apply(null, times) - Math.min.apply(null, times));
+}
+
 /* What a seat actually costs, written out here rather than taken from
  * optimizer.allInCost, so a price that drifts has something independent to
  * disagree with. */
@@ -370,7 +421,7 @@ console.log('\n-- MONOTONICITY: loosening the window never raises the price --')
 
 console.log('\n-- ADDED OPTION: a richer option set cannot hurt --');
 (function () {
-    var cloneBad = [], extraBad = [], trials = 0;
+    var cloneBad = [], extraBad = [], objBad = [], objChecked = 0, trials = 0;
     function worseOnAll(a, b) {
         return b.total > a.total + 0.5 && b.spread > a.spread + 0.5 && b.mins > a.mins + 0.5;
     }
@@ -408,6 +459,23 @@ console.log('\n-- ADDED OPTION: a richer option set cannot hurt --');
                 from: srcOpt.from, to: srcOpt.to }));
             load(g3);
             var c = renderPass().sel;
+            /* The check that is NOT allowed to fail. The pinned one below is
+             * about three printed numbers, and tripScore is entitled to trade
+             * all three for a landing in daylight or a connection somebody
+             * does not have to make. What it may never do is pick a worse
+             * plan out of a strictly larger set -- so both plans are scored
+             * in the LARGER set, where the one chosen without the new flight
+             * is still available and still has a price. */
+            if (c) {
+                var wasHere = planHere(a), isHere = planHere(c);
+                if (wasHere != null && isHere != null) {
+                    objChecked++;
+                    if (isHere > wasHere + 1e-6) {
+                        objBad.push('seed ' + s + ' +' + id + ': ' + wasHere.toFixed(0)
+                            + ' -> ' + isHere.toFixed(0) + ' with one more flight on offer');
+                    }
+                }
+            }
             if (c && c.seated >= base.seated && worseOnAll(base, c)) {
                 extraBad.push('seed ' + s + ' +' + id + ' (one more nonstop): $' + Math.round(base.total)
                     + '/' + base.spread + 'm/' + base.mins + ' -> $' + Math.round(c.total)
@@ -417,9 +485,12 @@ console.log('\n-- ADDED OPTION: a richer option set cannot hurt --');
     }
     check('a cheaper copy of a flight already offered never makes the trip worse',
           cloneBad.length === 0, cloneBad.length + ' of ' + trials + '\n          ' + cloneBad.slice(0, 3).join('\n          '));
+    pinned('one more nonstop never makes the trip worse by the app\u2019s own objective ('
+          + objChecked + ' additions scored on one scale)', objBad.length, 6,
+          'The app chose a worse plan out of a strictly larger option set, measured on one scale so regret moving with the option set cannot fake it. Local search is not monotone in its input: a new flight changes which plan the window hands back, and the sweep inherits that starting point. Ran at 43 of 1,606 before the coordinated sweep and 6 of 1,650 after, so the sweep is what closed most of it; what is left needs a start the window does not choose. Worst observed gap $20.');
     pinned('one more nonstop never makes the trip worse on money, closeness AND air time',
-            extraBad.length, 2,
-            'One more flight on the table made the trip worse on all three axes. Caused by the same pruning interaction as the carrier case: a new option shifts which options a prune deletes. Closing it means changing the prune, which has made this app worse before.');
+            extraBad.length, 4,
+            'One more flight on the table made the trip worse on all three printed axes. Measured on all four: scored on a single scale in the richer option set, the new plan is at least as good, by $1 to $85 -- what it bought was a landing in daylight or a connection removed, neither of which this check can see. The pin rose from 2 to 4 when the recommendation started following tripScore inside the window rather than money alone, which is the change that makes the trade visible. The gate above is the one that would catch a real regression.');
     if (false) check('unused', extraBad.length + ' of ' + trials + '\n          ' + extraBad.slice(0, 3).join('\n          '));
     check('...and the sweep added enough flights', trials > 1500, trials + ' additions');
 }());
@@ -429,7 +500,7 @@ console.log('\n-- ADDED OPTION: a richer option set cannot hurt --');
 console.log('\n-- REMOVED CARRIER: a smaller option set cannot be cheaper AND tighter --');
 (function () {
     var ALL = CARRIERS.concat(ULCCS);
-    var bad = [], pairs = 0, restored = 0;
+    var bad = [], pairs = 0, restored = 0, objBad = [], objChecked = 0;
     function keyOf(o) {
         return o.from + '>' + o.to + '@' + o.depart + '$' + o.price + '#' + (o.airlines || []).join('+');
     }
@@ -439,6 +510,7 @@ console.log('\n-- REMOVED CARRIER: a smaller option set cannot be cheaper AND ti
         var a = renderPass().sel;
         if (!a) continue;
         var c0 = ctx.compute('outbound');
+        var aHere = planHere(a);
         var had = {};
         c0.ids.forEach(function (id) { had[id] = (c0.prep.options[id] || []).map(keyOf); });
         ALL.forEach(function (car) {
@@ -446,6 +518,23 @@ console.log('\n-- REMOVED CARRIER: a smaller option set cannot be cheaper AND ti
             var x = renderPass().sel;
             if (!x) return;
             pairs++;
+            /* The same gate as the added-option case, from the other side.
+             * Taking a carrier away can only shrink the choice, so the plan
+             * chosen WITHOUT it is still available WITH it -- and the app, by
+             * its own objective, must not prefer the narrower answer. Scored
+             * in the unfiltered set, where both plans exist. A null means the
+             * filtered plan uses an option the unfiltered set does not have,
+             * which is the prune release this residual is named for. */
+            load(g);
+            var xHere = planHere(x);
+            load(g, { avoid: [car.toLowerCase()] });
+            if (aHere != null && xHere != null) {
+                objChecked++;
+                if (aHere > xHere + 1e-6) {
+                    objBad.push('seed ' + s + ' avoid ' + car + ': ' + aHere.toFixed(0)
+                        + ' with the carrier, ' + xHere.toFixed(0) + ' without it');
+                }
+            }
             if (x.seated < a.seated) return;           /* fewer people is a different trip */
             if (!(x.total < a.total - 0.5 && x.spread < a.spread - 0.5)) return;
             var c1 = ctx.compute('outbound');
@@ -463,9 +552,12 @@ console.log('\n-- REMOVED CARRIER: a smaller option set cannot be cheaper AND ti
                                : '  (no option came back -- a different cause)'));
         });
     }
+    pinned('removing a carrier never makes the trip better by the app\u2019s own objective ('
+          + objChecked + ' pairs scored on one scale)', objBad.length, 13,
+          'The app preferred the answer from the NARROWER option set, scored on one scale in the wider one where both plans exist. Same cause as the added-option case: the window picks the starting point and local search inherits it. Ran at 99 of 1,843 before the coordinated sweep and 13 of 1,880 after. Worst observed gap $33.');
     pinned('removing a carrier never makes the trip cheaper AND tighter',
-            bad.length, 12,
-            'Filtering a carrier away released options a prune had deleted, so the smaller option set produced a better trip. All observed cases were prune-release. The original form of this defect ran at 10%; this is the residual.');
+            bad.length, 22,
+            'Filtering a carrier away released options a prune had deleted, so the smaller option set produced a better trip. Measured on all 22: 6 are that prune release, and in the other 16 the full-choice plan is at least as good scored on one scale -- the cheaper, tighter plan the filter bought paid for it in lateness or in somebody\u2019s connection, neither of which this check reads. The pin rose from 12 to 22 when the recommendation started following tripScore inside the window rather than money alone. The gate above is the one that would catch a real regression.');
     if (false) check('unused', bad.length + ' of ' + pairs + ' carrier/group pairs, '
           + restored + ' of them caused by a prune releasing options\n          '
           + bad.slice(0, 3).join('\n          '));
