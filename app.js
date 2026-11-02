@@ -3249,26 +3249,52 @@ function tripMatches() {
         return e.feasible && !e.dupeOf && !e.dominatedBy;
     });
 
-    /* The way home, once. Every match flies the same return -- see
-     * matchProfiles -- so it is a constant added to each card, which leaves the
-     * ordering of the cards untouched and makes the price on a card the price of
-     * the whole trip. Quoting the outbound alone would be the third version of
-     * the same bug: a number on the chooser that the plan below it does not
-     * sum to. */
-    var back = hasReturn() ? legBreakdown('return') : null;
-    var backTotal = back ? back.total : 0;
     /* The outbound context, for the fares of anyone a subset plan leaves out.
-     * The return total above already covers everybody, so without this the two
+     * The return total below already covers everybody, so without this the two
      * halves of a card's price are summed over different sets of people. */
     var outCtx = compute('outbound');
 
+    /* The way home, per card, against that card's own outbound.
+     *
+     * It was computed once here, as "a constant added to each card". It is not
+     * a constant: coherentReturn() chooses the way home against the outbound,
+     * so each card has its own -- and it was computed while OUT_PICKS was null,
+     * which is the one input that makes coherentReturn() return null outright.
+     * So the chooser priced a return chosen with no outbound in hand, and the
+     * plan underneath -- rendered after legBreakdown('outbound') has set
+     * OUT_PICKS to the selected plan -- priced a different one. Two halves of
+     * one screen quoting two trips, which is the third version of the bug the
+     * comment here used to warn about. Measured on 54 of 862 generated screens
+     * and on a live four-party LAS search: the card said $1,415 over
+     * itineraries summing to $1,449.
+     *
+     * OUT_PICKS is put back because render() is mid-pass: tripTotal() runs
+     * next and sets it for itself. */
+    function homeFor(plan) {
+        if (!hasReturn()) return null;
+        var keep = OUT_PICKS;
+        OUT_PICKS = plan.picks;
+        var b = legBreakdown('return');
+        OUT_PICKS = keep;
+        return b;
+    }
+
     MATCHES = matchList(live.map(function (e) {
+        var back = homeFor(e.plans.outbound);
+        var backTotal = back ? back.total : 0;
+        /* Over everybody, not over the parties this plan seated. A party the
+         * window left behind is still buying a ticket -- strandedCost puts
+         * their fare in the total below -- so leaving them out of "each at
+         * most" printed a ceiling somebody on the trip was already over, on
+         * 269 of 862 generated screens. */
         var per = {}, topPer = 0;
-        Object.keys(e.per).forEach(function (id) {
+        outCtx.ids.forEach(function (id) {
+            var o = e.per[id] != null ? e.per[id]
+                  : (outCtx.soloOpen[id] ? outCtx.soloOpen[id].cost : null);
+            if (o == null) return;
             var b = back && back.rows[id] ? back.rows[id].cost : 0;
-            per[id] = e.per[id] + b;
-            var seats = e.seats && e.seats[id] > 1 ? e.seats[id] : 1;
-            topPer = Math.max(topPer, per[id] / seats);
+            per[id] = o + b;
+            topPer = Math.max(topPer, per[id] / seatsFor(outCtx, id));
         });
         return {
             key: e.id, name: e.label,
