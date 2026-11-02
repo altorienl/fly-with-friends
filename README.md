@@ -361,6 +361,76 @@ tells a group nothing. So the optimiser also solves for the largest subset that 
 target and names who falls out — *"6 of 7 land within 28 minutes; Ray is +2h 10m outside"* —
 which turns an impossible constraint into a real decision.
 
+## The objective, and why picking flights is not the same as picking a window
+
+The two algorithms above answer *which window*. They do not answer *which flight*, and for a
+long time nothing did.
+
+The app ranks a trip with one number:
+
+```
+tripScore = total + 1.5 * spread + 120 * regret.stops + 0.75 * regret.mins + lateness
+```
+
+That score chose between rungs of the ladder. But the flights inside a rung came from
+`minCostAtWindow`, which takes a cost function and nothing else — so **four of the five terms
+never reached the actual selection**. The window picked the rung and money filled it in. A
+group could be shown a plan its own objective rated hundreds of dollars worse than one sitting
+in the same option set.
+
+Repairing that one traveler at a time does not work, and it fails for a provable reason rather
+than a tuning one. Measured by exhaustive enumeration: of the plans a single-swap walk cannot
+improve, **38 of 39 are strict local minima** — no one person changing flight helps, from any
+starting point. The real case is three people out of ORD, MSY and DTW into BZN landing 00:18,
+00:26 and 00:26 for $555, where the plan the objective rates $418 better puts all three on the
+ground between 10:30 and 11:33 for $45 more. Whoever moves into daylight first is alone, eats
+the entire spread penalty, and gets rejected. All three have to move together or none can.
+
+So the sweep moves **subsets** of travelers at once (k = 1, 2, 3, resetting to 1 after a hit,
+and exhaustive when the whole space fits a 20,000-combination budget). Four properties keep it
+honest:
+
+- It starts from the plan the app recommends today and only ever takes a **strict**
+  improvement, so a group can get better or stay put, never worse.
+- It runs on the **Balanced card only**. The other three names *mean* their own argmin —
+  Cheapest is the money argmin, Closest the tightest achievable window, Easiest the ease
+  argmin — and sweeping them under `tripScore` would walk each off its own caption.
+- It never touches money. Penalty terms live in the search weight and stop at the argmin; every
+  price that reaches a screen is re-derived by `repriceMoney` from the real fare.
+- Budgets are counted in **combinations, never milliseconds**. A time budget would make the
+  recommendation depend on how busy the phone is, so two people opening the same link would see
+  different trips.
+
+### Verifying it
+
+```
+node tools/enumerate-objective.js    # exhaustive enumeration; the acceptance gate
+node tools/measure-kopt.js           # per-group before/after, plus render cost
+```
+
+`enumerate-objective.js` is the gate, not the test-suite percentages. It enumerates the full
+combination space on small groups and asks whether the recommendation **is** the argmin, and it
+holds its own scoring to `tripLadder` on 168 of 168 real rows so it cannot quietly drift into
+measuring a second objective. Current state: 99.7% on generated groups, 100% on the real BZN
+capture, 90.9% on the subset path, mean gap to the argmin $0.48.
+
+`measure-kopt.js` answers the question a rate cannot: a percentage can rise while some
+individual group gets a worse trip than it had yesterday, and that group is a person opening
+the app. It runs the same groups with the sweep off and on in one process and compares each
+group against itself. **287 improved, 0 worsened.**
+
+Two caveats worth keeping:
+
+- Do not rewrite `tightestWindow`, `minCostAtWindow`, `bestSubset` or `ladder` to fix a ranking
+  problem. All of this work changed **zero lines** of `optimizer.js`, on purpose — those four
+  are verified against brute force and are not where valuation bugs live.
+- Two pinned properties in `test-properties.js` compare plans on money, closeness and air time
+  only. Their ceilings legitimately rose, because `tripScore` is entitled to trade those three
+  against lateness and someone's connection — things those checks cannot see. The properly
+  stated objective properties beside them improved about sevenfold. If you ever need to raise a
+  ceiling again, prove it the same way: run the new check against the **old** tree and show the
+  underlying property got better, not just different.
+
 ## Known limits
 
 - **One-way searches, not round trips.** SerpApi's round-trip mode returns only outbound
