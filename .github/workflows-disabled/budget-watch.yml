@@ -1,0 +1,138 @@
+# Tells me when the search allowance runs out.
+#
+# The app fails politely when the month is spent -- users get a friendly 429 and
+# everything else still looks healthy. That is good for them and bad for me: the
+# one state I most need to know about is the one that looks like nothing.
+#
+# This runs on GitHub rather than on a machine, because machines get wiped. It
+# needs no secret: /budget is public and already computes `low` and `exhausted`
+# server-side, so there is nothing here to re-derive or get wrong.
+#
+# All of the logic is in one github-script step on purpose. The first draft put
+# the fetch in `run:` and parsed it with an inline `python3 -c`, and the python
+# body sat at column 1 -- which ends the YAML block scalar, so the file did not
+# parse at all. It had never run. One language, indentation-insensitive, inside
+# a block scalar that cannot be left by accident.
+#
+# GitHub also disables scheduled workflows after 60 days with no repo activity,
+# which would silence this alarm exactly when nobody is committing -- the case
+# the whole file exists for. So the last step commits a heartbeat on the first
+# of the month. Monthly, not daily: enough to reset a 60-day clock, little
+# enough that the log stays readable.
+
+name: Budget watch
+
+on:
+  schedule:
+    - cron: '0 13 * * *'   # 06:00 Pacific
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+  contents: write   # the heartbeat commit at the bottom, nothing else
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read the budget, then open or close the alert
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const URL = 'https://fly-with-friends-api.altorien.workers.dev/budget';
+            const label = 'budget';
+
+            // A worker that hangs is as dead as one that 500s, and without a
+            // timeout the fetch would wait out the whole job rather than
+            // reporting the thing it exists to report.
+            let state, detail;
+            try {
+              const res = await fetch(URL, { signal: AbortSignal.timeout(30000) });
+              if (!res.ok) throw new Error('HTTP ' + res.status);
+              const d = await res.json();
+              const used = d.used ?? 0, limit = d.limit ?? 0, left = d.providerLeft;
+              if (d.exhausted) {
+                state = 'exhausted';
+                detail = 'The allowance is spent. Searches are returning 429 until '
+                       + (d.resetsAt || 'the reset') + '.';
+              } else if (d.low) {
+                state = 'low';
+                detail = 'Running low: ' + used + ' of ' + limit + ' used, ' + left
+                       + ' left at the provider, resets ' + (d.resetsAt || '?') + '.';
+              } else {
+                state = 'ok';
+                detail = used + ' of ' + limit + ' used.';
+              }
+            } catch (e) {
+              state = 'unreachable';
+              detail = 'The budget endpoint did not answer usefully: ' + e.message;
+            }
+
+            // One open issue at a time. A daily cron that files a fresh issue
+            // every morning trains me to ignore the whole label.
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: label
+            });
+
+            if (state === 'ok') {
+              for (const issue of open) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: issue.number, body: 'Recovered. ' + detail
+                });
+                await github.rest.issues.update({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: issue.number, state: 'closed'
+                });
+              }
+              core.info('Healthy. ' + detail);
+              return;
+            }
+
+            if (open.length) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: open[0].number, body: 'Still ' + state + '. ' + detail
+              });
+              return;
+            }
+
+            const titles = {
+              exhausted: 'Search allowance is spent',
+              low: 'Search allowance is running low',
+              unreachable: 'Budget endpoint is not responding'
+            };
+            await github.rest.issues.create({
+              owner: context.repo.owner, repo: context.repo.repo,
+              title: titles[state],
+              body: detail
+                  + '\n\nRaise the plan at serpapi.com, or wait for the monthly reset.'
+                  + '\n\nChecked by `.github/workflows/budget-watch.yml`.',
+              labels: [label]
+            });
+
+      - name: Keep the schedule alive
+        # Only on a real schedule tick, and only on the 1st. A manual
+        # workflow_dispatch is already repo activity and needs no help.
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$(date -u +%d)" != "01" ]; then
+            echo "Not the 1st; no heartbeat needed."
+            exit 0
+          fi
+          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${REPO}" beat
+          cd beat
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > .github/last-alive
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/last-alive
+          if git diff --cached --quiet; then
+            echo "Nothing changed."
+            exit 0
+          fi
+          git commit -m "Heartbeat: keep the budget watch scheduled"
+          git push
