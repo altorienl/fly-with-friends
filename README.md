@@ -412,12 +412,13 @@ node tools/measure-kopt.js           # per-group before/after, plus render cost
 combination space on small groups and asks whether the recommendation **is** the argmin, and it
 holds its own scoring to `tripLadder` on 168 of 168 real rows so it cannot quietly drift into
 measuring a second objective. Current state: 99.7% on generated groups, 100% on the real BZN
-capture, 90.9% on the subset path, mean gap to the argmin $0.48.
+capture, 90.9% on the subset path, and 97.3% on real subsets.
 
 `measure-kopt.js` answers the question a rate cannot: a percentage can rise while some
 individual group gets a worse trip than it had yesterday, and that group is a person opening
 the app. It runs the same groups with the sweep off and on in one process and compares each
-group against itself. **287 improved, 0 worsened.**
+group against itself. Over 1,485 generated groups: **297 improved, 0 worsened**, and the
+mean gap to the argmin falls from $25.62 to $0.04.
 
 Two caveats worth keeping:
 

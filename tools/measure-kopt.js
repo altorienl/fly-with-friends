@@ -227,7 +227,17 @@ function recScore(c, rc) {
     return { score: ctx.tripScore(row), row: row, combo: combo };
 }
 
-var N = +(process.argv[2] || 1200), MAXK = +(process.argv[3] || 3);
+/* MAXK defaults to whatever app.js actually ships, not to a number of this
+ * tool's own. It is written into ctx.KOPT_MAX_K below to isolate one
+ * neighbourhood, and a default of 3 silently measured something narrower than
+ * production: koptNeighborhoods() only takes the exhaustive branch when
+ * n <= KOPT_MAX_K, so a capped run makes every 4-party group skip the whole-
+ * space sweep it gets in the app. That under-reported the real BZN subsets as
+ * 98.6% with a $358 miss, where the shipped setting reaches the argmin in all
+ * 70. A measurement tool whose default disagrees with the build is worse than
+ * no tool, because the number looks like the answer. Pass a smaller k
+ * explicitly to study a narrower neighbourhood. */
+var N = +(process.argv[2] || 1200), MAXK = +(process.argv[3] || ctx.KOPT_MAX_K);
 
 /* ----------------------------------------- 1. per group, off versus on */
 var tally = { groups: 0, better: 0, worse: 0, same: 0, offPass: 0, onPass: 0,
