@@ -2833,6 +2833,117 @@ function subsetTightest(ctx) {
     return hi;
 }
 
+/* The window the default card gets when there is no ladder to rank it with.
+ *
+ * tripLadder() returns null the moment one party has no option at all, and
+ * the ladder is the ONLY place tripScore reaches the selection. So on this
+ * path balancedTh arrives null and "Balanced" falls straight through to
+ * freeTighten(money) -- which is the rule "Cheapest" already follows. The
+ * default card for a group somebody cannot make was therefore the cheapest
+ * plan with whatever closeness happened to come free, with spread, lateness
+ * and regret priced at nothing at all. Not a weaker version of the
+ * complete-group objective: none of it.
+ *
+ * Measured by exhaustive enumeration over the seatable set -- section 3 of
+ * tools/enumerate-objective.js, which is there because sections 1 and 2 both
+ * skip every group this function exists for. Over 296 stranded groups built
+ * from the same generator section 1 uses: the ladder was null in 296 of 296
+ * and Balanced took the money-only window in 296 of 296. The recommendation
+ * was the argmin in 84 of them, 28%, against 80% where a ladder exists. Of
+ * the objective given away across the 212 misses, the spread term was
+ * $93,545 of it while the money saved was $23,751 -- the card was handing
+ * back fourteen hours of separation to save thirty dollars, and nothing in
+ * the selection could see that it had.
+ *
+ * So: make the comparison tripBest() makes, over the same rungs, for the
+ * group that can actually be seated.
+ *
+ * Headcount is a veto here and never a term. A window that seats fewer than
+ * reachOf() is not scored at all, so no arithmetic in this function can buy a
+ * better number with somebody's seat -- and because reachOf() is bestSubset
+ * at an infinite window, holding the count also pins the SET: every candidate
+ * that survives the veto seats exactly the same people.
+ *
+ * And the window that ships today is seeded into the pool rather than
+ * competed against, with ties going to whichever was considered first. The
+ * worst this can return is the answer it replaced. */
+/* tripScore for one plan on a group somebody cannot be seated in.
+ *
+ * The window search below and the card ranking in matchProfiles() both go
+ * through here on purpose. They are the same question asked at two
+ * granularities -- which window, then which card -- and if they ever scored a
+ * plan differently the screen could recommend a card the window search had
+ * already rejected. */
+function subsetPlanScore(ctx, r, retCtx) {
+    if (!r || !r.picks) return null;
+    /* The money the card quotes, not the money this plan spends: a party the
+     * plan cannot seat is still buying a ticket, and strandedCost is the one
+     * definition of what that costs. */
+    var total = r.cost + strandedCost(ctx, r);
+    var late = latenessOf(ctx, r.picks, ctx.leg);
+    var reg = regretOf(ctx, r.picks);
+
+    /* The way home has to be in here, and it was not.
+     *
+     * coherentReturn chooses the return AGAINST the outbound, so the way home
+     * is not a constant that falls out of a comparison between two outbounds
+     * -- it moves when the outbound moves. Scored on the outbound alone, both
+     * the window search and the card ranking could take a plan that was
+     * better on the way out and worse overall. Measured: exactly 2 of 496
+     * generated subset groups went backwards that way, both of them round
+     * trips, one by $150. Small, and still a group getting a worse answer
+     * than it got before, which is the one thing this change may not do.
+     *
+     * Priced the way tripLadder prices it, through the same function the
+     * cards use, with the return's own spread left out of `worst` for the
+     * reason given there -- the return settles its own window and its spread
+     * does not vary with the outbound. Skipped when the return leg is itself
+     * incomplete, which is the one case coherentReturn cannot answer. */
+    if (retCtx && retCtx.prep.complete) {
+        var keep = OUT_PICKS;
+        OUT_PICKS = r.picks;
+        var rr = coherentReturn(retCtx, returnThOf(retCtx))
+              || FWF.minCostAtWindow(retCtx.prep, returnThOf(retCtx), retCtx.costFn);
+        OUT_PICKS = keep;
+        if (rr) {
+            total += rr.cost;
+            late += latenessOf(retCtx, rr.picks, 'return');
+            var g2 = regretOf(retCtx, rr.picks);
+            if (g2.stops > reg.stops) reg.stops = g2.stops;
+            if (g2.mins > reg.mins) reg.mins = g2.mins;
+        }
+    }
+    return tripScore({ total: total, worst: r.spread, regret: reg, late: late });
+}
+
+function subsetBalancedTh(ctx) {
+    var free = freeTighten(ctx, ctx.costFn);   /* what the card gets today */
+    var reach = reachOf(ctx);
+    if (!reach) return free;
+    /* Once, not per rung: compute() is not memoized and this is on the render
+     * path. coherentReturn below is memoized on the outbound it is made
+     * coherent with, so re-asking it per rung is cheap. */
+    var retCtx = (ctx.leg === 'outbound' && hasReturn()) ? compute('return') : null;
+
+    var bestTh = free, bestScore = null, seen = {};
+
+    function consider(th) {
+        if (th == null || seen[th]) return;
+        seen[th] = true;
+        var r = repriceMoney(ctx, solveAt(ctx, th, ctx.costFn));
+        if (!r || (r.included || ctx.ids).length < reach) return;
+        var sc = subsetPlanScore(ctx, r, retCtx);
+        if (sc == null) return;
+        /* Strictly better, so a tie keeps whatever was considered first --
+         * which is today's answer, and after that the tighter rung. */
+        if (bestScore === null || sc < bestScore) { bestScore = sc; bestTh = th; }
+    }
+
+    consider(free);
+    FWF.DEFAULT_THRESHOLDS.forEach(consider);
+    return bestTh;
+}
+
 /* What a plan is asking of one party, in one number: the money they pay over
  * their own cheapest option PLUS the flying they are doing over their own best
  * option, per seat. Both halves matter and neither is the whole story -- a $12
@@ -2906,7 +3017,13 @@ function legWindowFor(profileId, ctx, balancedTh) {
     if (profileId === 'easiest') return freeTighten(ctx, shadowOf(ctx, 'ease'));
     if (profileId === 'cheapest') return freeTighten(ctx, ctx.costFn);
     if (loose) return freeTighten(ctx, ctx.costFn);
-    return balancedTh != null ? balancedTh : freeTighten(ctx, ctx.costFn);
+    if (balancedTh != null) return balancedTh;
+    /* balancedTh is null because tripLadder() had nothing to build a ladder
+     * from, which on this path means somebody cannot be seated at all. That
+     * is the one case where falling through to freeTighten(money) makes the
+     * default card a second copy of Cheapest -- see subsetBalancedTh. */
+    if (!ctx.prep.complete) return subsetBalancedTh(ctx);
+    return freeTighten(ctx, ctx.costFn);
 }
 
 /* ---------------------------------------------------- coordinated moves
@@ -3592,7 +3709,43 @@ function matchList(raw) {
      * which is a different question: a column of prices that runs in order is
      * the whole reason three prices can be compared at a glance rather than
      * read one at a time. */
-    if (out.length) out[0].rec = true;
+    /* Which card carries the mark.
+     *
+     * The head of the delivered order, as before -- and on a complete group
+     * that is the end of it, because Balanced IS tripBest() of the trip
+     * ladder and the mark already sits on the best-scoring plan the app
+     * built. On a group somebody cannot be seated in there is no ladder, so
+     * the mark was sitting on Balanced for no reason beyond its position in a
+     * list, while the cards beside it select under their own shadow costs --
+     * and "Easiest flights" in particular prices the stops and air minutes
+     * that money alone cannot see.
+     *
+     * Measured by exhaustive enumeration over the seatable set: of the misses
+     * that survived the window fix, a card ALREADY ON THIS LIST scored better
+     * in 43 of 85 generated groups and in 47 of 47 on the real BZN capture
+     * under a landing band. The app had computed the better trip, priced it
+     * in real money and put it in front of the reader -- and then pointed at
+     * a different one. A ranking defect, not a search problem: no extra
+     * solve, no new plan, no fare that was not already on the page.
+     *
+     * Three rules keep this from being a regression. The scan starts AT
+     * today's answer rather than beside it, and the comparison is strict, so
+     * a tie leaves the mark where it is. Headcount is a veto: a card seating
+     * fewer people cannot take the mark, whatever it scores. And score is
+     * null wherever a ladder exists, so this loop does nothing at all on a
+     * complete group. */
+    var head = out[0];
+    if (head && head.score != null) {
+        /* The floor is today's answer and does not move as head does. Read
+         * off head inside the loop it would drift downward with each
+         * improvement, which is how a veto turns into a ratchet. */
+        var floorSeated = head.seated, hs = head.score;
+        for (var i = 0; i < out.length; i++) {
+            if (out[i].seated < floorSeated) continue;
+            if (out[i].score != null && out[i].score < hs) { hs = out[i].score; head = out[i]; }
+        }
+    }
+    if (head) head.rec = true;
     out.sort(function (a, b) { return a.total - b.total; });
     return out;
 }
@@ -3624,6 +3777,9 @@ function tripMatches() {
      * The return total below already covers everybody, so without this the two
      * halves of a card's price are summed over different sets of people. */
     var outCtx = compute('outbound');
+    /* For the card scores below, and only where they are computed at all.
+     * Hoisted out of the map so one render costs one return solve. */
+    var retCtxForScore = (!outCtx.prep.complete && hasReturn()) ? compute('return') : null;
 
     /* The way home, per card, against that card's own outbound.
      *
@@ -3677,6 +3833,11 @@ function tripMatches() {
             spread: e.worst, mins: e.mins, conn: e.conn,
             picks: e.plans.outbound.picks, plan: e.plans.outbound,
             th: e.th.outbound != null ? e.th.outbound : null,
+            /* Only where there is no ladder to rank the cards -- see
+             * matchList. Null on a complete group, and the ranking there is
+             * untouched. */
+            score: outCtx.prep.complete ? null
+                 : subsetPlanScore(outCtx, e.plans.outbound, retCtxForScore),
             sig: e.sig
         };
     }));
