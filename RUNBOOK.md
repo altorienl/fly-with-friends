@@ -85,18 +85,22 @@ and wrangler walks up, finds the site config and tries to serve a directory that
 does not exist.
 
 ```
-# the app
-cp index.html app.js airports.js airports-extra.js optimizer.js \
-   flights.json manifest.json *.png favicon.svg robots.txt dist/
-cp -r splash dist/
-npx wrangler deploy -c wrangler.site.toml
-
-# the API
-cd worker && npx wrangler deploy -c ./wrangler.toml
+./deploy.sh            # the app
+./deploy.sh api        # the app and the API
+./deploy.sh --dry      # assemble and check, ship nothing
 ```
 
-`dist/` is assembled by copying and is gitignored. A missing launch image does
-not error — it means iOS opens that phone size to a white screen, which is the
+The script runs the suite first and stops if it is red, assembles `dist/`,
+and refuses to ship if a copy did not take or if `index.html` references a
+local file that is not there. `--force` skips the tests, which is right only
+when you are rolling back a live break.
+
+Do the copy by hand and two things go wrong silently: `dist/` is gitignored,
+so a file you changed but did not copy leaves `git status` clean while
+wrangler uploads the old one, and a file you added to `index.html` but not to
+the list becomes a 404 on a page that still returns 200. Both have happened.
+
+A missing launch image does not error — it means iOS opens that phone size to a white screen, which is the
 one failure nobody reports. `dist/splash` is removed first because the copy does
 not prune: images deleted from `splash/` would otherwise go on being served.
 
@@ -111,11 +115,19 @@ build. This has already cost one evening.
 No package manager, no install. Node 20 or newer.
 
 ```
-for t in test-*.js; do node "$t" || echo "FAILED $t"; done
-cd worker && node test-worker.js
+./run-tests.sh
 ```
 
-Around 540 checks across eleven suites. They are the reason this is changeable
+Around 1,270 checks across seventeen suites. Run it with the script rather
+than a loop that greps for the word FAILED: a suite that *crashes* prints a
+stack trace instead, and two of them once spent a day not running because of
+exactly that. `run-tests.sh` counts a non-zero exit as a failure.
+
+Two tools sit outside the suite and decide whether a change to the matching
+objective may ship — `tools/enumerate-objective.js` for whether the
+recommendation is the argmin, and `tools/measure-kopt.js` for whether any
+individual group got *worse*, which a percentage cannot tell you. See
+"The objective" in the README. They are the reason this is changeable
 by somebody who did not write it: they encode what each piece is *for*, not just
 that it runs. None of them touch the network — the provider is stubbed, so a
 test that reached for SerpApi would throw rather than spend a search.
