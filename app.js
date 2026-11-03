@@ -8822,6 +8822,38 @@ if (/[?&]demo=1\b/.test(location.search)) loadDemo();
 /* The mark doubles as the home button. Same action as "New trip", which was
  * only reachable by scrolling to the footer. */
 if (el('homeBtn')) el('homeBtn').addEventListener('click', function () { newTrip(); });
+
+/* Settings, bound directly as well as through the delegated handler above.
+ *
+ * Both entry points -- the masthead gear and the footer link -- go through
+ * one document-level click listener. That listener is a single point of
+ * failure for every control that uses it: if anything before the Settings
+ * branch throws, or if a click never reaches document, both doors stop
+ * working at once and the page looks fine. Reported exactly that way, on
+ * every platform, with the gear visibly lighting up and nothing happening.
+ *
+ * A direct listener on each button cannot be intercepted by the chain and
+ * cannot be lost to an earlier branch. The delegated branches stay -- they
+ * are harmless, and a second `settingsSheet()` on an already-open sheet just
+ * rewrites the same markup.
+ *
+ * The catch is deliberate and not defensive dressing. A silent failure here
+ * is what made this take all evening: the console was on a phone, so nobody
+ * could see it. If the sheet cannot open, say so on the screen where the
+ * person tapping is actually looking. */
+['gearBtn', 'setBtn'].forEach(function (id) {
+    var b = el(id);
+    if (!b) return;
+    b.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        try { settingsSheet(); }
+        catch (err) {
+            if (window.console) console.error('settings failed', err);
+            alert('Settings could not open: ' + ((err && err.message) || err));
+        }
+    });
+});
 /* A new trip is a new destination and new dates, not new friends. Keeping the
  * group is the whole reason the roster is saved -- clearing it here would mean
  * the app remembered your people right up until you asked it for another trip.
