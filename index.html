@@ -35,7 +35,9 @@
      dark scrim over the status area that no CSS can switch off. Setting
      default or black instead hands iOS the strip but says nothing about its
      colour, which is how a cream app ended up under a grey band.
-     Removed, iOS SAMPLES THE PAGE for the bar colour -- see .tint below -- and
+     Removed, iOS SAMPLES THE PAGE for the bar colour -- it hit-tests a few
+     pixels inside the top edge and walks up to the first fixed or sticky
+     ancestor, which is .brand -- and
      picks the glyph colour from that colour's luma. So the bar follows the
      in-app theme rather than the system scheme, which is the disagreement that
      caused most of this. Requires a delete-and-re-add on the home screen: iOS
@@ -411,6 +413,26 @@ a { color: var(--accent); }
         max(var(--pad-r), calc((100% - 640px) / 2))
         8px
         max(var(--pad-l), calc((100% - 640px) / 2));
+}
+/* Standing clear of a busy Dynamic Island.
+ *
+ * env(safe-area-inset-top) is a constant per device -- 59px on an Island
+ * phone -- and it does NOT grow while the Island hosts live activities, which
+ * make it taller and wider than the idle pill. At +8 the gear sat at y 67-111
+ * and an expanded Island reaches roughly 85, so its top half was under the
+ * hardware and the tap went to iOS rather than the button. Reported from a
+ * phone running two live activities: the settings gear could not be hit at all.
+ *
+ * There is no media query for "the Island is busy" and no event for it, so the
+ * only move a web app has is to stand further back. +34 puts the gear at 93px
+ * on an Island phone, which clears the expanded state with room to spare.
+ *
+ * Scoped to standalone on purpose. In a browser tab Safari's own chrome is
+ * above the page, there is no Island over it, and the inset is 0 -- so the
+ * extra 26px would be a band of nothing at the top of the window for no
+ * reason. */
+@media (display-mode: standalone) {
+    .brand { padding-top: calc(env(safe-area-inset-top) + 34px); }
 }
 .brand-left { position: relative; display: flex; align-items: center; gap: 12px; min-width: 0; }
 .home-btn { position: absolute; inset: -10px -12px; background: none; border: 0; border-radius: var(--r-md);
