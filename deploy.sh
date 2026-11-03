@@ -62,11 +62,42 @@ cp ./*.png dist/ 2>/dev/null || true
 rm -rf dist/splash
 cp -r splash dist/
 
+# Stamp each script URL with a hash of its contents.
+#
+# index.html is served must-revalidate, so a new deploy always reaches the
+# browser. The scripts were not: they are referenced by a bare filename, and
+# an installed PWA will happily keep serving a cached app.js for days. Three
+# fixes in one evening were deployed, verified live with a real browser, and
+# never reached the phone they were written for -- the app on the home screen
+# was running old code the whole time and there was no way to tell from the
+# outside.
+#
+# The hash goes in dist/ only. The working tree keeps bare filenames so the
+# files stay openable from disk and the diff stays readable.
+echo "== stamping asset versions =="
+for f in app.js optimizer.js airports.js airports-extra.js airports-geo.js; do
+    [ -f "dist/$f" ] || continue
+    h=$(shasum -a 256 "dist/$f" | cut -c1-10)
+    # The pattern is anchored on src="<file>" so it cannot match a mention of
+    # the filename in a comment.
+    /usr/bin/sed -i '' "s|src=\"$f\"|src=\"$f?v=$h\"|g" dist/index.html
+    printf '  %-20s %s\n' "$f" "$h"
+done
+if grep -qE 'src="[a-z-]+\.js"' dist/index.html; then
+    echo "  a script reference was left unstamped:"
+    grep -oE 'src="[a-z-]+\.js"' dist/index.html | sed 's/^/    /'
+    exit 1
+fi
+
 # Did the copy actually land? Cheap, and it is the exact failure this script
 # was written for, so it is worth asserting rather than assuming.
 for f in "${FILES[@]}"; do
+    # index.html is rewritten above to carry the asset hashes, so it is
+    # expected to differ. Everything else must be byte-identical.
+    [ "$f" = "index.html" ] && continue
     cmp -s "$f" "dist/$f" || { echo "  copy did not take: $f"; exit 1; }
 done
+grep -q 'src="app.js?v=' dist/index.html || { echo "  index.html lost its version stamps"; exit 1; }
 echo "  ${#FILES[@]} files + images + splash/"
 
 # Anything index.html asks for that is not there. Local paths only -- a
