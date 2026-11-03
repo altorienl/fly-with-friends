@@ -420,6 +420,25 @@ a { color: var(--accent); }
     z-index: 1; -webkit-tap-highlight-color: transparent; }
 .home-btn:active { background: var(--card-2); }
 .home-btn:focus-visible { outline: 2px solid var(--brand-line); outline-offset: 2px; }
+/* The gear has to outrank the home button, and the logo has to outrank its
+ * pressed state.
+ *
+ * .home-btn is absolutely positioned at inset -10px -12px over .brand-left,
+ * which is full width, so its box runs the whole masthead and sits above the
+ * gear at z-index 1. elementFromPoint at the gear's centre returned #homeBtn
+ * at every viewport width tested -- 430, 390 and 1280 -- so every tap on
+ * Settings opened a new trip instead. It was never a hit-area or a safe-area
+ * problem; the button was simply underneath another button.
+ *
+ * Two rules fix it and they are separate problems. The gear gets a layer above
+ * the overlay so it receives its own clicks. The mark and the title get one
+ * too, because .home-btn:active paints --card-2 across its whole box, and at
+ * z-index 1 that background covered the logo and wordmark -- the "row lights
+ * up and the logo disappears". They are pointer-events: none so that clicking
+ * the logo still falls through to the home button underneath, which is the
+ * behaviour that was wanted all along. */
+.gear { z-index: 2; }
+.brand-mark, .brand-name { position: relative; z-index: 2; pointer-events: none; }
 .brand-mark { width: 34px; height: 34px; border-radius: var(--r-sm); flex-shrink: 0; display: block; }
 /* The explicit line-height is not cosmetic. Left to the inherited one, this
  * box came out 22.9375px tall, and flex-centring that against the 34px mark
