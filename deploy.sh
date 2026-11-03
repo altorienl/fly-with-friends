@@ -100,6 +100,12 @@ done
 grep -q 'src="app.js?v=' dist/index.html || { echo "  index.html lost its version stamps"; exit 1; }
 echo "  ${#FILES[@]} files + images + splash/"
 
+# Braces, before anything else looks at this file. An unmatched } silently
+# deletes the rule after it -- see tools/check-css.py for the evening that
+# cost.
+echo "== checking stylesheet braces =="
+python3 tools/check-css.py || { echo; echo "Refusing to ship a stylesheet that will not parse."; exit 1; }
+
 # Anything index.html asks for that is not there. Local paths only -- a
 # missing CDN URL is not something this can know about.
 echo "== checking references =="
