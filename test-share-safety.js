@@ -163,5 +163,51 @@ ck('a malformed view does not take the trip id down with it',
  * actually changes, and one copy of that arithmetic in the suite that owns the
  * feature beats two copies in two suites, one of which is about share links. */
 
+/* The pre-paint guard in index.html and tripIdFromUrl() in app.js answer the
+ * same question -- "is this URL a saved trip?" -- in two places, because one of
+ * them has to run before app.js exists. Two copies of a rule drift, and this
+ * pair drifts silently in both directions: false-when-the-app-says-true brings
+ * back the flash of the search form, true-when-the-app-says-false strands the
+ * reader on a placeholder with no form.
+ *
+ * They already disagreed once, on `?t=abcd23#s=zz` -- a link carrying both the
+ * results and the view, which is a shape the share feature emits. The guard
+ * concatenated search and hash, so the id was followed by '#' and its (?:&|$)
+ * anchor failed.
+ *
+ * Both regexes are lifted from the shipped files rather than retyped, so this
+ * cannot pass against a copy of itself. */
+(function () {
+    var _fs = require('fs'), _path = require('path');
+    var html = _fs.readFileSync(_path.join(__dirname, 'index.html'), 'utf8');
+    var appsrc = _fs.readFileSync(_path.join(__dirname, 'app.js'), 'utf8');
+
+    var gm = /if \(\/\[\?&\]t=[\s\S]*?\) \{/.exec(html);
+    ck('the pre-paint guard is still where this test reads it', !!gm);
+    var tm = /function tripIdFromUrl\(\) \{[\s\S]*?\n\}/.exec(appsrc);
+    ck('tripIdFromUrl is still where this test reads it', !!tm);
+    if (!gm || !tm) return;
+
+    var guard = new Function('location',
+        'return ' + gm[0].replace(/^if \(/, '').replace(/\)\s*\{$/, '') + ';');
+    var fromUrl = new Function('location',
+        tm[0].replace(/^function tripIdFromUrl\(\) \{/, '').replace(/\}$/, ''));
+
+    var cases = [
+        ['?t=abcd23', '', '/'], ['?t=abcd23&x=1', '', '/'], ['', '#t=abcd23', '/'],
+        ['', '#t=abcd23&s=zzz', '/'], ['', '', '/t/abcd23'], ['', '', '/t/abcd23/'],
+        ['?t=abcd23', '#s=zz', '/'], ['?t=abcd23&v=1', '#s=zz', '/'],
+        ['', '', '/'], ['?q=1', '', '/'], ['', '#s=payload', '/'],
+        ['?tt=abcd23', '', '/'], ['?t=ab', '', '/'], ['', '#tt=abcd23', '/']
+    ];
+    var bad = [];
+    cases.forEach(function (c) {
+        var loc = { search: c[0], hash: c[1], pathname: c[2] };
+        if (!!guard(loc) !== !!fromUrl(loc)) bad.push(c.join(' '));
+    });
+    ck('the guard and tripIdFromUrl agree on every URL shape ('
+        + cases.length + ' checked)', bad.length === 0, bad.join(' | '));
+}());
+
 console.log('\n' + (fail ? 'FAILED ' + fail + ' of ' + (pass + fail) : 'ALL ' + pass + ' CHECKS PASSED'));
 process.exitCode = fail ? 1 : 0;

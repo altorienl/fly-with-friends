@@ -1863,6 +1863,14 @@ function tripIdFromUrl() {
     return m ? m[1] : null;
 }
 
+/* Take down the pre-paint guard from <head>, whichever way the open ended.
+ * Called on the error path too: the class hides #s1, so leaving it set after
+ * a failed fetch would leave the reader on a placeholder with no form and no
+ * way back. */
+function doneOpening() {
+    document.documentElement.classList.remove('opening-trip');
+}
+
 /* Where the app lives, with any /t/<id> suffix stripped -- so New trip and the
  * share link do not inherit the path of the trip somebody was reading. */
 function basePath() {
@@ -8992,7 +9000,11 @@ el('resDest').addEventListener('blur', function () {
 
 fillForm();
 renderParties();
-showStep(1);
+/* A /?t= link is not going to step 1, so do not paint step 1 on the way.
+ * The guard in <head> has already hidden the form and put a placeholder in
+ * its place; this leaves it there until the fetch below knows which screen
+ * it wants. Any other load is unchanged. */
+if (!sharedId) showStep(1);
 render();
 trackStick();
 
@@ -9115,7 +9127,7 @@ if (sharedId) {
         if (!res.ok || !res.body || !res.body.data) {
             state.error = (res.body && res.body.error)
                 || 'Could not open that trip. Ask for a fresh link, or start a new trip.';
-            TRIP_ID = null; render(); return;
+            TRIP_ID = null; doneOpening(); showStep(1); render(); return;
         }
         /* A link can now carry both: #t= for the results and &s= for the view.
          * When it does, the hash is the fresher statement of what the sender was
@@ -9139,6 +9151,7 @@ if (sharedId) {
         }
         DATA = res.body.data;
         fillForm(); renderParties();
+        doneOpening();
         showStep(4); render();
         rememberTrip();
         /* A second, tiny request. The document is large and immutable so it is
@@ -9149,7 +9162,7 @@ if (sharedId) {
     }).catch(function (e) {
         if (window.console) console.error('shared trip failed', e);
         state.error = 'Could not open that trip. Check your connection, or start a new trip.';
-        TRIP_ID = null; render();
+        TRIP_ID = null; doneOpening(); showStep(1); render();
     });
 } else if (shared && shared.q && shared.q.parties && validate() === null) {
     doSearch();

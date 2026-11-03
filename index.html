@@ -86,6 +86,18 @@
      before the first paint, and to arm the launch overlay. With one theme and
      no overlay there is nothing to resolve: the first paint is the answer. -->
 <style>
+/* Opening a saved trip. The form is not the destination, so it is not shown
+   on the way there -- see the guard script in <head>. The placeholder is
+   deliberately plain: it is on screen for one round trip, and a spinner that
+   animates for 200ms reads as a glitch rather than as progress. */
+html.opening-trip #s1 { display: none !important; }
+html.opening-trip #openingTrip { display: block; }
+#openingTrip { display: none; padding: 48px 0 64px; text-align: center; }
+#openingTrip .ot-k {
+  font-size: 13px; letter-spacing: .08em; text-transform: uppercase;
+  opacity: .55;
+}
+
 /* One theme. The app is light -- "light mode looks so much better then dark so
    would like to keep it" -- and a second set of colours was not a feature, it
    was a second authority for what colour the screen is. Every launch defect in
@@ -1844,6 +1856,34 @@ footer .sep { color: var(--faint); margin: 0 8px; }
     white-space: nowrap; flex-shrink: 0; }
 .recent-row:active { opacity: .6; }
 </style>
+<!-- Runs before the body is parsed, which is the whole point.
+     #s1 is the only section without `hidden` in the markup, so the browser
+     paints the search form the moment it reaches it -- and on a /?t= link
+     that form is never the destination. The result was a visible flash of
+     the form, lasting JS boot plus a round trip to /trip/<id>, before the
+     screen flipped to the saved results. Nothing was broken; it just looked
+     broken, and it looked broken on the most-used path there is, a shared
+     link.
+     CSS cannot read a URL, so this is the smallest thing that can: one
+     class, set from the same three URL shapes tripIdFromUrl() accepts, with
+     the stylesheet hiding the form and showing a placeholder until app.js
+     knows which screen it wants. Kept in <head> and dependency-free so it
+     cannot be delayed by a script that fails to load. -->
+<script>
+  try {
+    /* Search, path and hash tested separately, in that order -- the same
+       three shapes tripIdFromUrl() accepts, and for the same reason it does
+       not concatenate them. A link can carry ?t= for the results AND #s= for
+       the view, and in `?t=abcd23#s=zz` the id is followed by a '#', so a
+       combined string fails a (?:&|$) anchor and the guard silently does
+       nothing on one of the commonest links there is. */
+    if (/[?&]t=[a-z2-9]{4,16}(?:&|$)/.test(location.search || '')
+        || /\/t\/[a-z2-9]{4,16}\/?$/.test(location.pathname || '')
+        || /[#&]t=[a-z2-9]{4,16}/.test(location.hash || '')) {
+      document.documentElement.className += ' opening-trip';
+    }
+  } catch (e) {}
+</script>
 </head>
 <body>
 
@@ -1908,6 +1948,9 @@ footer .sep { color: var(--faint); margin: 0 8px; }
     <div class="notice warn hidden" id="nQuota" role="status" aria-live="polite"></div>
 
     <!-- step 1 -->
+    <div id="openingTrip" role="status" aria-live="polite">
+        <div class="ot-k">Opening trip</div>
+    </div>
     <section id="s1" tabindex="-1" aria-labelledby="h-s1">
         <div class="step-head">
             <h2 id="h-s1">Everyone lands together</h2>
