@@ -205,6 +205,30 @@ function loadGroup() {
 function forgetGroup() { try { localStorage.removeItem(GROUP_LS); } catch (e) {} }
 function hasGroup() { return !!loadGroup(); }
 
+/* The saved group, named, for the Forget button in Settings.
+ *
+ * This was called and never written, so the whole Settings sheet threw for
+ * anyone who had a saved group -- which is everybody who has run one search.
+ * A first run has no group, hasGroup() is false, the branch never evaluates,
+ * and the sheet opens perfectly. That is exactly the shape of bug a fresh
+ * browser cannot find, and every test of this feature was run in one.
+ *
+ * Names where they exist, because the point of showing them is that somebody
+ * discovers their group is being kept. A count once the list would be longer
+ * than the button, and a count if the cards were never named -- "Forget Ben,
+ * Traveler 2 and Gus" reads worse than "Forget 3 people". */
+function groupNames(parties) {
+    var list = (parties || []).map(function (p) {
+        return p && typeof p.name === 'string' ? p.name.trim() : '';
+    });
+    var named = list.filter(function (n) { return n; });
+    if (!list.length) return 'this group';
+    if (named.length !== list.length || list.length > 3) {
+        return list.length + ' people';
+    }
+    return listOf(named);
+}
+
 /* applyTheme() is gone with the second theme. The app is light, the status bar
  * colour is the masthead, and there is nothing left to decide at runtime. */
 
