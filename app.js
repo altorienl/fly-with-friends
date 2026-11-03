@@ -8210,7 +8210,21 @@ function openSheet(html) {
     document.querySelector('main').setAttribute('inert', '');
     document.querySelector('.brand').setAttribute('inert', '');
     el('installBanner').setAttribute('inert', '');
-    sheet.focus();
+    /* preventScroll because focusing a scrollable box can scroll it, and the
+     * next line is about to decide where it sits. */
+    sheet.focus({ preventScroll: true });
+    /* Open at the top, every time.
+     *
+     * The sheet is overflow-y: auto, and replacing innerHTML does not reset a
+     * container's scrollTop -- so reopening Settings after scrolling down in
+     * it put you back where you left off, mid-list, with the heading off
+     * screen. That reads as the app having lost its place rather than
+     * remembering yours: the sheet is short, it is reached from a button that
+     * says Settings, and the first thing it should show is the word Settings.
+     *
+     * Set after the element is visible and focused. On a display: none box
+     * scrollTop is not reliably writable, and focus() can move it. */
+    sheet.scrollTop = 0;
 }
 
 /* Matches the .sheet.out animation in the stylesheet. Honouring the reduced
