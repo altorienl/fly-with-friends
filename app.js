@@ -8196,12 +8196,33 @@ function sheetOutMs() {
     return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 220;
 }
 
+/* Clearing inert is unconditional, and runs BEFORE the already-closed guard.
+ *
+ * openSheet makes main, .brand and the install card inert so the page behind
+ * the scrim is not tabbable. Those three attributes were removed below the
+ * guard, so any path that left the sheet hidden without completing a close
+ * left the masthead inert -- and an inert masthead means the settings gear
+ * cannot be clicked at all, for the rest of the session, with nothing on
+ * screen to explain why. The symptom is "the settings button does nothing",
+ * and a reload is the only cure.
+ *
+ * Removing an attribute that is not there costs nothing, so there is no
+ * reason for this to sit behind a guard about something else. The guard still
+ * does its real job: not replaying the close animation on an already-closed
+ * sheet. */
+function clearInert() {
+    var main = document.querySelector('main');
+    var brand = document.querySelector('.brand');
+    var ib = el('installBanner');
+    if (main) main.removeAttribute('inert');
+    if (brand) brand.removeAttribute('inert');
+    if (ib) ib.removeAttribute('inert');
+}
+
 function closeSheet() {
     var sheet = el('sheet'), scrim = el('scrim');
+    clearInert();
     if (sheet.classList.contains('hidden')) return;
-    document.querySelector('main').removeAttribute('inert');
-    document.querySelector('.brand').removeAttribute('inert');
-    el('installBanner').removeAttribute('inert');
     /* Hand the close animation its starting point. Dismissing by drag has
      * already moved the sheet, and animating from 0 would snap it back up a
      * hundred pixels before it leaves. */
@@ -8403,6 +8424,8 @@ document.addEventListener('click', function (ev) {
     var tgt = ev.target;
     if (tgt.closest('#shiftBtn')) { runShiftScan(); return; }
     if (tgt.closest('#gearBtn')) { settingsSheet(); return; }
+    /* The same sheet from the footer. See the note beside #setBtn. */
+    if (tgt.closest('#setBtn')) { settingsSheet(); return; }
     /* Both read their party id back out of the markup, so both are validated
      * against the roster rather than trusted -- data-* attributes are the one
      * place a rendering bug turns into a request for somebody else's row. */
