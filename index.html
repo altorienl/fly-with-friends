@@ -417,7 +417,20 @@ a { color: var(--accent); }
 .brand-left { position: relative; display: flex; align-items: center; gap: 12px; min-width: 0; }
 .home-btn { position: absolute; inset: -10px -12px; background: none; border: 0; border-radius: var(--r-md);
     z-index: 1; -webkit-tap-highlight-color: transparent; }
-.home-btn:active { background: var(--card-2); }
+/* No pressed background.
+ *
+ * It was there all along and never showed, because the mark and the title
+ * were not click-through: pressing them targeted the <svg> or the <h1>, which
+ * are siblings of .home-btn rather than children, so :active never matched.
+ * Only the 12px margin around the content was really the button -- which also
+ * meant clicking the logo did not start a new trip, though the aria-label
+ * said it would.
+ *
+ * Making the content pointer-events: none fixed the click and, as a
+ * side effect, let the fill finally paint. A beige block flashing across the
+ * masthead is not what this header wants, and the phone never showed one
+ * either (-webkit-tap-highlight-color is transparent). So the click stays and
+ * the fill goes. :focus-visible below is still the keyboard affordance. */
 .home-btn:focus-visible { outline: 2px solid var(--brand-line); outline-offset: 2px; }
 /* The gear has to outrank the home button, and the logo has to outrank its
  * pressed state.
